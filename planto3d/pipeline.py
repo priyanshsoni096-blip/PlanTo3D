@@ -20,7 +20,7 @@ import numpy as np
 
 from planto3d.calibrate import TextBox, estimate_scale, read_text_boxes
 from planto3d.classical import classical_mask
-from planto3d.extract import extract_rooms, extract_walls
+from planto3d.extract import extract_footprint, extract_rooms, extract_walls
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT, export_glb, floors_to_mesh
 from planto3d.geometry_types import FloorPlan, Wall
 from planto3d.ingest import crop_pages, rasterize_pdf
@@ -73,19 +73,21 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     mask = segmenter(image)
     walls = extract_walls(mask, min_wall_length=MIN_WALL_LENGTH)
     rooms = extract_rooms(mask, min_area=MIN_ROOM_AREA)
+    footprint = extract_footprint(mask)
     text_boxes = read_text_boxes(image)
 
     logger.info(
-        "floor %d: %d wall(s), %d room(s), %d text line(s)",
+        "floor %d: %d wall(s), %d room(s), %d footprint vertices, %d text line(s)",
         index,
         len(walls),
         len(rooms),
+        len(footprint),
         len(text_boxes),
     )
     return FloorResult(
         index=index,
         image_path=image_path,
-        plan=FloorPlan(walls=walls, rooms=rooms),
+        plan=FloorPlan(walls=walls, rooms=rooms, footprint=footprint),
         text_boxes=text_boxes,
     )
 
@@ -121,8 +123,9 @@ def run(
     if scale is None:
         logger.warning("scale could not be determined; skipping 3D export")
     else:
-        floor_walls = [floor.plan.walls for floor in floors]
-        mesh = floors_to_mesh(floor_walls, wall_height_ft=wall_height_ft, scale=scale)
+        mesh = floors_to_mesh(
+            [floor.plan for floor in floors], wall_height_ft=wall_height_ft, scale=scale
+        )
         model_path = export_glb(mesh, output_dir / "house.glb")
 
     return PipelineResult(floors=floors, scale=scale, model_path=model_path)

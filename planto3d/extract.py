@@ -83,6 +83,32 @@ def extract_walls(
     return walls
 
 
+def extract_footprint(
+    mask: np.ndarray,
+    simplify_tolerance: float = SIMPLIFY_TOLERANCE,
+) -> list[tuple[float, float]]:
+    """Outline of the built area, for generating floor slabs and a roof.
+
+    Walls and rooms together make up the storey's extent, so the outer
+    contour of both classes traces its footprint. Returns an empty list when
+    the mask holds no building.
+    """
+    built = ((mask == WALL) | (mask == ROOM)).astype(np.uint8)
+    if not built.any():
+        return []
+
+    # Bridge doorways and joints so the storey reads as one region.
+    closed = cv2.morphologyEx(built, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return []
+
+    outer = max(contours, key=cv2.contourArea)
+    epsilon = simplify_tolerance * cv2.arcLength(outer, closed=True)
+    simplified = cv2.approxPolyDP(outer, epsilon, closed=True)
+    return [(float(p[0][0]), float(p[0][1])) for p in simplified]
+
+
 def extract_rooms(
     mask: np.ndarray,
     room_class: int = ROOM,

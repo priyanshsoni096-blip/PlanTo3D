@@ -14,8 +14,10 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
+from shapely.geometry import Polygon
+from trimesh.creation import extrude_polygon
 
-from planto3d.geometry_types import Wall
+from planto3d.geometry_types import FloorPlan, Wall
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,12 @@ FEET_TO_METRES = 0.3048
 DEFAULT_WALL_HEIGHT_FT = 9.0
 # Walls shorter than this in pixels are extraction noise, not geometry.
 MIN_WALL_PIXELS = 1e-6
+# Structural slab thickness, and the parapet standing above the roof.
+SLAB_THICKNESS_FT = 0.5
+PARAPET_HEIGHT_FT = 3.0
+PARAPET_THICKNESS_FT = 0.6
+# A footprint needs this many vertices to enclose an area.
+MIN_FOOTPRINT_VERTICES = 3
 
 
 def _wall_box(wall: Wall, height_m: float, scale: float, base_m: float) -> trimesh.Trimesh | None:
@@ -51,6 +59,60 @@ def _wall_box(wall: Wall, height_m: float, scale: float, base_m: float) -> trime
         )
     )
     return box
+
+
+def slab_mesh(
+    footprint: list[tuple[float, float]],
+    thickness_ft: float,
+    base_ft: float,
+    scale: float,
+) -> trimesh.Trimesh | None:
+    """A horizontal slab covering a storey's footprint.
+
+    Returns None when the outline cannot enclose an area, so a bad contour
+    costs a slab rather than the whole model.
+    """
+    if len(footprint) < MIN_FOOTPRINT_VERTICES:
+        return None
+
+    points = [(x / scale * FEET_TO_METRES, y / scale * FEET_TO_METRES) for x, y in footprint]
+
+    try:
+        polygon = Polygon(points)
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)  # repair self-intersections
+        if polygon.is_empty or polygon.area <= 0:
+            return None
+        slab = extrude_polygon(polygon, height=thickness_ft * FEET_TO_METRES)
+    except Exception as error:
+        logger.warning("could not build slab from footprint: %s", error)
+        return None
+
+    # extrude_polygon builds the outline in XY and extrudes along +Z. Rotating
+    # +90 degrees about X sends the page's downward Y to +Z, matching how
+    # walls are placed -- the opposite rotation mirrors the slab and doubles
+    # the model's depth. That rotation leaves the slab hanging below the
+    # origin, so it is lifted by its own thickness as well as the storey base.
+    thickness_m = thickness_ft * FEET_TO_METRES
+    slab.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
+    slab.apply_transform(
+        trimesh.transformations.translation_matrix(
+            [0, base_ft * FEET_TO_METRES + thickness_m, 0]
+        )
+    )
+    return slab
+
+
+def _parapet_walls(footprint: list[tuple[float, float]], base_ft: float, scale: float) -> list[Wall]:
+    """The low wall running around a flat roof's edge."""
+    if len(footprint) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    thickness_px = PARAPET_THICKNESS_FT * scale
+    return [
+        Wall(start=footprint[i], end=footprint[(i + 1) % len(footprint)], thickness=thickness_px)
+        for i in range(len(footprint))
+    ]
 
 
 def walls_to_mesh(
@@ -81,32 +143,64 @@ def walls_to_mesh(
 
 
 def floors_to_mesh(
-    floors: list[list[Wall]],
+    floors: list[FloorPlan],
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     scale: float = 1.0,
 ) -> trimesh.Trimesh:
-    """Extrude several floors and stack them, lowest first."""
+    """Extrude several floors and stack them, lowest first.
+
+    Each storey gets a floor slab under its walls, and the topmost gains a
+    roof slab with a parapet around the edge. Walls alone leave a building
+    open top and bottom, which reads as floating fragments rather than a
+    house.
+    """
     if not floors:
         raise ValueError("no floors to extrude")
 
-    meshes = []
-    for index, walls in enumerate(floors):
-        if not walls:
-            logger.warning("floor %d has no walls; skipping", index)
-            continue
-        meshes.append(
-            walls_to_mesh(
-                walls,
-                wall_height_ft=wall_height_ft,
-                scale=scale,
-                base_ft=index * wall_height_ft,
+    meshes: list[trimesh.Trimesh] = []
+
+    for index, floor in enumerate(floors):
+        base_ft = index * wall_height_ft
+
+        slab = slab_mesh(floor.footprint, SLAB_THICKNESS_FT, base_ft, scale)
+        if slab is not None:
+            meshes.append(slab)
+        elif floor.footprint:
+            logger.warning("floor %d footprint gave no slab", index)
+
+        if floor.walls:
+            meshes.append(
+                walls_to_mesh(
+                    floor.walls,
+                    wall_height_ft=wall_height_ft,
+                    scale=scale,
+                    base_ft=base_ft + SLAB_THICKNESS_FT,
+                )
             )
-        )
+        else:
+            logger.warning("floor %d has no walls", index)
+
+    # Cap the building: a roof slab over the top storey, with a parapet.
+    roof_base_ft = len(floors) * wall_height_ft
+    top = floors[-1]
+    roof = slab_mesh(top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale)
+    if roof is not None:
+        meshes.append(roof)
+        parapet = _parapet_walls(top.footprint, roof_base_ft, scale)
+        if parapet:
+            meshes.append(
+                walls_to_mesh(
+                    parapet,
+                    wall_height_ft=PARAPET_HEIGHT_FT,
+                    scale=scale,
+                    base_ft=roof_base_ft + SLAB_THICKNESS_FT,
+                )
+            )
 
     if not meshes:
         raise ValueError("no floor produced any geometry")
 
-    logger.info("stacked %d floor(s)", len(meshes))
+    logger.info("stacked %d floor(s) into %d part(s)", len(floors), len(meshes))
     return trimesh.util.concatenate(meshes)
 
 

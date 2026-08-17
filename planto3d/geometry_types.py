@@ -131,17 +131,24 @@ class Opening:
 
 @dataclass
 class FloorPlan:
-    """Everything extracted from one floor."""
+    """Everything extracted from one floor.
+
+    ``footprint`` outlines the storey's built extent and is what floor slabs
+    and the roof are generated from; walls alone leave a building open above
+    and below.
+    """
 
     walls: list[Wall] = field(default_factory=list)
     rooms: list[Room] = field(default_factory=list)
     openings: list[Opening] = field(default_factory=list)
+    footprint: list[Point] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "walls": [w.to_dict() for w in self.walls],
             "rooms": [r.to_dict() for r in self.rooms],
             "openings": [o.to_dict() for o in self.openings],
+            "footprint": [[float(x), float(y)] for x, y in self.footprint],
         }
 
     @staticmethod
@@ -150,4 +157,5 @@ class FloorPlan:
             walls=[Wall.from_dict(w) for w in d["walls"]],
             rooms=[Room.from_dict(r) for r in d["rooms"]],
             openings=[Opening.from_dict(o) for o in d["openings"]],
+            footprint=[(float(x), float(y)) for x, y in d.get("footprint", [])],
         )
