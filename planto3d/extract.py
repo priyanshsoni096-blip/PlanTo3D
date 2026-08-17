@@ -27,8 +27,14 @@ logger = logging.getLogger(__name__)
 MIN_WALL_LENGTH = 12
 # Smallest region that counts as a room.
 MIN_ROOM_AREA = 100
-# Contour simplification, as a fraction of the contour's perimeter.
-SIMPLIFY_TOLERANCE = 0.02
+# Contour simplification, in pixels of allowed deviation.
+#
+# Deliberately absolute rather than a fraction of perimeter. A relative
+# tolerance scales with the outline's size, so the building footprint -- by
+# far the longest contour -- gets the coarsest treatment exactly where
+# precision matters most: at 2% of perimeter it cut diagonal shortcuts across
+# whole corners, turning a rectilinear building into a jagged wedge.
+SIMPLIFY_PIXELS = 4.0
 
 
 def _segments_along(binary: np.ndarray, horizontal: bool, min_length: int) -> list[Wall]:
@@ -85,7 +91,7 @@ def extract_walls(
 
 def extract_footprint(
     mask: np.ndarray,
-    simplify_tolerance: float = SIMPLIFY_TOLERANCE,
+    simplify_pixels: float = SIMPLIFY_PIXELS,
 ) -> list[tuple[float, float]]:
     """Outline of the built area, for generating floor slabs and a roof.
 
@@ -104,8 +110,7 @@ def extract_footprint(
         return []
 
     outer = max(contours, key=cv2.contourArea)
-    epsilon = simplify_tolerance * cv2.arcLength(outer, closed=True)
-    simplified = cv2.approxPolyDP(outer, epsilon, closed=True)
+    simplified = cv2.approxPolyDP(outer, simplify_pixels, closed=True)
     return [(float(p[0][0]), float(p[0][1])) for p in simplified]
 
 
@@ -113,7 +118,7 @@ def extract_rooms(
     mask: np.ndarray,
     room_class: int = ROOM,
     min_area: int = MIN_ROOM_AREA,
-    simplify_tolerance: float = SIMPLIFY_TOLERANCE,
+    simplify_pixels: float = SIMPLIFY_PIXELS,
 ) -> list[Room]:
     """Recover room polygons from a class mask, in the mask's pixel coordinates.
 
@@ -132,8 +137,7 @@ def extract_rooms(
         if area < min_area:
             continue
 
-        epsilon = simplify_tolerance * cv2.arcLength(contour, closed=True)
-        simplified = cv2.approxPolyDP(contour, epsilon, closed=True)
+        simplified = cv2.approxPolyDP(contour, simplify_pixels, closed=True)
         polygon = [(float(p[0][0]), float(p[0][1])) for p in simplified]
 
         try:
