@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Personal floor plans — do not publish (repo is public)
+data/soni_residence/
+data/cubicasa5k/
+
+# Generated outputs
+*.glb
+*.obj
+output/
