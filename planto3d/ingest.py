@@ -23,6 +23,15 @@ from pdf2image import convert_from_path
 
 logger = logging.getLogger(__name__)
 
+# Rasterization resolution, chosen for OCR legibility of the dimension
+# labels. Measured on the reference sheet, counting correctly parsed room
+# dimensions and room names: 150 dpi read none, 300 dpi read 2, 400 dpi read
+# 8, 600 dpi dropped back to 7 dimensions and lost most room names -- past a
+# point the glyphs outgrow the size Tesseract handles best, so higher is not
+# better. This is also the canonical coordinate space: the segmentation model
+# runs on a downscaled copy and its mask is resized back to this resolution,
+# so OCR boxes and extracted geometry share one frame.
+WORKING_DPI = 400
 # A pixel counts as ink below this greyscale value.
 INK_THRESHOLD = 240
 # A row/column counts as a border line when this fraction of it is ink.
@@ -41,7 +50,7 @@ CLUSTER_GAP = 10
 Box = tuple[int, int, int, int]
 
 
-def rasterize_pdf(pdf_path: Path, output_dir: Path, dpi: int = 150) -> list[Path]:
+def rasterize_pdf(pdf_path: Path, output_dir: Path, dpi: int = WORKING_DPI) -> list[Path]:
     """Render each PDF page to a PNG. Returns the page image paths in order."""
     output_dir.mkdir(parents=True, exist_ok=True)
     pages = convert_from_path(str(pdf_path), dpi=dpi)

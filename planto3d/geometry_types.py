@@ -62,6 +62,24 @@ class Room:
                 f"a room, got {len(self.polygon)}"
             )
 
+    def contains(self, point: Point) -> bool:
+        """Whether a point lies inside the polygon (ray casting)."""
+        x, y = point
+        inside = False
+        count = len(self.polygon)
+        for i in range(count):
+            x1, y1 = self.polygon[i]
+            x2, y2 = self.polygon[(i + 1) % count]
+            if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+                inside = not inside
+        return inside
+
+    def bounds(self) -> tuple[float, float, float, float]:
+        """Axis-aligned bounds as (left, top, right, bottom)."""
+        xs = [p[0] for p in self.polygon]
+        ys = [p[1] for p in self.polygon]
+        return min(xs), min(ys), max(xs), max(ys)
+
     def to_dict(self) -> dict:
         return {
             "polygon": [[float(x), float(y)] for x, y in self.polygon],

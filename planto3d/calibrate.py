@@ -1,0 +1,169 @@
+"""Read the drawing's own text to convert pixels into real-world feet.
+
+Architectural sheets label each room with its dimensions, so the drawing
+carries its own scale. Pairing a room's pixel size with its printed feet
+gives pixels-per-foot without needing a scale bar or assumed DPI.
+
+OCR is noisy: it splits a dimension across word tokens, swaps straight
+quotes for curly ones, and drops inch marks. Text is therefore rejoined by
+line before parsing, the pattern is written loosely, and the final scale is
+a median across every labelled room so a single misread cannot skew it.
+"""
+
+import logging
+import re
+from dataclasses import dataclass
+from statistics import median
+
+import numpy as np
+import pytesseract
+
+from planto3d.geometry_types import Room
+
+logger = logging.getLogger(__name__)
+
+# Feet-and-inches pairs such as 15'0"X18'0", tolerating curly quotes, missing
+# inch marks, stray spaces, and either case of the separating x. Degree signs
+# are accepted as foot and inch marks because Tesseract substitutes them
+# routinely -- on the reference first-floor sheet that alone was the
+# difference between a dimension parsing and being discarded.
+FOOT_MARK = r"['’´°]+"
+INCH_MARK = r"[\"”“'’°]*"
+DIMENSION_PATTERN = re.compile(
+    rf"(\d{{1,3}})\s*{FOOT_MARK}\s*(\d{{1,2}})\s*{INCH_MARK}"
+    r"\s*[xX×]\s*"
+    rf"(\d{{1,3}})\s*{FOOT_MARK}\s*(\d{{1,2}})"
+)
+
+INCHES_PER_FOOT = 12
+MIN_CONFIDENCE = 40.0
+# Words separated by more than this multiple of their height belong to
+# different labels. Tesseract assigns one "line" to text at the same
+# vertical position however far apart it sits, which on a floor plan merges
+# unrelated room labels -- losing one dimension and putting the merged box
+# between the two rooms instead of over either.
+WORD_GAP_RATIO = 2.0
+
+
+@dataclass(frozen=True)
+class TextBox:
+    """A line of text OCR found, with where it sits on the page."""
+
+    text: str
+    bbox: tuple[int, int, int, int]  # left, top, width, height
+    confidence: float
+
+    @property
+    def centre(self) -> tuple[float, float]:
+        left, top, width, height = self.bbox
+        return (left + width / 2, top + height / 2)
+
+
+def parse_dimension_text(text: str) -> tuple[float, float] | None:
+    """Extract a (feet, feet) pair from a dimension label, or None."""
+    match = DIMENSION_PATTERN.search(text)
+    if not match:
+        return None
+    feet_a, inches_a, feet_b, inches_b = (int(g) for g in match.groups())
+    return (
+        feet_a + inches_a / INCHES_PER_FOOT,
+        feet_b + inches_b / INCHES_PER_FOOT,
+    )
+
+
+def read_text_boxes(image: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -> list[TextBox]:
+    """OCR an image, returning one box per line of text.
+
+    Grouping by line matters: Tesseract emits `15'0"` and `X18'0"` as
+    separate words, and neither parses as a dimension alone.
+    """
+    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+
+    lines: dict[tuple[int, int, int], list[int]] = {}
+    for i, text in enumerate(data["text"]):
+        if not text.strip():
+            continue
+        if float(data["conf"][i]) < min_confidence:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        lines.setdefault(key, []).append(i)
+
+    boxes = []
+    for indices in lines.values():
+        for group in _split_on_gaps(data, indices):
+            boxes.append(_to_text_box(data, group))
+
+    logger.info("read %d text line(s)", len(boxes))
+    return boxes
+
+
+def _split_on_gaps(data: dict, indices: list[int]) -> list[list[int]]:
+    """Break one OCR line into groups of words that actually belong together."""
+    ordered = sorted(indices, key=lambda i: data["left"][i])
+
+    groups: list[list[int]] = [[ordered[0]]]
+    for previous, current in zip(ordered, ordered[1:]):
+        gap = data["left"][current] - (data["left"][previous] + data["width"][previous])
+        allowed = WORD_GAP_RATIO * max(data["height"][previous], data["height"][current])
+        if gap > allowed:
+            groups.append([current])
+        else:
+            groups[-1].append(current)
+    return groups
+
+
+def _to_text_box(data: dict, indices: list[int]) -> TextBox:
+    lefts = [data["left"][i] for i in indices]
+    tops = [data["top"][i] for i in indices]
+    rights = [data["left"][i] + data["width"][i] for i in indices]
+    bottoms = [data["top"][i] + data["height"][i] for i in indices]
+
+    return TextBox(
+        text=" ".join(data["text"][i].strip() for i in indices),
+        bbox=(min(lefts), min(tops), max(rights) - min(lefts), max(bottoms) - min(tops)),
+        confidence=float(min(float(data["conf"][i]) for i in indices)),
+    )
+
+
+def estimate_scale(rooms: list[Room], text_boxes: list[TextBox]) -> float | None:
+    """Estimate pixels per foot from rooms carrying dimension labels.
+
+    Sheets in one drawing set share a scale, so rooms and text from several
+    floors can be pooled into a single call. That matters for sparsely
+    labelled floors: the reference terrace sheet yields only one dimension on
+    its own, against eight from the ground floor.
+
+    Returns None when no room can be measured, leaving the caller to decide
+    rather than guessing a scale.
+    """
+    samples: list[float] = []
+
+    for room in rooms:
+        dimensions = next(
+            (
+                parsed
+                for box in text_boxes
+                if room.contains(box.centre) and (parsed := parse_dimension_text(box.text))
+            ),
+            None,
+        )
+        if dimensions is None:
+            continue
+
+        left, top, right, bottom = room.bounds()
+        pixel_sides = sorted((right - left, bottom - top))
+        feet_sides = sorted(dimensions)
+        if min(pixel_sides) <= 0 or min(feet_sides) <= 0:
+            continue
+
+        # The label does not say which dimension runs which way, so pair the
+        # long side with the long dimension and the short with the short.
+        samples.extend(px / ft for px, ft in zip(pixel_sides, feet_sides))
+
+    if not samples:
+        logger.warning("no room could be matched to a dimension label; scale unknown")
+        return None
+
+    scale = median(samples)
+    logger.info("scale estimated at %.2f px/ft from %d measurement(s)", scale, len(samples))
+    return scale

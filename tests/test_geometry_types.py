@@ -64,3 +64,31 @@ def test_opening_rejects_an_unknown_type(bad_type):
 def test_room_rejects_a_polygon_that_cannot_close():
     with pytest.raises(ValueError):
         Room(polygon=[(0.0, 0.0), (1.0, 1.0)], label="TEMPLE")
+
+
+def _square() -> Room:
+    return Room(polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
+
+
+@pytest.mark.parametrize("point", [(5.0, 5.0), (0.5, 9.5)])
+def test_room_contains_points_inside(point):
+    assert _square().contains(point) is True
+
+
+@pytest.mark.parametrize("point", [(15.0, 5.0), (5.0, -1.0), (-0.5, 5.0)])
+def test_room_does_not_contain_points_outside(point):
+    assert _square().contains(point) is False
+
+
+def test_room_contains_handles_a_concave_shape():
+    # An L-shape: the notch is outside even though it is within the bounds.
+    room = Room(
+        polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (4.0, 4.0), (4.0, 10.0), (0.0, 10.0)]
+    )
+
+    assert room.contains((2.0, 2.0)) is True
+    assert room.contains((8.0, 8.0)) is False
+
+
+def test_room_bounds_returns_the_axis_aligned_box():
+    assert _square().bounds() == (0.0, 0.0, 10.0, 10.0)
