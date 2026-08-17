@@ -19,8 +19,11 @@ import numpy as np
 import pytesseract
 
 from planto3d.geometry_types import Room
+from planto3d.tools import configure_tesseract
 
 logger = logging.getLogger(__name__)
+
+configure_tesseract()
 
 # Feet-and-inches pairs such as 15'0"X18'0", tolerating curly quotes, missing
 # inch marks, stray spaces, and either case of the separating x. Degree signs

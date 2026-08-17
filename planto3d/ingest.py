@@ -21,6 +21,8 @@ import cv2
 import numpy as np
 from pdf2image import convert_from_path
 
+from planto3d.tools import poppler_bin_dir
+
 logger = logging.getLogger(__name__)
 
 # Rasterization resolution, chosen for OCR legibility of the dimension
@@ -53,7 +55,7 @@ Box = tuple[int, int, int, int]
 def rasterize_pdf(pdf_path: Path, output_dir: Path, dpi: int = WORKING_DPI) -> list[Path]:
     """Render each PDF page to a PNG. Returns the page image paths in order."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    pages = convert_from_path(str(pdf_path), dpi=dpi)
+    pages = convert_from_path(str(pdf_path), dpi=dpi, poppler_path=poppler_bin_dir())
     output_paths = []
     for i, page in enumerate(pages, start=1):
         out_path = output_dir / f"page-{i}.png"
