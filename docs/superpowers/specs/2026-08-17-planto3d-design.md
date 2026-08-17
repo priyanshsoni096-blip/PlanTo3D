@@ -45,12 +45,33 @@ PDF (3 pages)
 1. **Ingestion** — rasterize each PDF page to PNG at fixed DPI; crop out the
    fixed RDA title-block/legend region (shared across all 3 sheets).
 
-2. **Segmentation** — U-Net + ResNet encoder, fine-tuned from a pretrained
-   CubiCasa5k-style checkpoint (avoid training from scratch) on the
-   CubiCasa5K dataset. Evaluated on CubiCasa5K's own test split via
-   Dice/IoU. Outputs per-pixel class mask: wall / door / window / room /
-   background. The model classifies boundaries only — it does not assign
-   room *type* (see Geometry Extraction).
+2. **Segmentation** — U-Net with a ResNet34 encoder (`segmentation-models-
+   pytorch`), encoder pretrained on ImageNet, trained on CubiCasa5K.
+   Evaluated on CubiCasa5K's own test split via Dice/IoU. Outputs a
+   per-pixel class mask: wall / door / window / room / background. The model
+   classifies boundaries only — it does not assign room *type* (see Geometry
+   Extraction).
+
+   *Why not the official CubiCasa weights:* the published checkpoint
+   (`model_best_val_loss_var.pkl`) is for `hg_furukawa_original`, a stacked
+   hourglass network — the weights cannot load into a U-Net. The reference
+   implementation also targets Python 3.6.5 / PyTorch 1.0.0 / OpenCV 3.1.0,
+   so adopting it would mean porting a 2019 codebase before training
+   anything. Training our own keeps a modern stack and keeps the measurable
+   training/evaluation contribution in the project.
+
+   *Training environment:* Colab (free T4). No local GPU is available —
+   the development machine has Intel integrated graphics and no CUDA — but
+   only this stage needs one. Inference on a single floor plan runs in
+   seconds on CPU, so every other stage stays local.
+
+   *Dataset source:* the Kaggle mirror (`qmarva/cubicasa5k`, ~6 GB), which
+   splits into `colorful` (276), `high_quality` (992), and
+   `high_quality_architectural` (3,732) samples. Training weights toward
+   `high_quality_architectural`, whose CAD-style line work most resembles
+   the reference sheets. Annotations are SVG polygons over 80+ categories
+   and must be collapsed to the five classes above. The dataset downloads
+   inside Colab rather than travelling from the local machine.
 
 3. **Geometry extraction** — OpenCV contour detection + `cv2.minAreaRect`
    converts the mask into: wall line segments (start, end, thickness),
@@ -143,9 +164,10 @@ fix.
 
 ## Tech stack
 
-Python, PyTorch (segmentation), OpenCV + Tesseract (geometry/OCR),
-trimesh/Open3D (mesh), Three.js (viewer), Blender `bpy` (materials/render),
-Stable Diffusion + ControlNet (photoreal pass).
+Python, PyTorch + `segmentation-models-pytorch` (segmentation, trained on
+Colab), OpenCV + Tesseract (geometry/OCR), trimesh/Open3D (mesh), Three.js
+(viewer), Blender `bpy` (materials/render), Stable Diffusion + ControlNet
+(photoreal pass). Everything except training runs locally on CPU.
 
 ## Project structure
 
@@ -163,8 +185,14 @@ PlanTo3D/
 ## Known risks (accepted, not blocking)
 
 - **Domain gap**: CubiCasa5K's Finnish-style plans differ from this RDA CAD
-  sheet style; the fine-tuned model may need calibration specifically on
-  plans in this style rather than relying on zero-shot transfer.
+  sheet style; the trained model may need calibration specifically on plans
+  in this style rather than relying on zero-shot transfer. Partly mitigated
+  by weighting training toward the `high_quality_architectural` subset,
+  whose line work is closest to the reference sheets.
+- **Annotation remapping**: CubiCasa5K's SVG annotations cover 80+
+  categories and must be collapsed to five classes. Getting that mapping
+  wrong (for example, which categories count as "wall") degrades the model
+  in ways that look like a training problem rather than a labelling one.
 - **Alignment heuristic**: automatic lift/staircase anchor detection is
   itself a small CV problem that could fail; manual fallback exists but
   adds friction if triggered often.
