@@ -35,9 +35,22 @@
 - Create: `data/soni_residence/` (directory, empty — real PDF is user-supplied, not committed)
 - Create: `.gitignore`
 
-**Interfaces:**
-- Produces: `ingest.rasterize_pdf(pdf_path: Path, output_dir: Path, dpi: int = 200) -> list[Path]` — returns paths to rasterized PNG pages, one per PDF page.
-- Produces: `ingest.crop_title_block(image_path: Path, crop_box: tuple[int, int, int, int]) -> Path` — crops a fixed pixel region (left, top, right, bottom) out of the image, saves and returns the path to the cropped PNG (suffix `_cropped.png`).
+> **STATUS: COMPLETE** — implemented with a revised interface. The planned
+> fixed `crop_box` was replaced by consensus border detection across the page
+> set, because a fixed box is brittle and, more importantly, per-page
+> detection misread the ground floor: a plot boundary running 7px inside the
+> drawing's bottom border was picked up as the border, clipping the landscape
+> and parking. Since all sheets share one template, intersecting each page's
+> candidate border lines isolates the frame and drops plan features, and
+> yields one box for every page — which is what keeps floors on a shared
+> origin for the alignment stage. Steps 1–6 below are superseded by the
+> interface block that follows; kept for provenance.
+
+**Interfaces (as built):**
+- Produces: `ingest.rasterize_pdf(pdf_path: Path, output_dir: Path, dpi: int = 150) -> list[Path]` — renders each PDF page to `page-{n}.png`, returns paths in order.
+- Produces: `ingest.detect_drawing_region(images: list[np.ndarray]) -> tuple[int, int, int, int]` — one (left, top, right, bottom) box shared by all pages, excluding sheet border, option/area band, and title block. Raises `ValueError` on an empty set or a blank sheet.
+- Produces: `ingest.crop_pages(image_paths: list[Path]) -> list[Path]` — crops every page to the shared region, writing `<stem>_cropped.png`.
+- Verified on the real sheet set: all three floors crop to an identical 855×587 from box `x 159-1013, y 41-627`.
 
 - [ ] **Step 1: Set up project files**
 

@@ -1,0 +1,33 @@
+[project]
+name = "planto3d"
+version = "0.1.0"
+description = "Convert 2D architectural floor plans into 3D house models"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python>=4.9",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "pdf2image>=1.17",
+    "pytesseract>=0.3.10",
+    "trimesh>=4.0",
+]
+
+[project.optional-dependencies]
+# Segmentation training/inference. Kept separate so geometry work does not
+# pull down a multi-gigabyte torch install.
+ml = [
+    "torch>=2.2",
+    "segmentation-models-pytorch>=0.3",
+]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["planto3d*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
