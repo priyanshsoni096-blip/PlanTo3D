@@ -4,15 +4,16 @@ Run with:  python app.py
 """
 
 import logging
+import os
 import tempfile
 from pathlib import Path
 
 import cv2
 import gradio as gr
 
-from planto3d.classical import classical_mask
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
 from planto3d.pipeline import draw_overlay, run
+from planto3d.segment import load_segmenter
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -22,6 +23,24 @@ DESCRIPTION = (
     "building. Walls, rooms and dimensions are read straight off the drawing: "
     "the scale comes from the printed room sizes, so the model is measured in "
     "real feet rather than guessed."
+)
+
+# A trained checkpoint is used when one is present; otherwise the classical
+# baseline, which only reads cleanly drafted CAD sheets.
+MODEL_DIR = Path(__file__).parent / "models"
+
+
+def _checkpoint() -> Path | None:
+    override = os.environ.get("PLANTO3D_CHECKPOINT")
+    if override:
+        return Path(override)
+    return next(iter(sorted(MODEL_DIR.glob("*.pt"))), None)
+
+
+CHECKPOINT = _checkpoint()
+SEGMENTER = load_segmenter(CHECKPOINT)
+SEGMENTER_NAME = (
+    f"trained model (`{CHECKPOINT.name}`)" if CHECKPOINT else "classical baseline"
 )
 
 
@@ -36,7 +55,7 @@ def convert(pdf_file, wall_height_ft: float):
         result = run(
             Path(pdf_file),
             workdir,
-            segmenter=classical_mask,
+            segmenter=SEGMENTER,
             wall_height_ft=wall_height_ft,
         )
     except Exception as error:
@@ -55,6 +74,7 @@ def convert(pdf_file, wall_height_ft: float):
         overlays.append((str(path), f"Floor {floor.index + 1}"))
 
     lines = [
+        f"**Segmenter:** {SEGMENTER_NAME}",
         f"**Scale read from the drawing:** {result.scale:.1f} pixels per foot",
         f"**Total:** {result.wall_count} wall segments, {result.room_count} rooms "
         f"across {len(result.floors)} floors",

@@ -12,3 +12,6 @@ data/cubicasa5k/
 *.glb
 *.obj
 output/
+
+# Trained checkpoints (~98 MB each)
+models/*.pt
