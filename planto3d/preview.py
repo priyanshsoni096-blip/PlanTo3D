@@ -1,8 +1,17 @@
 """Render a mesh to a PNG without a GPU or display.
 
 Useful for checking the model in a terminal, in CI, or anywhere an OpenGL
-context is unavailable. Faces are painted back to front with a light-angle
-shade, which is enough to read the building's shape.
+context is unavailable.
+
+Rasterizes with a per-pixel depth buffer rather than sorting faces by average
+depth. Painter's ordering cannot resolve a large floor slab against the small
+wall boxes standing on it -- whichever face wins the sort covers the other
+whole -- which showed as diagonal streaks and wedges across otherwise flat
+surfaces.
+
+Shading is a key light with a softer fill from the opposite side, plus a
+little ambient. A single light leaves faces pointing away from it completely
+flat and unreadable.
 """
 
 import logging
@@ -14,11 +23,18 @@ import trimesh
 logger = logging.getLogger(__name__)
 
 # Viewing angles for a three-quarter aerial, matching how plans are presented.
-DEFAULT_AZIMUTH = 40.0
-DEFAULT_ELEVATION = 30.0
-LIGHT_DIRECTION = np.array([0.4, 0.85, 0.35])
+DEFAULT_AZIMUTH = 35.0
+DEFAULT_ELEVATION = 25.0
+
+KEY_LIGHT = np.array([0.45, 0.8, 0.4])
+FILL_LIGHT = np.array([-0.6, 0.35, -0.5])
+KEY_STRENGTH = 0.62
+FILL_STRENGTH = 0.22
+AMBIENT = 0.28
+
 BASE_COLOUR = np.array([214, 208, 198], dtype=float)
-BACKGROUND = (18, 18, 22)
+SKY_TOP = np.array([28, 32, 44], dtype=float)
+SKY_BOTTOM = np.array([16, 17, 22], dtype=float)
 
 
 def _rotation(azimuth_deg: float, elevation_deg: float) -> np.ndarray:
@@ -40,10 +56,64 @@ def _rotation(azimuth_deg: float, elevation_deg: float) -> np.ndarray:
     return pitch @ yaw
 
 
+def _shading(normals: np.ndarray) -> np.ndarray:
+    """Brightness per face from a key light, a fill light and ambient."""
+    key = np.clip(normals @ (KEY_LIGHT / np.linalg.norm(KEY_LIGHT)), 0, 1)
+    fill = np.clip(normals @ (FILL_LIGHT / np.linalg.norm(FILL_LIGHT)), 0, 1)
+    return AMBIENT + KEY_STRENGTH * key + FILL_STRENGTH * fill
+
+
+def _background(resolution: tuple[int, int]) -> np.ndarray:
+    width, height = resolution
+    ramp = np.linspace(0, 1, height)[:, None]
+    gradient = SKY_TOP[None, :] * (1 - ramp) + SKY_BOTTOM[None, :] * ramp
+    return np.repeat(gradient[:, None, :], width, axis=1)
+
+
+def _rasterize(
+    canvas: np.ndarray,
+    depth_buffer: np.ndarray,
+    triangle: np.ndarray,
+    colour: np.ndarray,
+) -> None:
+    """Fill one projected triangle, keeping the nearest fragment per pixel."""
+    height, width = depth_buffer.shape
+
+    xs, ys, zs = triangle[:, 0], triangle[:, 1], triangle[:, 2]
+    left, right = int(np.floor(xs.min())), int(np.ceil(xs.max()))
+    top, bottom = int(np.floor(ys.min())), int(np.ceil(ys.max()))
+
+    left, right = max(left, 0), min(right, width - 1)
+    top, bottom = max(top, 0), min(bottom, height - 1)
+    if left > right or top > bottom:
+        return
+
+    # Barycentric coordinates over the bounding box.
+    area = (xs[1] - xs[0]) * (ys[2] - ys[0]) - (xs[2] - xs[0]) * (ys[1] - ys[0])
+    if abs(area) < 1e-9:  # degenerate after projection
+        return
+
+    grid_y, grid_x = np.mgrid[top : bottom + 1, left : right + 1]
+    w0 = ((xs[1] - xs[0]) * (grid_y - ys[0]) - (grid_x - xs[0]) * (ys[1] - ys[0])) / area
+    w1 = ((grid_x - xs[0]) * (ys[2] - ys[0]) - (xs[2] - xs[0]) * (grid_y - ys[0])) / area
+    inside = (w0 >= 0) & (w1 >= 0) & (w0 + w1 <= 1)
+    if not inside.any():
+        return
+
+    depth = zs[0] + w1 * (zs[1] - zs[0]) + w0 * (zs[2] - zs[0])
+    window = depth_buffer[top : bottom + 1, left : right + 1]
+    nearer = inside & (depth > window)
+    if not nearer.any():
+        return
+
+    window[nearer] = depth[nearer]
+    canvas[top : bottom + 1, left : right + 1][nearer] = colour
+
+
 def render(
     mesh: trimesh.Trimesh,
     output_path: Path,
-    resolution: tuple[int, int] = (1200, 900),
+    resolution: tuple[int, int] = (1400, 1000),
     azimuth: float = DEFAULT_AZIMUTH,
     elevation: float = DEFAULT_ELEVATION,
     face_colours: np.ndarray | None = None,
@@ -53,7 +123,7 @@ def render(
     ``face_colours`` gives a per-face base colour; without it the whole mesh
     takes one stone tone.
     """
-    from PIL import Image, ImageDraw
+    from PIL import Image
 
     width, height = resolution
     rotation = _rotation(azimuth, elevation)
@@ -62,33 +132,30 @@ def render(
     normals = (rotation @ mesh.face_normals.T).T
 
     # Fit the model to the canvas with a margin.
-    lo, hi = vertices[:, :2].min(axis=0), vertices[:, :2].max(axis=0)
-    span = np.maximum(hi - lo, 1e-6)
-    scale = 0.88 * min(width / span[0], height / span[1])
-    offset = np.array([width, height]) / 2 - (lo + hi) / 2 * scale
+    low, high = vertices[:, :2].min(axis=0), vertices[:, :2].max(axis=0)
+    span = np.maximum(high - low, 1e-6)
+    scale = 0.86 * min(width / span[0], height / span[1])
+    offset = np.array([width, height]) / 2 - (low + high) / 2 * scale
 
-    projected = vertices[:, :2] * scale + offset
+    projected = np.empty_like(vertices)
+    projected[:, :2] = vertices[:, :2] * scale + offset
     projected[:, 1] = height - projected[:, 1]  # screen Y grows downward
+    projected[:, 2] = vertices[:, 2]
 
-    shade = np.clip(normals @ (LIGHT_DIRECTION / np.linalg.norm(LIGHT_DIRECTION)), 0, 1)
-    brightness = 0.35 + 0.65 * shade
-
-    image = Image.new("RGB", resolution, BACKGROUND)
-    draw = ImageDraw.Draw(image)
-
+    brightness = _shading(normals)
     base = BASE_COLOUR if face_colours is None else face_colours
 
-    # Painter's algorithm: furthest faces first.
-    depth = vertices[mesh.faces][:, :, 2].mean(axis=1)
-    for index in np.argsort(depth):
+    canvas = _background(resolution)
+    depth_buffer = np.full((height, width), -np.inf)
+
+    for index, face in enumerate(mesh.faces):
         tone = base if face_colours is None else base[index]
-        colour = tuple(int(c) for c in np.clip(tone * brightness[index], 0, 255))
-        polygon = [tuple(projected[v]) for v in mesh.faces[index]]
-        draw.polygon(polygon, fill=colour, outline=colour)
+        colour = np.clip(tone * brightness[index], 0, 255)
+        _rasterize(canvas, depth_buffer, projected[face], colour)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(output_path)
+    Image.fromarray(canvas.astype(np.uint8)).save(output_path)
     logger.info("wrote preview %s", output_path)
     return output_path
 
@@ -116,20 +183,19 @@ def render_glb(model_path: Path, output_path: Path, **kwargs) -> Path:
     if not isinstance(loaded, trimesh.Scene):
         return render(loaded, output_path, **kwargs)
 
-    # Bake each part's material colour into vertex colours before merging, so
-    # a single painted mesh still shows stone against glass.
-    painted = []
+    parts, colours = [], []
     for geometry in loaded.geometry.values():
         colour = _material_colour(geometry)
-        copy = geometry.copy()
-        copy.metadata["base_colour"] = colour if colour is not None else BASE_COLOUR
-        painted.append(copy)
+        parts.append(geometry)
+        colours.append(
+            np.tile(
+                colour if colour is not None else BASE_COLOUR, (len(geometry.faces), 1)
+            )
+        )
 
-    merged = trimesh.util.concatenate(painted)
-    face_colours = np.vstack(
-        [
-            np.tile(part.metadata["base_colour"], (len(part.faces), 1))
-            for part in painted
-        ]
+    return render(
+        trimesh.util.concatenate(parts),
+        output_path,
+        face_colours=np.vstack(colours),
+        **kwargs,
     )
-    return render(merged, output_path, face_colours=face_colours, **kwargs)
