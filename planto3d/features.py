@@ -131,6 +131,63 @@ EXACT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("void", ("OTS",)),
 ]
 
+# What an interior room's floor is finished in. Separate from the feature
+# categories above because these change only appearance, never geometry --
+# and because a room can be both, a kitchen being wet-serviced and tiled.
+#
+# Checked longest first, so "CHEF'S KITCHEN" reads as a kitchen rather than
+# falling through to the generic living rule.
+ROOM_FINISHES: list[tuple[str, tuple[str, ...]]] = [
+    ("timber", ("BEDROOM", "BED ROOM", "MASTER", "GUEST", "STUDY", "OFFICE", "DRESS")),
+    ("tile", ("KITCHEN", "PANTRY", "SERVANT", "STORE", "BOX ROOM", "LAUNDRY")),
+    (
+        "stone",
+        (
+            "LIVING",
+            "DRAWING",
+            "DINING",
+            "HALL",
+            "LOUNGE",
+            "FOYER",
+            "LOBBY",
+            "AISLE",
+            "ASILE",  # as the reference sheets spell it
+            "PASSAGE",
+            "CORRIDOR",
+            "ENTRANCE",
+        ),
+    ),
+    ("timber", ("TEMPLE", "POOJA", "PUJA", "PRAYER", "MANDIR")),
+    ("tile", ("GYM", "THEATRE", "THEATER", "PLAY", "GAME", "MULTI PURPOSE")),
+]
+
+DEFAULT_FINISH = "stone"
+
+
+# Flattened and sorted so the longest keyword always wins, whichever rule it
+# belongs to. Ordering by rule alone is not enough: "MULTI-PURPOSE HALL"
+# contains "HALL", and a shorter match in an earlier rule would take it.
+_FINISH_KEYWORDS: list[tuple[str, str]] = sorted(
+    ((keyword, finish) for finish, keywords in ROOM_FINISHES for keyword in keywords),
+    key=lambda pair: len(pair[0]),
+    reverse=True,
+)
+
+
+def finish_for(label: str) -> str:
+    """The floor finish a room's name implies."""
+    if not label:
+        return DEFAULT_FINISH
+
+    normalized = _normalize(label)
+    squashed = normalized.replace(" ", "")
+
+    for keyword, finish in _FINISH_KEYWORDS:
+        if keyword in normalized or keyword.replace(" ", "") in squashed:
+            return finish
+    return DEFAULT_FINISH
+
+
 # Categories that describe ground rather than an interior floor.
 GROUND_COVERS = {"water", "lawn", "paving"}
 
@@ -139,6 +196,11 @@ GROUND_COVERS = {"water", "lawn", "paving"}
 # consecutive lines, so a few line heights covers the pairing while keeping
 # the next room's label out of reach.
 LABEL_PAIRING_LINES = 3.5
+
+
+def normalize(label: str) -> str:
+    """Public alias, since finish matching needs the same normalisation."""
+    return _normalize(label)
 
 
 def _normalize(label: str) -> str:

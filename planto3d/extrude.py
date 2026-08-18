@@ -20,7 +20,12 @@ from shapely.ops import unary_union
 from trimesh.creation import extrude_polygon
 
 from planto3d.geometry_types import FloorPlan, Opening, Wall
-from planto3d.features import GROUND_COVERS, group_by_feature
+from planto3d.features import (
+    GROUND_COVERS,
+    classify,
+    finish_for,
+    group_by_feature,
+)
 from planto3d.site import (
     BOUNDARY_HEIGHT_FT,
     BOUNDARY_THICKNESS_FT,
@@ -60,6 +65,8 @@ SILL_HEIGHT_FT = 3.0
 # A comfortable riser. Steps are sized from this rather than fixed in number,
 # so a flight climbing a taller storey simply gets more of them.
 RISER_HEIGHT_FT = 0.58
+# A floor finish is a skin on the slab, not a slab of its own.
+FINISH_THICKNESS_FT = 0.08
 # Slivers below these sizes are dropped rather than modelled -- a millimetre
 # of wall between two openings is noise, not architecture.
 MIN_OPENING_WIDTH_M = 0.15
@@ -831,6 +838,23 @@ def floors_to_parts(
             parts.setdefault("railing", []).extend(
                 _railing_parts(room.polygon, wall_base_m, scale)
             )
+
+        # Each room's floor is finished according to what it is for, so a
+        # bedroom reads differently from a kitchen. Laid just above the slab
+        # rather than replacing it, so a missing label costs a finish rather
+        # than the floor itself.
+        for room in floor.rooms:
+            if classify(room.label) in GROUND_COVERS or classify(room.label) == "void":
+                continue
+            finish = "wet" if classify(room.label) == "wet" else finish_for(room.label)
+            patch = slab_mesh(
+                room.polygon,
+                FINISH_THICKNESS_FT,
+                base_ft + SLAB_THICKNESS_FT,
+                scale,
+            )
+            if patch is not None:
+                parts.setdefault(finish, []).append(patch)
 
         # Stairs climb from this storey's floor to the next one's.
         for room in features.get("stairs", []):

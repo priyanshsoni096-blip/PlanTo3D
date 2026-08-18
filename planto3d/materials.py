@@ -81,6 +81,11 @@ SURFACES = {
     # The plinth, in a darker stone than the walls it carries -- a base
     # reads as a base by being heavier than what stands on it.
     "plinth": Surface("plinth", (168, 160, 148), roughness=0.9),
+    # Interior floor finishes, chosen from what each room is for. Warm where
+    # a room is lived in, cool and harder where it is worked in.
+    "timber": Surface("timber", (166, 124, 82), roughness=0.55),
+    "tile": Surface("tile", (206, 202, 194), roughness=0.32),
+    "stone": Surface("stone", (188, 180, 168), roughness=0.6),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)
