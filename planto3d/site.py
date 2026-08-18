@@ -36,6 +36,9 @@ OPEN_EDGE_KEYWORDS = ("BAL", "TERRACE", "DECK", "VERANDA", "PORCH")
 # Railing dimensions, in feet. Slim and waist-high, as a rail should be.
 RAILING_HEIGHT_FT = 3.4
 RAILING_THICKNESS_FT = 0.25
+# How far a pool is sunk below the surface around it. A pool laid flat on the
+# ground reads as a blue carpet rather than water.
+POOL_DEPTH_FT = 4.0
 
 # Fallback margin around the building when the plot extent is unknown.
 SITE_MARGIN_FT = 14.0

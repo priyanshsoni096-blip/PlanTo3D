@@ -66,6 +66,11 @@ SURFACES = {
     "boundary": Surface("boundary", (206, 198, 184), roughness=0.94),
     # Dark metal, as balcony rails are drawn in the reference elevations.
     "railing": Surface("railing", (72, 70, 68), roughness=0.35, metallic=0.7),
+    # Water: smooth and translucent, so a pool reads as depth rather than
+    # a blue slab.
+    "water": Surface("water", (58, 132, 168), roughness=0.04, opacity=0.72),
+    # Tiled wet areas, lighter and glossier than the rooms around them.
+    "wet": Surface("wet", (214, 214, 210), roughness=0.28),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)

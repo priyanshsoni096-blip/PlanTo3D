@@ -18,17 +18,17 @@ from shapely.geometry import Polygon
 from trimesh.creation import extrude_polygon
 
 from planto3d.geometry_types import FloorPlan, Opening, Wall
+from planto3d.features import GROUND_COVERS, group_by_feature
 from planto3d.site import (
     BOUNDARY_HEIGHT_FT,
     BOUNDARY_THICKNESS_FT,
     COVER_THICKNESS_FT,
+    POOL_DEPTH_FT,
     RAILING_HEIGHT_FT,
     RAILING_THICKNESS_FT,
     SITE_MARGIN_FT,
     SITE_THICKNESS_FT,
     boundary_walls,
-    outdoor_rooms,
-    railed_rooms,
     site_outline,
 )
 
@@ -473,7 +473,15 @@ def floors_to_parts(
         base_ft = index * wall_height_ft
         wall_base_m = (base_ft + SLAB_THICKNESS_FT) * FEET_TO_METRES
 
-        slab = slab_mesh(floor.footprint, SLAB_THICKNESS_FT, base_ft, scale)
+        features = group_by_feature(floor.rooms)
+
+        # A double-height space, atrium or shaft is a hole through this
+        # storey's floor. Slabbed over, the drawing's most dramatic space
+        # becomes an ordinary ceiling.
+        voids = [room.polygon for room in features.get("void", [])]
+        slab = slab_mesh(
+            floor.footprint, SLAB_THICKNESS_FT, base_ft, scale, holes=voids
+        )
         if slab is not None:
             parts["floor"].append(slab)
 
@@ -493,10 +501,35 @@ def floors_to_parts(
 
         # Balconies and terraces are open to the air. Without a railing an
         # upper floor reads as a hole punched in the facade.
-        for room in railed_rooms(floor.rooms):
+        for room in features.get("open", []):
             parts.setdefault("railing", []).extend(
                 _railing_parts(room.polygon, wall_base_m, scale)
             )
+
+        # A void's edge is a drop, so it needs a railing too.
+        for room in features.get("void", []):
+            parts.setdefault("railing", []).extend(
+                _railing_parts(room.polygon, wall_base_m, scale)
+            )
+
+        # Ground cover for this storey: lawn, paving, and water recessed into
+        # the surface. A pool laid flat on the ground reads as a blue carpet.
+        surface_ft = base_ft + SLAB_THICKNESS_FT if index else 0.0
+        for category in GROUND_COVERS:
+            for room in features.get(category, []):
+                if category == "water":
+                    patch = slab_mesh(
+                        room.polygon,
+                        POOL_DEPTH_FT,
+                        surface_ft - POOL_DEPTH_FT,
+                        scale,
+                    )
+                else:
+                    patch = slab_mesh(
+                        room.polygon, COVER_THICKNESS_FT, surface_ft, scale
+                    )
+                if patch is not None:
+                    parts.setdefault(category, []).append(patch)
 
     roof_base_ft = len(floors) * wall_height_ft
     top = floors[-1]
@@ -520,7 +553,12 @@ def floors_to_parts(
                 )
             )
 
-    parts.update(_site_parts(floors, scale, wall_height_ft, page_size))
+    # Merged rather than assigned: the site block also produces lawn and
+    # paving, and replacing the keys would discard whatever the storeys
+    # contributed under the same names.
+    for name, meshes in _site_parts(floors, scale, wall_height_ft, page_size).items():
+        parts.setdefault(name, []).extend(meshes)
+
     return {name: meshes for name, meshes in parts.items() if meshes}
 
 
@@ -561,13 +599,6 @@ def _site_parts(
                 wall, [], BOUNDARY_HEIGHT_FT * FEET_TO_METRES, scale, 0.0
             )
         )
-
-    # Ground cover comes from the ground floor's own labelled outdoor rooms.
-    for cover, rooms in outdoor_rooms(floors[0].rooms).items():
-        for room in rooms:
-            patch = slab_mesh(room.polygon, COVER_THICKNESS_FT, 0.0, scale)
-            if patch is not None:
-                parts[cover].append(patch)
 
     # Planting is found by colour rather than by label. The segmentation
     # model is trained on interiors and does not mark a garden at all, since
