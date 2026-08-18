@@ -32,6 +32,68 @@ class TestAssumedScale:
         assert assumed_scale(400) == assumed_scale(400, ratio=ASSUMED_DRAWING_RATIO)
 
 
+class TestScaleFromStandardElements:
+    def _door(self, width):
+        from planto3d.geometry_types import Opening
+
+        return Opening(wall_id=0, position=100.0, width=width, type="door")
+
+    def _window(self, width):
+        from planto3d.geometry_types import Opening
+
+        return Opening(wall_id=0, position=100.0, width=width, type="window")
+
+    def test_doors_recover_the_scale_of_the_real_sheet(self):
+        from planto3d.calibrate import scale_from_doors
+
+        # 23 doors with a median of 68px were detected on the reference
+        # sheet, whose printed dimensions give 28.15 px/ft.
+        doors = [self._door(w) for w in [55, 62, 66, 68, 68, 70, 74, 88, 96]]
+
+        scale = scale_from_doors(doors)
+
+        assert scale == pytest.approx(28.15, rel=0.1)
+
+    def test_the_median_resists_a_wide_main_door(self):
+        from planto3d.calibrate import scale_from_doors
+
+        ordinary = [self._door(68) for _ in range(8)]
+        scale = scale_from_doors(ordinary + [self._door(400)])
+
+        assert scale == pytest.approx(scale_from_doors(ordinary))
+
+    def test_windows_are_not_used_as_door_references(self):
+        # Window widths vary hugely; only doors are standard enough.
+        from planto3d.calibrate import scale_from_doors
+
+        assert scale_from_doors([self._window(300) for _ in range(9)]) is None
+
+    def test_too_few_doors_gives_no_estimate(self):
+        from planto3d.calibrate import scale_from_doors
+
+        assert scale_from_doors([self._door(68), self._door(70)]) is None
+
+    def test_wall_thickness_lands_in_the_right_region(self):
+        from planto3d.calibrate import scale_from_walls
+        from planto3d.geometry_types import Wall
+
+        # Median wall on the reference sheet is 23.5px against 28.15 px/ft.
+        walls = [
+            Wall(start=(0.0, 0.0), end=(100.0, 0.0), thickness=t)
+            for t in [12, 18, 22, 23, 23.5, 24, 26, 30, 34, 40]
+        ]
+
+        assert scale_from_walls(walls) == pytest.approx(28.15, rel=0.25)
+
+    def test_too_few_walls_gives_no_estimate(self):
+        from planto3d.calibrate import scale_from_walls
+        from planto3d.geometry_types import Wall
+
+        walls = [Wall(start=(0.0, 0.0), end=(10.0, 0.0), thickness=20.0)]
+
+        assert scale_from_walls(walls) is None
+
+
 class TestMeasuredScaleStillWins:
     def test_a_readable_drawing_is_measured_not_assumed(self):
         # The fallback must never displace a real measurement.

@@ -24,6 +24,8 @@ from planto3d.calibrate import (
     assumed_scale,
     estimate_scale,
     read_text_boxes,
+    scale_from_doors,
+    scale_from_walls,
 )
 from planto3d.classical import classical_mask, refine_windows, vegetation_regions
 from planto3d.extract import (
@@ -67,10 +69,16 @@ class PipelineResult:
     floors: list[FloorResult]
     scale: float | None
     model_path: Path | None
-    # True when no dimension text could be read and the scale was assumed
-    # from a typical drafting ratio. The model is correctly proportioned but
-    # its absolute size is a guess, which callers must not present as measured.
-    scale_assumed: bool = False
+    # Where the scale came from, weakest last: "dimensions" is measured off
+    # printed room sizes; "doors" and "walls" infer it from standard element
+    # sizes; "ratio" assumes a drafting convention. Anything but "dimensions"
+    # means the proportions are right but the absolute size is inferred, and
+    # callers must not present it as measured.
+    scale_source: str = "dimensions"
+
+    @property
+    def scale_assumed(self) -> bool:
+        return self.scale_source != "dimensions"
 
     @property
     def wall_count(self) -> int:
@@ -147,14 +155,23 @@ def run(
     for floor in floors:
         floor.plan.rooms = assign_labels(floor.plan.rooms, floor.text_boxes)
 
-    # A drawing whose dimensions cannot be read still has usable geometry.
-    # Falling back to a typical drafting ratio gives a correctly proportioned
-    # model rather than nothing, so long as the assumption is reported.
-    scale_assumed = scale is None
-    if scale_assumed:
+    # Many plans carry no dimensions at all. Rather than give up, fall back
+    # through progressively weaker references, each still grounded in the
+    # drawing itself before resorting to a drafting convention.
+    scale_source = "dimensions"
+    if scale is None:
+        scale = scale_from_doors(
+            [opening for floor in floors for opening in floor.plan.openings]
+        )
+        scale_source = "doors"
+    if scale is None:
+        scale = scale_from_walls([wall for floor in floors for wall in floor.plan.walls])
+        scale_source = "walls"
+    if scale is None:
         scale = assumed_scale(WORKING_DPI)
+        scale_source = "ratio"
         logger.warning(
-            "no dimensions could be read; assuming %.1f px/ft from a 1:%.0f ratio",
+            "nothing measurable found; assuming %.1f px/ft from a 1:%.0f ratio",
             scale,
             ASSUMED_DRAWING_RATIO,
         )
@@ -180,7 +197,7 @@ def run(
         floors=floors,
         scale=scale,
         model_path=model_path,
-        scale_assumed=scale_assumed,
+        scale_source=scale_source,
     )
 
 

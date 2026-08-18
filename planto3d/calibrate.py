@@ -46,6 +46,15 @@ MIN_CONFIDENCE = 40.0
 # reference sheet this gives 32 px/ft against 28.15 measured, close enough
 # for a model of believable size while clearly flagged as assumed.
 ASSUMED_DRAWING_RATIO = 150.0
+# Standard element sizes used to recover scale when a drawing carries no
+# dimensions. A house is mostly interior doors at about 2'6", so the median
+# door is a far better reference than the widest one. Wall thickness is
+# weaker: a plan mixes thin partitions with thick external walls.
+TYPICAL_DOOR_FT = 2.5
+TYPICAL_WALL_FT = 0.75  # 9 inches
+# Too few of either and the median means nothing.
+MIN_DOORS_FOR_SCALE = 4
+MIN_WALLS_FOR_SCALE = 8
 # Words separated by more than this multiple of their height belong to
 # different labels. Tesseract assigns one "line" to text at the same
 # vertical position however far apart it sits, which on a floor plan merges
@@ -175,6 +184,47 @@ def estimate_scale(rooms: list[Room], text_boxes: list[TextBox]) -> float | None
 
     scale = median(samples)
     logger.info("scale estimated at %.2f px/ft from %d measurement(s)", scale, len(samples))
+    return scale
+
+
+def scale_from_doors(openings: list, typical_width_ft: float = TYPICAL_DOOR_FT) -> float | None:
+    """Estimate scale from door widths.
+
+    Doors are the most standardised element in a building: a house is mostly
+    interior doors at about 2'6", whatever the drawing conventions or the
+    language on the sheet. That makes them a scale reference on plans that
+    carry no dimensions at all.
+
+    Measured against the reference sheet, whose printed dimensions give
+    28.15 px/ft: 23 detected doors have a median width of 68 px, which at
+    2'6" gives 27.2 px/ft -- within 4%.
+
+    The median resists the wide main door and any misdetected opening.
+    """
+    widths = [o.width for o in openings if o.type == "door" and o.width > 0]
+    if len(widths) < MIN_DOORS_FOR_SCALE:
+        return None
+
+    scale = median(widths) / typical_width_ft
+    logger.info(
+        "scale %.2f px/ft from %d door(s), median %.1f px", scale, len(widths), median(widths)
+    )
+    return scale
+
+
+def scale_from_walls(walls: list, typical_thickness_ft: float = TYPICAL_WALL_FT) -> float | None:
+    """Estimate scale from wall thickness.
+
+    Weaker than doors, because a plan mixes thin partitions with thick
+    external walls and the median lands somewhere between. Useful only when
+    no doors were found -- on the reference sheet it lands within about 11%.
+    """
+    thicknesses = [w.thickness for w in walls if w.thickness > 0]
+    if len(thicknesses) < MIN_WALLS_FOR_SCALE:
+        return None
+
+    scale = median(thicknesses) / typical_thickness_ft
+    logger.info("scale %.2f px/ft from %d wall thickness(es)", scale, len(thicknesses))
     return scale
 
 

@@ -82,16 +82,24 @@ def convert(pdf_file, wall_height_ft: float):
         cv2.imwrite(str(path), draw_overlay(floor))
         overlays.append((str(path), f"Floor {floor.index + 1}"))
 
+    SCALE_SOURCES = {
+        "dimensions": "measured from the printed room dimensions",
+        "doors": "inferred from door widths — this drawing carries no readable "
+        "dimensions, so a standard 2'6\" door was used as the reference "
+        "(typically accurate to within a few percent)",
+        "walls": "inferred from wall thickness — no dimensions or doors could be "
+        "read, so a standard 9\" wall was used as the reference",
+        "ratio": "assumed from a typical 1:150 drafting ratio — nothing "
+        "measurable was found on this drawing",
+    }
+    scale_line = (
+        f"**Scale:** {result.scale:.1f} pixels per foot, "
+        f"{SCALE_SOURCES.get(result.scale_source, result.scale_source)}"
+    )
     if result.scale_assumed:
-        scale_line = (
-            f"**Scale: assumed** at {result.scale:.1f} pixels per foot — no room "
-            "dimensions could be read from this drawing, so a typical 1:150 "
-            "drafting ratio was used. **The model's proportions are correct but "
-            "its absolute size is a guess.**"
-        )
-    else:
-        scale_line = (
-            f"**Scale read from the drawing:** {result.scale:.1f} pixels per foot"
+        scale_line += (
+            "\n\n> The model's **proportions are correct**, but its absolute "
+            "size is inferred rather than measured."
         )
 
     lines = [
