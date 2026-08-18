@@ -9,15 +9,15 @@ plausible house that happens to look similar.
 
 Only the guides and the prompt are built here. The generation itself wants a
 GPU and runs in notebooks/photoreal_on_colab.ipynb.
+
+Rendering and image dependencies are imported inside the functions that need
+them. The generation environment installs diffusion packages, not the 3D
+stack, and it only ever wants the prompt -- a module-level ``import trimesh``
+would break it on a machine that has no reason to hold a mesh library.
 """
 
 import logging
 from pathlib import Path
-
-import cv2
-import numpy as np
-
-from planto3d.preview import _painted, render, render_depth
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,8 @@ def build_prompt(storeys: int, room_labels: list[str] | None = None) -> str:
 
 def edge_guide(render_path: Path, output_path: Path) -> Path:
     """Canny edges of a render, for an edge-conditioned ControlNet."""
+    import cv2
+
     image = cv2.imread(str(render_path), cv2.IMREAD_GRAYSCALE)
     if image is None:
         raise FileNotFoundError(f"could not read render: {render_path}")
@@ -95,6 +97,8 @@ def build_guides(
     depth map and an edge map shot from different angles fight, and the model
     resolves the conflict by warping the building.
     """
+    from planto3d.preview import _painted, render, render_depth
+
     mesh, colours = _painted(Path(model_path))
     output_dir = Path(output_dir)
 

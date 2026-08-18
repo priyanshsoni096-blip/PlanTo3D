@@ -47,6 +47,27 @@ class TestPrompt:
     def test_labels_are_optional(self):
         assert build_prompt(2)
 
+    def test_the_prompt_needs_no_3d_stack(self):
+        # The generation environment installs diffusion packages, not trimesh
+        # or shapely, and only ever wants the prompt. Importing this module
+        # must not drag in the mesh libraries.
+        import subprocess
+        import sys
+
+        script = (
+            "import sys;"
+            "sys.modules['trimesh'] = None;"
+            "sys.modules['shapely'] = None;"
+            "from planto3d.photoreal import build_prompt, NEGATIVE_PROMPT;"
+            "assert build_prompt(3);"
+            "print('ok')"
+        )
+        finished = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True
+        )
+
+        assert finished.returncode == 0, finished.stderr
+
 
 class TestGuides:
     def test_all_three_guides_are_produced(self, model, tmp_path):
