@@ -1,0 +1,90 @@
+import numpy as np
+import pytest
+from PIL import Image
+
+from planto3d.geometry_types import FloorPlan, Opening, Wall
+from planto3d.materials import build_scene, export_scene
+from planto3d.photoreal import build_guides, build_prompt, edge_guide
+
+FOOTPRINT = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)]
+
+
+@pytest.fixture
+def model(tmp_path):
+    walls = [
+        Wall(start=FOOTPRINT[i], end=FOOTPRINT[(i + 1) % 4], thickness=10.0)
+        for i in range(4)
+    ]
+    plan = FloorPlan(
+        walls=walls,
+        footprint=list(FOOTPRINT),
+        openings=[Opening(wall_id=0, position=200.0, width=120.0, type="window")],
+    )
+    path = tmp_path / "house.glb"
+    export_scene(build_scene([plan, plan], wall_height_ft=9.0, scale=20.0), path)
+    return path
+
+
+class TestPrompt:
+    def test_names_the_storey_count(self):
+        assert "3-storey" in build_prompt(3)
+
+    def test_mentions_features_the_plan_actually_has(self):
+        prompt = build_prompt(3, ["BEDROOM", "PARKING", "TERRACE GARDEN"])
+
+        assert "cars" in prompt
+        assert "lawn" in prompt
+        assert "terrace" in prompt.lower()
+
+    def test_does_not_invent_features_the_plan_lacks(self):
+        # A stylization stops resembling its subject when the prompt asks for
+        # things the building does not have.
+        prompt = build_prompt(2, ["BEDROOM", "KITCHEN"])
+
+        assert "cars" not in prompt
+        assert "lawn" not in prompt
+
+    def test_labels_are_optional(self):
+        assert build_prompt(2)
+
+
+class TestGuides:
+    def test_all_three_guides_are_produced(self, model, tmp_path):
+        guides = build_guides(model, tmp_path, resolution=(256, 192))
+
+        assert set(guides) == {"render", "depth", "edges"}
+        assert all(path.exists() for path in guides.values())
+
+    def test_the_guides_share_one_camera(self, model, tmp_path):
+        # A depth map and an edge map shot from different angles fight, and
+        # the diffusion model resolves the conflict by warping the building.
+        guides = build_guides(model, tmp_path, resolution=(256, 192))
+
+        sizes = {Image.open(path).size for path in guides.values()}
+        assert len(sizes) == 1
+
+    def test_depth_is_single_channel_with_near_surfaces_bright(self, model, tmp_path):
+        guides = build_guides(model, tmp_path, resolution=(256, 192))
+        depth = np.asarray(Image.open(guides["depth"]))
+
+        assert depth.ndim == 2  # greyscale, as depth ControlNets expect
+        assert depth.max() > depth.min()
+
+    def test_background_reads_as_far_away_not_near(self, model, tmp_path):
+        # Undrawn pixels must be black. Left bright, the model reads the sky
+        # as a surface pressed against the camera.
+        guides = build_guides(model, tmp_path, resolution=(256, 192))
+        depth = np.asarray(Image.open(guides["depth"]))
+
+        assert depth[0, 0] == 0
+
+    def test_edges_are_binary_and_trace_the_building(self, model, tmp_path):
+        guides = build_guides(model, tmp_path, resolution=(256, 192))
+        edges = np.asarray(Image.open(guides["edges"]))
+
+        assert set(np.unique(edges)) <= {0, 255}
+        assert (edges == 255).any()
+
+    def test_a_missing_render_fails_clearly(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            edge_guide(tmp_path / "absent.png", tmp_path / "edges.png")

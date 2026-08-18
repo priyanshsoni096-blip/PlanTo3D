@@ -110,21 +110,14 @@ def _rasterize(
     canvas[top : bottom + 1, left : right + 1][nearer] = colour
 
 
-def render(
+def _draw(
     mesh: trimesh.Trimesh,
-    output_path: Path,
-    resolution: tuple[int, int] = (1400, 1000),
-    azimuth: float = DEFAULT_AZIMUTH,
-    elevation: float = DEFAULT_ELEVATION,
-    face_colours: np.ndarray | None = None,
-) -> Path:
-    """Paint a shaded view of ``mesh`` to a PNG.
-
-    ``face_colours`` gives a per-face base colour; without it the whole mesh
-    takes one stone tone.
-    """
-    from PIL import Image
-
+    resolution: tuple[int, int],
+    azimuth: float,
+    elevation: float,
+    face_colours: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Rasterize a view, returning the colour canvas and its depth buffer."""
     width, height = resolution
     rotation = _rotation(azimuth, elevation)
 
@@ -153,10 +146,62 @@ def render(
         colour = np.clip(tone * brightness[index], 0, 255)
         _rasterize(canvas, depth_buffer, projected[face], colour)
 
+    return canvas, depth_buffer
+
+
+def render(
+    mesh: trimesh.Trimesh,
+    output_path: Path,
+    resolution: tuple[int, int] = (1400, 1000),
+    azimuth: float = DEFAULT_AZIMUTH,
+    elevation: float = DEFAULT_ELEVATION,
+    face_colours: np.ndarray | None = None,
+) -> Path:
+    """Paint a shaded view of ``mesh`` to a PNG.
+
+    ``face_colours`` gives a per-face base colour; without it the whole mesh
+    takes one stone tone.
+    """
+    from PIL import Image
+
+    canvas, _ = _draw(mesh, resolution, azimuth, elevation, face_colours)
+
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(canvas.astype(np.uint8)).save(output_path)
     logger.info("wrote preview %s", output_path)
+    return output_path
+
+
+def render_depth(
+    mesh: trimesh.Trimesh,
+    output_path: Path,
+    resolution: tuple[int, int] = (1024, 1024),
+    azimuth: float = DEFAULT_AZIMUTH,
+    elevation: float = DEFAULT_ELEVATION,
+) -> Path:
+    """Write a depth map for use as a ControlNet guide.
+
+    Near surfaces are bright and far ones dark, which is the convention
+    depth-conditioned models are trained on. Background -- where nothing was
+    drawn -- is black, so the model reads it as infinitely far rather than as
+    a surface pressed against the camera.
+    """
+    from PIL import Image
+
+    _, depth = _draw(mesh, resolution, azimuth, elevation, None)
+
+    drawn = np.isfinite(depth)
+    normalized = np.zeros(depth.shape, dtype=np.float64)
+    if drawn.any():
+        near, far = depth[drawn].max(), depth[drawn].min()
+        spread = max(near - far, 1e-9)
+        normalized[drawn] = (depth[drawn] - far) / spread
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray((normalized * 255).astype(np.uint8), mode="L").save(output_path)
+    logger.info("wrote depth guide %s", output_path)
     return output_path
 
 
