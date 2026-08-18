@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass
 from statistics import median
 
+import cv2
 import numpy as np
 import pytesseract
 
@@ -61,6 +62,9 @@ MIN_WALLS_FOR_SCALE = 8
 # unrelated room labels -- losing one dimension and putting the merged box
 # between the two rooms instead of over either.
 WORD_GAP_RATIO = 2.0
+# Greyscale value below which a pixel counts as lettering. Plan text is drawn
+# near-black; hatching, fills and furniture are mid-grey.
+INK_CUTOFF = 60
 
 
 @dataclass(frozen=True)
@@ -89,13 +93,32 @@ def parse_dimension_text(text: str) -> tuple[float, float] | None:
     )
 
 
+def isolate_ink(image: np.ndarray, cutoff: int = INK_CUTOFF) -> np.ndarray:
+    """Keep only the near-black lettering, dropping everything lighter.
+
+    Labels printed over hatching are the ones OCR misses, because the hatch
+    breaks up the letterforms. Plan text is drawn near-black while hatching,
+    fills and furniture are mid-grey, so a hard cutoff erases the background
+    and leaves clean glyphs.
+
+    Measured on the reference ground floor: reading the sheet as-is finds 24
+    words and three of the seven room names printed there, missing LANDSCAPE,
+    PARKING, CHEF and WASH -- every one of them over hatch. After this the
+    same sheet yields 71 words and all seven names.
+    """
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    return np.where(grey < cutoff, 0, 255).astype(np.uint8)
+
+
 def read_text_boxes(image: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -> list[TextBox]:
     """OCR an image, returning one box per line of text.
 
     Grouping by line matters: Tesseract emits `15'0"` and `X18'0"` as
     separate words, and neither parses as a dimension alone.
     """
-    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+    data = pytesseract.image_to_data(
+        isolate_ink(image), output_type=pytesseract.Output.DICT
+    )
 
     lines: dict[tuple[int, int, int], list[int]] = {}
     for i, text in enumerate(data["text"]):
