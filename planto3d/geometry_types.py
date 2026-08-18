@@ -142,6 +142,7 @@ class FloorPlan:
     rooms: list[Room] = field(default_factory=list)
     openings: list[Opening] = field(default_factory=list)
     footprint: list[Point] = field(default_factory=list)
+    planting: list[list[Point]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -149,6 +150,9 @@ class FloorPlan:
             "rooms": [r.to_dict() for r in self.rooms],
             "openings": [o.to_dict() for o in self.openings],
             "footprint": [[float(x), float(y)] for x, y in self.footprint],
+            "planting": [
+                [[float(x), float(y)] for x, y in region] for region in self.planting
+            ],
         }
 
     @staticmethod
@@ -158,4 +162,8 @@ class FloorPlan:
             rooms=[Room.from_dict(r) for r in d["rooms"]],
             openings=[Opening.from_dict(o) for o in d["openings"]],
             footprint=[(float(x), float(y)) for x, y in d.get("footprint", [])],
+            planting=[
+                [(float(x), float(y)) for x, y in region]
+                for region in d.get("planting", [])
+            ],
         )

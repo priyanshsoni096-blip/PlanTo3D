@@ -11,6 +11,7 @@ def _plan() -> FloorPlan:
         rooms=[Room(polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)], label="BEDROOM")],
         openings=[Opening(wall_id=0, position=5.0, width=3.0, type="door")],
         footprint=[(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)],
+        planting=[[(30.0, 30.0), (40.0, 30.0), (40.0, 40.0)]],
     )
 
 
@@ -35,6 +36,7 @@ def test_to_dict_matches_the_documented_json_shape():
         ],
         "openings": [{"wall_id": 0, "position": 5.0, "width": 3.0, "type": "door"}],
         "footprint": [[0.0, 0.0], [20.0, 0.0], [20.0, 20.0], [0.0, 20.0]],
+        "planting": [[[30.0, 30.0], [40.0, 30.0], [40.0, 40.0]]],
     }
 
 
@@ -56,7 +58,13 @@ def test_empty_floorplan_roundtrips():
     plan = FloorPlan()
 
     assert FloorPlan.from_dict(plan.to_dict()) == plan
-    assert plan.to_dict() == {"walls": [], "rooms": [], "openings": [], "footprint": []}
+    assert plan.to_dict() == {
+        "walls": [],
+        "rooms": [],
+        "openings": [],
+        "footprint": [],
+        "planting": [],
+    }
 
 
 def test_wall_length_measures_endpoint_distance():

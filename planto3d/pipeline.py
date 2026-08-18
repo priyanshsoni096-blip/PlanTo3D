@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 from planto3d.calibrate import TextBox, estimate_scale, read_text_boxes
-from planto3d.classical import classical_mask
+from planto3d.classical import classical_mask, vegetation_regions
 from planto3d.extract import (
     extract_footprint,
     extract_openings,
@@ -85,6 +85,7 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     rooms = extract_rooms(mask, min_area=MIN_ROOM_AREA)
     footprint = extract_footprint(mask)
     openings = extract_openings(mask, walls)
+    planting = vegetation_regions(image)
     text_boxes = read_text_boxes(image)
 
     logger.info(
@@ -98,7 +99,13 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     return FloorResult(
         index=index,
         image_path=image_path,
-        plan=FloorPlan(walls=walls, rooms=rooms, openings=openings, footprint=footprint),
+        plan=FloorPlan(
+            walls=walls,
+            rooms=rooms,
+            openings=openings,
+            footprint=footprint,
+            planting=planting,
+        ),
         text_boxes=text_boxes,
     )
 

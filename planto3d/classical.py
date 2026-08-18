@@ -40,6 +40,15 @@ SOLIDITY_KERNEL = 5
 CLOSE_KERNEL = 3
 # Components smaller than this many pixels are speckle.
 MIN_COMPONENT_AREA = 60
+# Coloured ink on an otherwise greyscale sheet. Green marks planting; the
+# only other saturated family is the cyan used for glazing.
+COLOUR_SATURATION = 60
+COLOUR_VALUE = 60
+GREEN_HUE = (35, 85)
+# Planting is drawn as scattered symbols, closed into continuous beds.
+PLANTING_CLOSE = 35
+PLANTING_SIMPLIFY = 6.0
+MIN_PLANTING_AREA = 2500
 
 
 def _greyscale(image: np.ndarray) -> np.ndarray:
@@ -87,6 +96,51 @@ def room_mask(image: np.ndarray, fill: int = ROOM_FILL) -> np.ndarray:
     """
     grey = _greyscale(image)
     return _drop_small_components(_near(grey, fill))
+
+
+def vegetation_regions(image: np.ndarray, min_area: int = MIN_PLANTING_AREA) -> list[list[tuple[float, float]]]:
+    """Outlines of the planted areas, from the green ink on the drawing.
+
+    Architectural sheets are otherwise greyscale, so saturated colour is a
+    reliable signal. Measured on the reference sheet, the only two coloured
+    families are a green one -- lawn hatching and tree symbols, appearing as
+    compact blobs -- and a cyan one marking glazing, which is far too
+    elongated to be confused with planting.
+
+    This complements the segmentation model rather than competing with it:
+    the model is trained on interiors and does not label a garden as anything
+    at all, since a garden is not a room.
+    """
+    if image.ndim != 3:
+        return []
+
+    hue, saturation, value = cv2.split(cv2.cvtColor(image, cv2.COLOR_BGR2HSV))
+    green = (
+        (saturation > COLOUR_SATURATION)
+        & (value > COLOUR_VALUE)
+        & (hue >= GREEN_HUE[0])
+        & (hue <= GREEN_HUE[1])
+    ).astype(np.uint8)
+
+    if not green.any():
+        return []
+
+    # Planting is drawn as scattered symbols; close them into continuous beds.
+    merged = cv2.morphologyEx(
+        green, cv2.MORPH_CLOSE, np.ones((PLANTING_CLOSE, PLANTING_CLOSE), np.uint8)
+    )
+    contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    regions = []
+    for contour in contours:
+        if cv2.contourArea(contour) < min_area:
+            continue
+        simplified = cv2.approxPolyDP(contour, PLANTING_SIMPLIFY, closed=True)
+        if len(simplified) >= 3:
+            regions.append([(float(p[0][0]), float(p[0][1])) for p in simplified])
+
+    logger.info("found %d planted region(s)", len(regions))
+    return regions
 
 
 def classical_mask(image: np.ndarray) -> np.ndarray:

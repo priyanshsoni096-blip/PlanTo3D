@@ -460,12 +460,12 @@ def floors_to_parts(
                 )
             )
 
-    parts.update(_site_parts(floors, scale))
+    parts.update(_site_parts(floors, scale, wall_height_ft))
     return {name: meshes for name, meshes in parts.items() if meshes}
 
 
 def _site_parts(
-    floors: list[FloorPlan], scale: float
+    floors: list[FloorPlan], scale: float, wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT
 ) -> dict[str, list[trimesh.Trimesh]]:
     """The ground the building stands on, with lawn and paving laid over it.
 
@@ -491,6 +491,16 @@ def _site_parts(
             patch = slab_mesh(room.polygon, COVER_THICKNESS_FT, 0.0, scale)
             if patch is not None:
                 parts[cover].append(patch)
+
+    # Planting is found by colour rather than by label. The segmentation
+    # model is trained on interiors and does not mark a garden at all, since
+    # a garden is not a room -- so without this the lawns never appear.
+    for floor_index, floor in enumerate(floors):
+        base_ft = floor_index * wall_height_ft if floor_index else 0.0
+        for region in floor.planting:
+            patch = slab_mesh(region, COVER_THICKNESS_FT, base_ft, scale)
+            if patch is not None:
+                parts["lawn"].append(patch)
 
     return parts
 
