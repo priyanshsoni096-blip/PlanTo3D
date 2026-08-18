@@ -176,12 +176,12 @@ def _material_colour(geometry) -> np.ndarray | None:
     return channels * 255 if channels.max() <= 1.0 else channels
 
 
-def render_glb(model_path: Path, output_path: Path, **kwargs) -> Path:
-    """Load a .glb and render it, honouring per-material colours."""
+def _painted(model_path: Path) -> tuple[trimesh.Trimesh, np.ndarray | None]:
+    """Load a model, returning it merged with a per-face colour array."""
     loaded = trimesh.load(str(model_path))
 
     if not isinstance(loaded, trimesh.Scene):
-        return render(loaded, output_path, **kwargs)
+        return loaded, None
 
     parts, colours = [], []
     for geometry in loaded.geometry.values():
@@ -193,9 +193,53 @@ def render_glb(model_path: Path, output_path: Path, **kwargs) -> Path:
             )
         )
 
-    return render(
-        trimesh.util.concatenate(parts),
-        output_path,
-        face_colours=np.vstack(colours),
-        **kwargs,
-    )
+    return trimesh.util.concatenate(parts), np.vstack(colours)
+
+
+def render_glb(model_path: Path, output_path: Path, **kwargs) -> Path:
+    """Load a .glb and render it, honouring per-material colours."""
+    mesh, colours = _painted(Path(model_path))
+    return render(mesh, output_path, face_colours=colours, **kwargs)
+
+
+# Standard architectural views. Azimuth turns the model about the vertical
+# axis; elevation tips the camera. The elevations are taken square-on at zero
+# elevation, so they read as drawings rather than perspectives.
+VIEWS = {
+    "top": (0.0, 90.0),
+    "front": (0.0, 0.0),
+    "back": (180.0, 0.0),
+    "left": (270.0, 0.0),
+    "right": (90.0, 0.0),
+    "aerial": (DEFAULT_AZIMUTH, 45.0),
+}
+
+
+def render_views(
+    model_path: Path,
+    output_dir: Path,
+    views: dict[str, tuple[float, float]] | None = None,
+    resolution: tuple[int, int] = (1200, 900),
+    prefix: str = "view",
+) -> dict[str, Path]:
+    """Render a model from every standard view.
+
+    The model is loaded once and reused, since parsing the glTF costs far
+    more than drawing it.
+    """
+    mesh, colours = _painted(Path(model_path))
+    output_dir = Path(output_dir)
+
+    rendered = {}
+    for name, (azimuth, elevation) in (views or VIEWS).items():
+        rendered[name] = render(
+            mesh,
+            output_dir / f"{prefix}-{name}.png",
+            resolution=resolution,
+            azimuth=azimuth,
+            elevation=elevation,
+            face_colours=colours,
+        )
+
+    logger.info("rendered %d view(s) to %s", len(rendered), output_dir)
+    return rendered

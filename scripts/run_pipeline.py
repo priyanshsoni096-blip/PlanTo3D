@@ -14,6 +14,7 @@ from pathlib import Path
 import cv2
 
 from planto3d.pipeline import draw_overlay, run
+from planto3d.preview import render_views
 from planto3d.segment import load_segmenter
 
 
@@ -36,7 +37,12 @@ def main(pdf_path: str, output_dir: str, checkpoint: Path | None = None) -> None
     print("-" * 58)
     print(f"totals: {result.wall_count} walls, {result.room_count} rooms, scale {scale}")
     print(f"model:  {result.model_path}")
-    print(f"overlays written to {out}")
+
+    if result.model_path is not None:
+        views = render_views(result.model_path, out)
+        print(f"views:  {', '.join(sorted(views))}")
+
+    print(f"output written to {out}")
 
 
 if __name__ == "__main__":

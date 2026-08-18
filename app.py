@@ -13,6 +13,7 @@ import gradio as gr
 
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
 from planto3d.pipeline import draw_overlay, run
+from planto3d.preview import render_views
 from planto3d.segment import load_segmenter
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -67,6 +68,13 @@ def convert(pdf_file, wall_height_ft: float):
             "room dimensions such as 15'0\"X18'0\" to size the model."
         )
 
+    views = render_views(result.model_path, workdir, resolution=(1000, 750))
+    view_gallery = [
+        (str(views[name]), name.title())
+        for name in ("top", "front", "back", "left", "right", "aerial")
+        if name in views
+    ]
+
     overlays = []
     for floor in result.floors:
         path = workdir / f"overlay-{floor.index}.png"
@@ -89,7 +97,7 @@ def convert(pdf_file, wall_height_ft: float):
             f"{len(floor.plan.rooms)} | {names} |"
         )
 
-    return str(result.model_path), overlays, "\n".join(lines)
+    return str(result.model_path), view_gallery, overlays, "\n".join(lines)
 
 
 def build_interface() -> gr.Blocks:
@@ -115,6 +123,11 @@ def build_interface() -> gr.Blocks:
                 model_output = gr.Model3D(label="3D model", clear_color=[0.1, 0.1, 0.12, 1.0])
 
         summary_output = gr.Markdown()
+        view_output = gr.Gallery(
+            label="Views — top, front, back, left, right, aerial",
+            columns=3,
+            height=460,
+        )
         overlay_output = gr.Gallery(
             label="What was detected (walls in red, rooms in green)",
             columns=3,
@@ -124,7 +137,7 @@ def build_interface() -> gr.Blocks:
         convert_button.click(
             fn=convert,
             inputs=[pdf_input, height_input],
-            outputs=[model_output, overlay_output, summary_output],
+            outputs=[model_output, view_output, overlay_output, summary_output],
         )
 
     return demo

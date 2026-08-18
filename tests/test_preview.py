@@ -4,7 +4,7 @@ from PIL import Image
 
 from planto3d.materials import build_scene, export_scene
 from planto3d.geometry_types import FloorPlan, Opening, Wall
-from planto3d.preview import _material_colour, render, render_glb
+from planto3d.preview import _material_colour, render, render_glb, render_views
 
 FOOTPRINT = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)]
 
@@ -73,6 +73,60 @@ def test_material_colour_accepts_both_glTF_conventions():
 
     assert np.allclose(_material_colour(float_form), [127.5, 63.75, 255.0])
     assert np.allclose(_material_colour(byte_form), [128.0, 64.0, 255.0])
+
+
+class TestStandardViews:
+    def _model(self, tmp_path):
+        walls = [
+            Wall(start=FOOTPRINT[i], end=FOOTPRINT[(i + 1) % 4], thickness=10.0)
+            for i in range(4)
+        ]
+        plan = FloorPlan(
+            walls=walls,
+            footprint=list(FOOTPRINT),
+            openings=[Opening(wall_id=0, position=200.0, width=120.0, type="window")],
+        )
+        path = tmp_path / "house.glb"
+        export_scene(build_scene([plan], wall_height_ft=9.0, scale=20.0), path)
+        return path
+
+    def test_every_standard_view_is_produced(self, tmp_path):
+        views = render_views(self._model(tmp_path), tmp_path, resolution=(200, 160))
+
+        assert set(views) == {"top", "front", "back", "left", "right", "aerial"}
+        assert all(path.exists() for path in views.values())
+
+    def test_each_view_shows_something_different(self, tmp_path):
+        views = render_views(self._model(tmp_path), tmp_path, resolution=(200, 160))
+
+        rendered = {name: _pixels(path).tobytes() for name, path in views.items()}
+        assert len(set(rendered.values())) == len(rendered)
+
+    def test_the_plan_view_is_wider_than_it_is_tall(self, tmp_path):
+        # Seen from above, a 400x300 footprint must read landscape, not
+        # square-on like an elevation.
+        views = render_views(self._model(tmp_path), tmp_path, resolution=(400, 400))
+
+        pixels = _pixels(views["top"])
+        drawn = np.argwhere(pixels.sum(axis=2) > 90)
+
+        assert np.ptp(drawn[:, 1]) > np.ptp(drawn[:, 0])
+
+    def test_elevations_are_no_taller_than_the_building(self, tmp_path):
+        # A square-on elevation shows storey height, not the plan's depth.
+        views = render_views(self._model(tmp_path), tmp_path, resolution=(400, 400))
+
+        pixels = _pixels(views["front"])
+        drawn = np.argwhere(pixels.sum(axis=2) > 90)
+
+        assert np.ptp(drawn[:, 1]) > np.ptp(drawn[:, 0])
+
+    def test_views_can_be_named_with_a_prefix(self, tmp_path):
+        views = render_views(
+            self._model(tmp_path), tmp_path, resolution=(160, 120), prefix="soni"
+        )
+
+        assert all(path.name.startswith("soni-") for path in views.values())
 
 
 def test_materials_change_what_is_drawn(tmp_path):
