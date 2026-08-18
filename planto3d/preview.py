@@ -46,8 +46,13 @@ def render(
     resolution: tuple[int, int] = (1200, 900),
     azimuth: float = DEFAULT_AZIMUTH,
     elevation: float = DEFAULT_ELEVATION,
+    face_colours: np.ndarray | None = None,
 ) -> Path:
-    """Paint a shaded view of ``mesh`` to a PNG."""
+    """Paint a shaded view of ``mesh`` to a PNG.
+
+    ``face_colours`` gives a per-face base colour; without it the whole mesh
+    takes one stone tone.
+    """
     from PIL import Image, ImageDraw
 
     width, height = resolution
@@ -71,10 +76,13 @@ def render(
     image = Image.new("RGB", resolution, BACKGROUND)
     draw = ImageDraw.Draw(image)
 
+    base = BASE_COLOUR if face_colours is None else face_colours
+
     # Painter's algorithm: furthest faces first.
     depth = vertices[mesh.faces][:, :, 2].mean(axis=1)
     for index in np.argsort(depth):
-        colour = tuple(int(c) for c in np.clip(BASE_COLOUR * brightness[index], 0, 255))
+        tone = base if face_colours is None else base[index]
+        colour = tuple(int(c) for c in np.clip(tone * brightness[index], 0, 255))
         polygon = [tuple(projected[v]) for v in mesh.faces[index]]
         draw.polygon(polygon, fill=colour, outline=colour)
 
@@ -85,7 +93,43 @@ def render(
     return output_path
 
 
+def _material_colour(geometry) -> np.ndarray | None:
+    """Base colour of a geometry's material, as 0-255 RGB.
+
+    glTF defines baseColorFactor in 0-1, but trimesh hands it back as 0-255
+    bytes once a file has been reloaded. Both are accepted here -- scaling the
+    byte form again saturates every surface to white.
+    """
+    material = getattr(geometry.visual, "material", None)
+    factor = getattr(material, "baseColorFactor", None)
+    if factor is None:
+        return None
+
+    channels = np.array([float(c) for c in factor[:3]])
+    return channels * 255 if channels.max() <= 1.0 else channels
+
+
 def render_glb(model_path: Path, output_path: Path, **kwargs) -> Path:
-    """Load a .glb and render it."""
-    mesh = trimesh.load(str(model_path), force="mesh")
-    return render(mesh, output_path, **kwargs)
+    """Load a .glb and render it, honouring per-material colours."""
+    loaded = trimesh.load(str(model_path))
+
+    if not isinstance(loaded, trimesh.Scene):
+        return render(loaded, output_path, **kwargs)
+
+    # Bake each part's material colour into vertex colours before merging, so
+    # a single painted mesh still shows stone against glass.
+    painted = []
+    for geometry in loaded.geometry.values():
+        colour = _material_colour(geometry)
+        copy = geometry.copy()
+        copy.metadata["base_colour"] = colour if colour is not None else BASE_COLOUR
+        painted.append(copy)
+
+    merged = trimesh.util.concatenate(painted)
+    face_colours = np.vstack(
+        [
+            np.tile(part.metadata["base_colour"], (len(part.faces), 1))
+            for part in painted
+        ]
+    )
+    return render(merged, output_path, face_colours=face_colours, **kwargs)

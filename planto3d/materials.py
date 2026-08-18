@@ -1,0 +1,93 @@
+"""Give the model materials, so it reads as a building rather than a massing study.
+
+Materials ride in the glTF file itself as PBR definitions, which every web
+viewer understands -- including the one already in the app. No render engine
+is involved, so the interactive model gains stone, concrete and glass without
+a Blender round trip.
+
+Roughness carries most of the read here. Plaster and concrete are almost
+fully rough and diffuse; glazing is near-mirror and translucent, which is
+what makes an opening look glazed rather than boarded up.
+"""
+
+import logging
+from pathlib import Path
+
+import trimesh
+from trimesh.visual.material import PBRMaterial
+
+from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT, floors_to_parts
+from planto3d.geometry_types import FloorPlan
+
+logger = logging.getLogger(__name__)
+
+
+class Surface:
+    """A named appearance: colour, how rough it is, and how transparent."""
+
+    def __init__(
+        self,
+        name: str,
+        colour: tuple[int, int, int],
+        roughness: float,
+        metallic: float = 0.0,
+        opacity: float = 1.0,
+    ):
+        self.name = name
+        self.colour = colour
+        self.roughness = roughness
+        self.metallic = metallic
+        self.opacity = opacity
+
+    def to_material(self) -> PBRMaterial:
+        red, green, blue = (channel / 255 for channel in self.colour)
+        return PBRMaterial(
+            name=self.name,
+            baseColorFactor=[red, green, blue, self.opacity],
+            roughnessFactor=self.roughness,
+            metallicFactor=self.metallic,
+            # Blending is only requested where it is needed; declaring it on
+            # opaque surfaces makes viewers sort them needlessly and can make
+            # solid walls flicker against each other.
+            alphaMode="BLEND" if self.opacity < 1.0 else "OPAQUE",
+            doubleSided=True,
+        )
+
+
+# Warm limestone and pale concrete, close to the reference elevation.
+SURFACES = {
+    "wall": Surface("wall", (223, 214, 199), roughness=0.92),
+    "floor": Surface("floor", (198, 193, 186), roughness=0.85),
+    "roof": Surface("roof", (176, 172, 166), roughness=0.88),
+    "glass": Surface("glass", (146, 190, 214), roughness=0.06, metallic=0.1, opacity=0.35),
+}
+
+FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)
+
+
+def build_scene(
+    floors: list[FloorPlan],
+    wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
+    scale: float = 1.0,
+) -> trimesh.Scene:
+    """Assemble the building as a scene with one material per surface type."""
+    parts = floors_to_parts(floors, wall_height_ft=wall_height_ft, scale=scale)
+
+    scene = trimesh.Scene()
+    for name, meshes in parts.items():
+        combined = trimesh.util.concatenate(meshes)
+        surface = SURFACES.get(name, FALLBACK)
+        combined.visual = trimesh.visual.TextureVisuals(material=surface.to_material())
+        scene.add_geometry(combined, node_name=name, geom_name=name)
+        logger.info("%s: %d faces", name, len(combined.faces))
+
+    return scene
+
+
+def export_scene(scene: trimesh.Scene, output_path: Path) -> Path:
+    """Write a materialled scene as binary glTF."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(scene.export(file_type="glb"))
+    logger.info("wrote %s (%.1f KB)", output_path, output_path.stat().st_size / 1024)
+    return output_path

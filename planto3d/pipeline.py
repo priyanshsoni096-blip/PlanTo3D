@@ -26,7 +26,8 @@ from planto3d.extract import (
     extract_rooms,
     extract_walls,
 )
-from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT, export_glb, floors_to_mesh
+from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
+from planto3d.materials import build_scene, export_scene
 from planto3d.geometry_types import FloorPlan, Wall
 from planto3d.ingest import crop_pages, rasterize_pdf
 from planto3d.label_rooms import assign_labels
@@ -133,10 +134,10 @@ def run(
     if scale is None:
         logger.warning("scale could not be determined; skipping 3D export")
     else:
-        mesh = floors_to_mesh(
+        scene = build_scene(
             [floor.plan for floor in floors], wall_height_ft=wall_height_ft, scale=scale
         )
-        model_path = export_glb(mesh, output_dir / "house.glb")
+        model_path = export_scene(scene, output_dir / "house.glb")
 
     return PipelineResult(floors=floors, scale=scale, model_path=model_path)
 

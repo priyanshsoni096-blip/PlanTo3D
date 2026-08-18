@@ -39,6 +39,9 @@ SILL_HEIGHT_FT = 3.0
 # of wall between two openings is noise, not architecture.
 MIN_OPENING_WIDTH_M = 0.15
 MIN_PIER_M = 0.05
+# Glazing is thinner than the wall it sits in, so it reads as a pane rather
+# than a plug and does not z-fight with the reveal.
+GLASS_THICKNESS_RATIO = 0.25
 
 
 def _place(
@@ -181,6 +184,54 @@ def _wall_parts(
         )
 
     return parts
+
+
+def opening_panes(
+    wall: Wall,
+    openings: list[Opening],
+    height_m: float,
+    scale: float,
+    base_m: float,
+) -> list[trimesh.Trimesh]:
+    """Thin panes filling each window opening, to be given a glass material.
+
+    Doors are left empty: an open doorway reads correctly, whereas a glazed
+    one does not.
+    """
+    start = np.array(wall.start, dtype=float) / scale * FEET_TO_METRES
+    end = np.array(wall.end, dtype=float) / scale * FEET_TO_METRES
+    length_m = float(np.linalg.norm(end - start))
+    if length_m <= MIN_WALL_PIXELS:
+        return []
+
+    thickness_m = max(wall.thickness / scale * FEET_TO_METRES, 1e-4)
+    head_m = min(OPENING_HEAD_FT * FEET_TO_METRES, height_m)
+    sill_m = SILL_HEIGHT_FT * FEET_TO_METRES
+
+    panes = []
+    for opening in openings:
+        if opening.type != "window":
+            continue
+
+        half = (opening.width / scale * FEET_TO_METRES) / 2
+        centre = opening.position / scale * FEET_TO_METRES
+        low, high = max(0.0, centre - half), min(length_m, centre + half)
+        span = high - low
+        if span < MIN_OPENING_WIDTH_M or head_m <= sill_m:
+            continue
+
+        pane_height = head_m - sill_m
+        panes.append(
+            _place(
+                (span, pane_height, thickness_m * GLASS_THICKNESS_RATIO),
+                wall,
+                low + span / 2,
+                base_m + sill_m + pane_height / 2,
+                scale,
+            )
+        )
+
+    return panes
 
 
 def slab_mesh(
@@ -340,6 +391,69 @@ def floors_to_mesh(
 
     logger.info("stacked %d floor(s) into %d part(s)", len(floors), len(meshes))
     return trimesh.util.concatenate(meshes)
+
+
+def floors_to_parts(
+    floors: list[FloorPlan],
+    wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
+    scale: float = 1.0,
+) -> dict[str, list[trimesh.Trimesh]]:
+    """Build the building's geometry grouped by what it is made of.
+
+    Keys name a material rather than a floor, so the scene builder can give
+    walls, slabs, the roof and glazing distinct appearances.
+    """
+    if not floors:
+        raise ValueError("no floors to extrude")
+
+    height_m = wall_height_ft * FEET_TO_METRES
+    parts: dict[str, list[trimesh.Trimesh]] = {
+        "wall": [],
+        "floor": [],
+        "roof": [],
+        "glass": [],
+    }
+
+    for index, floor in enumerate(floors):
+        base_ft = index * wall_height_ft
+        wall_base_m = (base_ft + SLAB_THICKNESS_FT) * FEET_TO_METRES
+
+        slab = slab_mesh(floor.footprint, SLAB_THICKNESS_FT, base_ft, scale)
+        if slab is not None:
+            parts["floor"].append(slab)
+
+        by_wall: dict[int, list[Opening]] = {}
+        for opening in floor.openings:
+            if 0 <= opening.wall_id < len(floor.walls):
+                by_wall.setdefault(opening.wall_id, []).append(opening)
+
+        for wall_id, wall in enumerate(floor.walls):
+            openings = by_wall.get(wall_id, [])
+            parts["wall"].extend(
+                _wall_parts(wall, openings, height_m, scale, wall_base_m)
+            )
+            parts["glass"].extend(
+                opening_panes(wall, openings, height_m, scale, wall_base_m)
+            )
+
+    roof_base_ft = len(floors) * wall_height_ft
+    top = floors[-1]
+    roof = slab_mesh(top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale)
+    if roof is not None:
+        parts["roof"].append(roof)
+        parapet = _parapet_walls(top.footprint, roof_base_ft, scale)
+        for wall in parapet:
+            parts["roof"].extend(
+                _wall_parts(
+                    wall,
+                    [],
+                    PARAPET_HEIGHT_FT * FEET_TO_METRES,
+                    scale,
+                    (roof_base_ft + SLAB_THICKNESS_FT) * FEET_TO_METRES,
+                )
+            )
+
+    return {name: meshes for name, meshes in parts.items() if meshes}
 
 
 def export_glb(mesh: trimesh.Trimesh, output_path: Path) -> Path:
