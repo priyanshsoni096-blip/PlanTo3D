@@ -29,6 +29,7 @@ from planto3d.calibrate import (
 )
 from planto3d.classical import classical_mask, refine_windows, vegetation_regions
 from planto3d.extract import (
+    close_envelope,
     extract_footprint,
     extract_openings,
     extract_rooms,
@@ -118,6 +119,19 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     walls = extract_walls(mask, min_wall_length=MIN_WALL_LENGTH)
     rooms = extract_rooms(mask, min_area=MIN_ROOM_AREA)
     footprint = extract_footprint(mask)
+
+    # Segmentation loses stretches of exterior wall wherever the drawing is
+    # busy, leaving holes in the facade -- and every window that would have
+    # bound to the missing wall is lost with it.
+    #
+    # The real scale is not known until every floor has been read, so the
+    # nominal one implied by the rasterization resolution is used here. Its
+    # job is only to size tolerances -- how long a gap must be to count, how
+    # far to probe inward -- and those survive being a few percent out.
+    walls += close_envelope(
+        mask, walls, footprint, scale=assumed_scale(WORKING_DPI)
+    )
+
     openings = extract_openings(mask, walls)
     planting = vegetation_regions(image)
     text_boxes = read_text_boxes(image)

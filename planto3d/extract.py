@@ -40,6 +40,15 @@ MIN_OPENING_AREA = 40
 # An opening further than this from any wall is dropped rather than bound to
 # a distant one -- a misplaced opening cuts a hole through solid geometry.
 MAX_OPENING_DISTANCE = 40.0
+# Closing the building envelope. The perimeter is walked at this interval,
+# a wall counts as present within this distance, and the mask is probed this
+# far inside to ask whether a room lies behind the gap.
+ENVELOPE_SAMPLE_FT = 1.0
+ENVELOPE_NEAR_FT = 2.0
+ENVELOPE_PROBE_FT = 2.5
+# Shorter gaps than this are doorways and reveals, not missing wall.
+ENVELOPE_MIN_GAP_FT = 3.0
+ENVELOPE_WALL_FT = 0.75
 # Footprint cleanup: bridge doorways, then erase spurs narrower than this.
 CLOSE_SPAN = 9
 OPEN_SPAN = 25
@@ -240,6 +249,95 @@ def extract_openings(
         sum(1 for o in openings if o.type == "window"),
     )
     return openings
+
+
+def close_envelope(
+    mask: np.ndarray,
+    walls: list[Wall],
+    footprint: list[tuple[float, float]],
+    scale: float,
+) -> list[Wall]:
+    """Add the exterior walls segmentation missed, closing the building.
+
+    Segmentation loses stretches of wall wherever a drawing is busy, and the
+    building comes out with holes in its facade -- on the reference set, only
+    two thirds of each storey's perimeter had a wall on it, with gaps as long
+    as 43 ft. Those holes also cost every window that would have been bound
+    to the missing wall.
+
+    A gap is only filled where the space just inside it is a room. A terrace
+    or courtyard edge is legitimately open, and walling it in would enclose
+    the very spaces that make the plan what it is.
+    """
+    if not footprint or scale <= 0:
+        return []
+
+    height, width = mask.shape
+    step_px = ENVELOPE_SAMPLE_FT * scale
+    near_px = ENVELOPE_NEAR_FT * scale
+    probe_px = ENVELOPE_PROBE_FT * scale
+    centre = np.array(
+        [sum(p[0] for p in footprint), sum(p[1] for p in footprint)], dtype=float
+    ) / len(footprint)
+
+    added: list[Wall] = []
+
+    for index in range(len(footprint)):
+        start = np.array(footprint[index], dtype=float)
+        end = np.array(footprint[(index + 1) % len(footprint)], dtype=float)
+        span = float(np.linalg.norm(end - start))
+        if span < ENVELOPE_MIN_GAP_FT * scale:
+            continue
+
+        steps = max(int(span / step_px), 1)
+        run_start = None
+
+        for step in range(steps + 1):
+            point = start + (end - start) * (step / steps)
+
+            has_wall = walls and min(
+                _project_onto_wall(tuple(point), wall)[1] for wall in walls
+            ) <= near_px
+
+            # Probe inward: a wall is only wanted where a room lies behind.
+            inward = point + (centre - point) / max(
+                np.linalg.norm(centre - point), 1e-6
+            ) * probe_px
+            column, row = int(round(inward[0])), int(round(inward[1]))
+            encloses_room = (
+                0 <= row < height
+                and 0 <= column < width
+                and mask[row, column] in (ROOM, WALL)
+            )
+
+            needs_wall = not has_wall and encloses_room
+
+            if needs_wall and run_start is None:
+                run_start = point
+            elif not needs_wall and run_start is not None:
+                if float(np.linalg.norm(point - run_start)) >= ENVELOPE_MIN_GAP_FT * scale:
+                    added.append(
+                        Wall(
+                            start=tuple(run_start),
+                            end=tuple(point),
+                            thickness=ENVELOPE_WALL_FT * scale,
+                        )
+                    )
+                run_start = None
+
+        if run_start is not None:
+            if float(np.linalg.norm(end - run_start)) >= ENVELOPE_MIN_GAP_FT * scale:
+                added.append(
+                    Wall(
+                        start=tuple(run_start),
+                        end=tuple(end),
+                        thickness=ENVELOPE_WALL_FT * scale,
+                    )
+                )
+
+    if added:
+        logger.info("closed %d gap(s) in the building envelope", len(added))
+    return added
 
 
 def extract_footprint(
