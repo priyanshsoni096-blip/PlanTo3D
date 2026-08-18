@@ -51,6 +51,9 @@ MIN_FOOTPRINT_VERTICES = 3
 # Door and window heads sit at a common height; windows also get a sill.
 OPENING_HEAD_FT = 7.0
 SILL_HEIGHT_FT = 3.0
+# A comfortable riser. Steps are sized from this rather than fixed in number,
+# so a flight climbing a taller storey simply gets more of them.
+RISER_HEIGHT_FT = 0.58
 # Slivers below these sizes are dropped rather than modelled -- a millimetre
 # of wall between two openings is noise, not architecture.
 MIN_OPENING_WIDTH_M = 0.15
@@ -477,6 +480,71 @@ def _railing_parts(
     return parts
 
 
+def _stair_parts(
+    polygon: list[tuple[float, float]],
+    base_ft: float,
+    rise_ft: float,
+    scale: float,
+) -> list[trimesh.Trimesh]:
+    """A flight of steps climbing one storey within a stairwell's outline.
+
+    Treads run across the flight's narrow dimension and climb along its long
+    one, which is how a straight flight is drawn: the run needs the length,
+    the width only needs to fit a person. Without this a storey has no
+    visible way of reaching the one above, which reads as wrong even when
+    everything else is right.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES or rise_ft <= 0:
+        return []
+
+    xs = [p[0] for p in polygon]
+    ys = [p[1] for p in polygon]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+
+    width_px, depth_px = right - left, bottom - top
+    if width_px <= 0 or depth_px <= 0:
+        return []
+
+    climbs_along_x = width_px >= depth_px
+    run_px = width_px if climbs_along_x else depth_px
+    across_px = depth_px if climbs_along_x else width_px
+
+    steps = max(int(rise_ft / RISER_HEIGHT_FT), 1)
+    riser_m = (rise_ft / steps) * FEET_TO_METRES
+    tread_m = (run_px / steps) / scale * FEET_TO_METRES
+    across_m = across_px / scale * FEET_TO_METRES
+    base_m = base_ft * FEET_TO_METRES
+
+    parts = []
+    for index in range(steps):
+        # Each tread is a solid block from the floor to its own height, so
+        # the flight reads as a stair rather than a floating ribbon.
+        height_m = riser_m * (index + 1)
+        along_px = run_px * (index + 0.5) / steps
+
+        if climbs_along_x:
+            centre = (left + along_px, (top + bottom) / 2)
+            extents = (tread_m, height_m, across_m)
+        else:
+            centre = ((left + right) / 2, top + along_px)
+            extents = (across_m, height_m, tread_m)
+
+        box = trimesh.creation.box(extents=list(extents))
+        box.apply_transform(
+            trimesh.transformations.translation_matrix(
+                [
+                    centre[0] / scale * FEET_TO_METRES,
+                    base_m + height_m / 2,
+                    centre[1] / scale * FEET_TO_METRES,
+                ]
+            )
+        )
+        parts.append(box)
+
+    return parts
+
+
 def _parapet_walls(footprint: list[tuple[float, float]], base_ft: float, scale: float) -> list[Wall]:
     """The low wall running around a flat roof's edge."""
     if len(footprint) < MIN_FOOTPRINT_VERTICES:
@@ -660,6 +728,17 @@ def floors_to_parts(
         for room in features.get("void", []):
             parts.setdefault("railing", []).extend(
                 _railing_parts(room.polygon, wall_base_m, scale)
+            )
+
+        # Stairs climb from this storey's floor to the next one's.
+        for room in features.get("stairs", []):
+            parts.setdefault("stairs", []).extend(
+                _stair_parts(
+                    room.polygon,
+                    base_ft + SLAB_THICKNESS_FT,
+                    wall_height_ft,
+                    scale,
+                )
             )
 
         # Ground cover for this storey: lawn, paving, and water recessed into

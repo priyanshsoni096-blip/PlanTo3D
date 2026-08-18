@@ -102,6 +102,16 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
         ),
     ),
     (
+        "stairs",
+        (
+            "STAIRCASE",
+            "STAIR",
+            "STEPS",
+            "STEP",
+            "LANDING",
+        ),
+    ),
+    (
         "wet",
         (
             "BATHROOM",
@@ -115,6 +125,14 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "WC",
         ),
     ),
+]
+
+# Short marks that are only meaningful as whole words. "UP" and "DN" are the
+# standard annotations on a flight of stairs and are often all that is
+# printed there, but as substrings they would match GROUP, CUP and DINING.
+EXACT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("stairs", ("UP", "DN", "DOWN")),
+    ("void", ("OTS",)),
 ]
 
 # Categories that describe ground rather than an interior floor.
@@ -154,6 +172,14 @@ def classify(label: str) -> str | None:
             # "SIT OUT" matches "SITOUT", whichever way it was written.
             if keyword in normalized or keyword.replace(" ", "") in squashed:
                 return category
+
+    # Whole-word marks are tested last, so a longer phrase always wins: a
+    # "DOUBLE HEIGHT" containing no stair mark must not be caught here.
+    words = set(normalized.split())
+    for category, keywords in EXACT_KEYWORDS:
+        if words & set(keywords):
+            return category
+
     return None
 
 

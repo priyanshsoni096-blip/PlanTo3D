@@ -14,6 +14,7 @@ import math
 from dataclasses import replace
 
 from planto3d.calibrate import TextBox, parse_dimension_text
+from planto3d.features import classify
 from planto3d.geometry_types import Room
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,13 @@ MIN_LABEL_LETTERS = 3
 def _is_plausible_label(text: str) -> bool:
     if parse_dimension_text(text):
         return False
+
+    # Recognised drafting marks are kept whatever their length. A flight of
+    # stairs is often annotated with nothing but "UP", which the letter count
+    # below would otherwise discard as noise -- and then no stairs are built.
+    if classify(text) is not None:
+        return True
+
     return sum(character.isalpha() for character in text) >= MIN_LABEL_LETTERS
 
 

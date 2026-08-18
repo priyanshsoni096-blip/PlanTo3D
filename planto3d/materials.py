@@ -76,6 +76,8 @@ SURFACES = {
     "water": Surface("water", (58, 132, 168), roughness=0.04, opacity=0.72),
     # Tiled wet areas, lighter and glossier than the rooms around them.
     "wet": Surface("wet", (214, 214, 210), roughness=0.28),
+    # Stairs, a shade lighter than the slabs so the flight reads against them.
+    "stairs": Surface("stairs", (188, 184, 178), roughness=0.8),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)
