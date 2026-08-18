@@ -17,7 +17,7 @@ import trimesh
 from shapely.geometry import Polygon
 from trimesh.creation import extrude_polygon
 
-from planto3d.geometry_types import FloorPlan, Wall
+from planto3d.geometry_types import FloorPlan, Opening, Wall
 
 logger = logging.getLogger(__name__)
 
@@ -32,33 +32,155 @@ PARAPET_HEIGHT_FT = 3.0
 PARAPET_THICKNESS_FT = 0.6
 # A footprint needs this many vertices to enclose an area.
 MIN_FOOTPRINT_VERTICES = 3
+# Door and window heads sit at a common height; windows also get a sill.
+OPENING_HEAD_FT = 7.0
+SILL_HEIGHT_FT = 3.0
+# Slivers below these sizes are dropped rather than modelled -- a millimetre
+# of wall between two openings is noise, not architecture.
+MIN_OPENING_WIDTH_M = 0.15
+MIN_PIER_M = 0.05
 
 
-def _wall_box(wall: Wall, height_m: float, scale: float, base_m: float) -> trimesh.Trimesh | None:
-    """One wall as a box, positioned in the model's coordinate frame."""
+def _place(
+    extents: tuple[float, float, float],
+    wall: Wall,
+    along_m: float,
+    centre_height_m: float,
+    scale: float,
+) -> trimesh.Trimesh:
+    """Build a box and place it along a wall at a given distance and height."""
     start = np.array(wall.start, dtype=float) / scale * FEET_TO_METRES
     end = np.array(wall.end, dtype=float) / scale * FEET_TO_METRES
-    thickness_m = max(wall.thickness / scale * FEET_TO_METRES, 1e-4)
-
     direction = end - start
     length_m = float(np.linalg.norm(direction))
-    if length_m <= MIN_WALL_PIXELS:
-        return None
+    unit = direction / length_m
 
-    box = trimesh.creation.box(extents=[length_m, height_m, thickness_m])
+    box = trimesh.creation.box(extents=list(extents))
 
     # Rotate about the vertical axis to align with the wall's direction. The
     # page's downward Y maps to +Z, so the angle is measured in the XZ plane.
     angle = -np.arctan2(direction[1], direction[0])
     box.apply_transform(trimesh.transformations.rotation_matrix(angle, [0, 1, 0]))
 
-    midpoint = (start + end) / 2
+    centre = start + unit * along_m
     box.apply_transform(
-        trimesh.transformations.translation_matrix(
-            [midpoint[0], base_m + height_m / 2, midpoint[1]]
-        )
+        trimesh.transformations.translation_matrix([centre[0], centre_height_m, centre[1]])
     )
     return box
+
+
+def _wall_parts(
+    wall: Wall,
+    openings: list[Opening],
+    height_m: float,
+    scale: float,
+    base_m: float,
+) -> list[trimesh.Trimesh]:
+    """A wall as solid pieces, with gaps left where openings interrupt it.
+
+    Built by splitting rather than boolean subtraction: the pier either side
+    of an opening, plus a lintel over it and a sill under a window. CSG on
+    this many boxes is slow and fragile, and splitting yields clean geometry
+    with no dependency on a boolean backend.
+    """
+    start = np.array(wall.start, dtype=float) / scale * FEET_TO_METRES
+    end = np.array(wall.end, dtype=float) / scale * FEET_TO_METRES
+    thickness_m = max(wall.thickness / scale * FEET_TO_METRES, 1e-4)
+
+    length_m = float(np.linalg.norm(end - start))
+    if length_m <= MIN_WALL_PIXELS:
+        return []
+
+    if not openings:
+        return [
+            _place(
+                (length_m, height_m, thickness_m),
+                wall,
+                length_m / 2,
+                base_m + height_m / 2,
+                scale,
+            )
+        ]
+
+    # Openings in order along the wall, clipped to it and non-overlapping.
+    spans: list[tuple[float, float, str]] = []
+    for opening in sorted(openings, key=lambda o: o.position):
+        half = (opening.width / scale * FEET_TO_METRES) / 2
+        centre = opening.position / scale * FEET_TO_METRES
+        low, high = max(0.0, centre - half), min(length_m, centre + half)
+        if high - low < MIN_OPENING_WIDTH_M:
+            continue
+        if spans and low < spans[-1][1]:
+            low = spans[-1][1]
+            if high - low < MIN_OPENING_WIDTH_M:
+                continue
+        spans.append((low, high, opening.type))
+
+    if not spans:
+        return [
+            _place(
+                (length_m, height_m, thickness_m),
+                wall,
+                length_m / 2,
+                base_m + height_m / 2,
+                scale,
+            )
+        ]
+
+    parts: list[trimesh.Trimesh] = []
+    cursor = 0.0
+
+    for low, high, opening_type in spans:
+        if low - cursor > MIN_PIER_M:
+            pier = low - cursor
+            parts.append(
+                _place(
+                    (pier, height_m, thickness_m),
+                    wall,
+                    cursor + pier / 2,
+                    base_m + height_m / 2,
+                    scale,
+                )
+            )
+
+        span = high - low
+        head_m = min(OPENING_HEAD_FT * FEET_TO_METRES, height_m)
+        sill_m = SILL_HEIGHT_FT * FEET_TO_METRES if opening_type == "window" else 0.0
+
+        if sill_m > 0:
+            parts.append(
+                _place(
+                    (span, sill_m, thickness_m), wall, low + span / 2, base_m + sill_m / 2, scale
+                )
+            )
+
+        lintel = height_m - head_m
+        if lintel > MIN_PIER_M:
+            parts.append(
+                _place(
+                    (span, lintel, thickness_m),
+                    wall,
+                    low + span / 2,
+                    base_m + head_m + lintel / 2,
+                    scale,
+                )
+            )
+
+        cursor = high
+
+    if length_m - cursor > MIN_PIER_M:
+        remainder = length_m - cursor
+        parts.append(
+            _place(
+                (remainder, height_m, thickness_m),
+                wall,
+                cursor + remainder / 2,
+                base_m + height_m / 2,
+                scale,
+            )
+        )
+
+    return parts
 
 
 def slab_mesh(
@@ -120,8 +242,9 @@ def walls_to_mesh(
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     scale: float = 1.0,
     base_ft: float = 0.0,
+    openings: list[Opening] | None = None,
 ) -> trimesh.Trimesh:
-    """Extrude one floor's walls into a mesh.
+    """Extrude one floor's walls into a mesh, leaving gaps for openings.
 
     ``scale`` is pixels per foot, as measured by the calibration stage.
     ``base_ft`` lifts the floor, for stacking storeys.
@@ -132,13 +255,27 @@ def walls_to_mesh(
     height_m = wall_height_ft * FEET_TO_METRES
     base_m = base_ft * FEET_TO_METRES
 
-    boxes = [_wall_box(wall, height_m, scale, base_m) for wall in walls]
-    boxes = [box for box in boxes if box is not None]
-    if not boxes:
+    by_wall: dict[int, list[Opening]] = {}
+    for opening in openings or []:
+        if 0 <= opening.wall_id < len(walls):
+            by_wall.setdefault(opening.wall_id, []).append(opening)
+
+    parts: list[trimesh.Trimesh] = []
+    for wall_id, wall in enumerate(walls):
+        parts.extend(
+            _wall_parts(wall, by_wall.get(wall_id, []), height_m, scale, base_m)
+        )
+
+    if not parts:
         raise ValueError("every wall was degenerate; nothing to extrude")
 
-    mesh = trimesh.util.concatenate(boxes)
-    logger.info("extruded %d wall(s) into %d faces", len(boxes), len(mesh.faces))
+    mesh = trimesh.util.concatenate(parts)
+    logger.info(
+        "extruded %d wall(s) with %d opening(s) into %d faces",
+        len(walls),
+        sum(len(v) for v in by_wall.values()),
+        len(mesh.faces),
+    )
     return mesh
 
 
@@ -175,6 +312,7 @@ def floors_to_mesh(
                     wall_height_ft=wall_height_ft,
                     scale=scale,
                     base_ft=base_ft + SLAB_THICKNESS_FT,
+                    openings=floor.openings,
                 )
             )
         else:

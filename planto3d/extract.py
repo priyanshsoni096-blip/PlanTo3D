@@ -18,8 +18,8 @@ import logging
 import cv2
 import numpy as np
 
-from planto3d.classes import ROOM, WALL
-from planto3d.geometry_types import Room, Wall
+from planto3d.classes import DOOR, ROOM, WALL, WINDOW
+from planto3d.geometry_types import Opening, Room, Wall
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,11 @@ MIN_ROOM_AREA = 100
 # precision matters most: at 2% of perimeter it cut diagonal shortcuts across
 # whole corners, turning a rectilinear building into a jagged wedge.
 SIMPLIFY_PIXELS = 4.0
+# Smallest door or window blob worth trusting.
+MIN_OPENING_AREA = 40
+# An opening further than this from any wall is dropped rather than bound to
+# a distant one -- a misplaced opening cuts a hole through solid geometry.
+MAX_OPENING_DISTANCE = 40.0
 
 
 def _segments_along(binary: np.ndarray, horizontal: bool, min_length: int) -> list[Wall]:
@@ -87,6 +92,77 @@ def extract_walls(
 
     logger.info("extracted %d wall segment(s)", len(walls))
     return walls
+
+
+def _project_onto_wall(point: tuple[float, float], wall: Wall) -> tuple[float, float]:
+    """Distance along the wall to the point's projection, and distance from it."""
+    start = np.array(wall.start)
+    direction = np.array(wall.end) - start
+    length = float(np.linalg.norm(direction))
+    if length == 0:
+        return 0.0, float(np.linalg.norm(np.array(point) - start))
+
+    unit = direction / length
+    offset = np.array(point) - start
+    along = float(np.clip(np.dot(offset, unit), 0.0, length))
+    perpendicular = float(np.linalg.norm(offset - along * unit))
+    return along, perpendicular
+
+
+def extract_openings(
+    mask: np.ndarray,
+    walls: list[Wall],
+    min_area: int = MIN_OPENING_AREA,
+    max_distance: float = MAX_OPENING_DISTANCE,
+) -> list[Opening]:
+    """Find doors and windows and bind each to the wall it interrupts.
+
+    An opening is only meaningful relative to its wall, so a component that
+    sits too far from any wall is discarded rather than attached to a distant
+    one -- a misplaced opening cuts a hole through solid geometry.
+    """
+    if not walls:
+        return []
+
+    openings: list[Opening] = []
+
+    for class_index, opening_type in ((DOOR, "door"), (WINDOW, "window")):
+        binary = (mask == class_index).astype(np.uint8)
+        if not binary.any():
+            continue
+
+        count, labels, stats, centroids = cv2.connectedComponentsWithStats(binary, 8)
+        for index in range(1, count):
+            if stats[index, cv2.CC_STAT_AREA] < min_area:
+                continue
+
+            centre = (float(centroids[index][0]), float(centroids[index][1]))
+            projections = [
+                (*_project_onto_wall(centre, wall), wall_id)
+                for wall_id, wall in enumerate(walls)
+            ]
+            along, distance, wall_id = min(projections, key=lambda item: item[1])
+
+            if distance > max_distance:
+                logger.debug("dropping %s %.0fpx from any wall", opening_type, distance)
+                continue
+
+            # Width along the wall, from the component's larger extent -- an
+            # opening is drawn as a strip across the wall's thickness.
+            width = float(
+                max(stats[index, cv2.CC_STAT_WIDTH], stats[index, cv2.CC_STAT_HEIGHT])
+            )
+            openings.append(
+                Opening(wall_id=wall_id, position=along, width=width, type=opening_type)
+            )
+
+    logger.info(
+        "extracted %d opening(s): %d door(s), %d window(s)",
+        len(openings),
+        sum(1 for o in openings if o.type == "door"),
+        sum(1 for o in openings if o.type == "window"),
+    )
+    return openings
 
 
 def extract_footprint(

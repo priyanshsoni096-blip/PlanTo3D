@@ -20,7 +20,12 @@ import numpy as np
 
 from planto3d.calibrate import TextBox, estimate_scale, read_text_boxes
 from planto3d.classical import classical_mask
-from planto3d.extract import extract_footprint, extract_rooms, extract_walls
+from planto3d.extract import (
+    extract_footprint,
+    extract_openings,
+    extract_rooms,
+    extract_walls,
+)
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT, export_glb, floors_to_mesh
 from planto3d.geometry_types import FloorPlan, Wall
 from planto3d.ingest import crop_pages, rasterize_pdf
@@ -64,6 +69,10 @@ class PipelineResult:
     def room_count(self) -> int:
         return sum(len(f.plan.rooms) for f in self.floors)
 
+    @property
+    def opening_count(self) -> int:
+        return sum(len(f.plan.openings) for f in self.floors)
+
 
 def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorResult:
     image = cv2.imread(str(image_path))
@@ -74,20 +83,21 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     walls = extract_walls(mask, min_wall_length=MIN_WALL_LENGTH)
     rooms = extract_rooms(mask, min_area=MIN_ROOM_AREA)
     footprint = extract_footprint(mask)
+    openings = extract_openings(mask, walls)
     text_boxes = read_text_boxes(image)
 
     logger.info(
-        "floor %d: %d wall(s), %d room(s), %d footprint vertices, %d text line(s)",
+        "floor %d: %d wall(s), %d room(s), %d opening(s), %d text line(s)",
         index,
         len(walls),
         len(rooms),
-        len(footprint),
+        len(openings),
         len(text_boxes),
     )
     return FloorResult(
         index=index,
         image_path=image_path,
-        plan=FloorPlan(walls=walls, rooms=rooms, footprint=footprint),
+        plan=FloorPlan(walls=walls, rooms=rooms, openings=openings, footprint=footprint),
         text_boxes=text_boxes,
     )
 
