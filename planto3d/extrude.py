@@ -18,6 +18,13 @@ from shapely.geometry import Polygon
 from trimesh.creation import extrude_polygon
 
 from planto3d.geometry_types import FloorPlan, Opening, Wall
+from planto3d.site import (
+    COVER_THICKNESS_FT,
+    SITE_MARGIN_FT,
+    SITE_THICKNESS_FT,
+    outdoor_rooms,
+    site_outline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -453,7 +460,39 @@ def floors_to_parts(
                 )
             )
 
+    parts.update(_site_parts(floors, scale))
     return {name: meshes for name, meshes in parts.items() if meshes}
+
+
+def _site_parts(
+    floors: list[FloorPlan], scale: float
+) -> dict[str, list[trimesh.Trimesh]]:
+    """The ground the building stands on, with lawn and paving laid over it.
+
+    Sits just below zero so the building's own ground-floor slab reads as
+    resting on it rather than z-fighting with it.
+    """
+    outline = site_outline(
+        [floor.footprint for floor in floors if floor.footprint],
+        margin_px=SITE_MARGIN_FT * scale,
+    )
+    if not outline:
+        return {}
+
+    parts: dict[str, list[trimesh.Trimesh]] = {"ground": [], "lawn": [], "paving": []}
+
+    ground = slab_mesh(outline, SITE_THICKNESS_FT, -SITE_THICKNESS_FT, scale)
+    if ground is not None:
+        parts["ground"].append(ground)
+
+    # Ground cover comes from the ground floor's own labelled outdoor rooms.
+    for cover, rooms in outdoor_rooms(floors[0].rooms).items():
+        for room in rooms:
+            patch = slab_mesh(room.polygon, COVER_THICKNESS_FT, 0.0, scale)
+            if patch is not None:
+                parts[cover].append(patch)
+
+    return parts
 
 
 def export_glb(mesh: trimesh.Trimesh, output_path: Path) -> Path:

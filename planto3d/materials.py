@@ -60,6 +60,9 @@ SURFACES = {
     "floor": Surface("floor", (198, 193, 186), roughness=0.85),
     "roof": Surface("roof", (176, 172, 166), roughness=0.88),
     "glass": Surface("glass", (146, 190, 214), roughness=0.06, metallic=0.1, opacity=0.35),
+    "ground": Surface("ground", (132, 128, 120), roughness=0.97),
+    "lawn": Surface("lawn", (104, 138, 74), roughness=0.98),
+    "paving": Surface("paving", (158, 152, 143), roughness=0.9),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)

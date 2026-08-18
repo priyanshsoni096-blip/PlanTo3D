@@ -98,13 +98,27 @@ class TestExport:
         }
         assert "glass" in materials
 
-    def test_the_model_keeps_its_real_world_size(self, tmp_path):
+    def test_the_building_keeps_its_real_world_size(self, tmp_path):
+        # Measured on the walls, not the whole scene: the site slab reaches
+        # well beyond the building by design.
         scene = build_scene([_floor()], wall_height_ft=9.0, scale=SCALE)
         path = tmp_path / "house.glb"
         export_scene(scene, path)
 
-        reloaded = trimesh.load(str(path), force="mesh")
-        bounds = reloaded.bounds[1] - reloaded.bounds[0]
+        walls = trimesh.load(str(path)).geometry["wall"]
+        width = walls.bounds[1][0] - walls.bounds[0][0]
 
         # 400px at 20px/ft is 20ft, which is 6.096m.
-        assert bounds[0] == pytest.approx(6.096, abs=0.3)
+        assert width == pytest.approx(6.096, abs=0.3)
+
+    def test_the_site_reaches_beyond_the_building(self, tmp_path):
+        scene = build_scene([_floor()], wall_height_ft=9.0, scale=SCALE)
+        path = tmp_path / "house.glb"
+        export_scene(scene, path)
+
+        loaded = trimesh.load(str(path))
+        ground = loaded.geometry["ground"]
+        walls = loaded.geometry["wall"]
+
+        assert ground.bounds[0][0] < walls.bounds[0][0]
+        assert ground.bounds[1][0] > walls.bounds[1][0]
