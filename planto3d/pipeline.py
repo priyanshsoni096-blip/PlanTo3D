@@ -35,6 +35,7 @@ from planto3d.extract import (
     extract_walls,
 )
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
+from planto3d.features import regions_from_labels
 from planto3d.materials import build_scene, export_scene
 from planto3d.geometry_types import FloorPlan, Wall
 from planto3d.ingest import WORKING_DPI, crop_pages, rasterize_pdf
@@ -245,6 +246,9 @@ def run(
                 MIN_ROOM_SQFT,
             )
         floor.plan.rooms = assign_labels(kept, floor.text_boxes)
+        # Outdoor areas rarely survive as rooms, but their labels state both
+        # the name and the size, so they can be placed from the text alone.
+        floor.plan.labelled_regions = regions_from_labels(floor.text_boxes, scale)
 
     model_path = None
     if scale is None:

@@ -143,6 +143,10 @@ class FloorPlan:
     openings: list[Opening] = field(default_factory=list)
     footprint: list[Point] = field(default_factory=list)
     planting: list[list[Point]] = field(default_factory=list)
+    # Feature regions placed from dimension labels, keyed by category. Covers
+    # the outdoor areas the segmentation model cannot mark, because a lawn or
+    # a driveway is not a room.
+    labelled_regions: dict[str, list[list[Point]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {

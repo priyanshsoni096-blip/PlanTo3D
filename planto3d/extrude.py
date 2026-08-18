@@ -514,20 +514,22 @@ def floors_to_parts(
 
         # Ground cover for this storey: lawn, paving, and water recessed into
         # the surface. A pool laid flat on the ground reads as a blue carpet.
+        #
+        # Polygons come from segmented rooms where they exist, and from
+        # dimension labels where they do not -- which is most outdoor areas,
+        # since a lawn or a driveway is not a room the model can find.
         surface_ft = base_ft + SLAB_THICKNESS_FT if index else 0.0
         for category in GROUND_COVERS:
-            for room in features.get(category, []):
+            polygons = [room.polygon for room in features.get(category, [])]
+            polygons += floor.labelled_regions.get(category, [])
+
+            for polygon in polygons:
                 if category == "water":
                     patch = slab_mesh(
-                        room.polygon,
-                        POOL_DEPTH_FT,
-                        surface_ft - POOL_DEPTH_FT,
-                        scale,
+                        polygon, POOL_DEPTH_FT, surface_ft - POOL_DEPTH_FT, scale
                     )
                 else:
-                    patch = slab_mesh(
-                        room.polygon, COVER_THICKNESS_FT, surface_ft, scale
-                    )
+                    patch = slab_mesh(polygon, COVER_THICKNESS_FT, surface_ft, scale)
                 if patch is not None:
                     parts.setdefault(category, []).append(patch)
 

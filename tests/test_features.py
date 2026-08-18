@@ -1,6 +1,11 @@
 import pytest
 
-from planto3d.features import GROUND_COVERS, classify, group_by_feature
+from planto3d.features import (
+    GROUND_COVERS,
+    classify,
+    group_by_feature,
+    regions_from_labels,
+)
 from planto3d.geometry_types import Room
 
 
@@ -98,3 +103,49 @@ class TestGrouping:
 
     def test_a_plan_of_plain_rooms_groups_to_nothing(self):
         assert group_by_feature([self._room("BEDROOM"), self._room("KITCHEN", 100)]) == {}
+
+
+class TestRegionsFromLabels:
+    """Outdoor areas are not rooms, so their labels are the only source."""
+
+    def _box(self, text, x=500.0, y=400.0):
+        from planto3d.calibrate import TextBox
+
+        return TextBox(text=text, bbox=(int(x) - 40, int(y) - 6, 80, 12), confidence=90.0)
+
+    def test_a_dimensioned_label_becomes_a_region_of_that_size(self):
+        # LANDSCAPE 49'0"X13'2" is 645 sq ft, whatever the hatching covers.
+        regions = regions_from_labels([self._box("LANDSCAPE 49'0\"X13'2\"")], scale=20.0)
+
+        polygon = regions["lawn"][0]
+        width = max(p[0] for p in polygon) - min(p[0] for p in polygon)
+        height = max(p[1] for p in polygon) - min(p[1] for p in polygon)
+        assert width / 20.0 == pytest.approx(49.0, abs=0.5)
+        assert height / 20.0 == pytest.approx(13.17, abs=0.5)
+
+    def test_the_region_is_centred_on_its_label(self):
+        # Drafters centre a label in the space it names.
+        regions = regions_from_labels(
+            [self._box("PARKING 20'0\"X25'0\"", x=900, y=700)], scale=20.0
+        )
+
+        polygon = regions["paving"][0]
+        centre_x = sum(p[0] for p in polygon) / 4
+        centre_y = sum(p[1] for p in polygon) / 4
+        assert centre_x == pytest.approx(900, abs=2)
+        assert centre_y == pytest.approx(700, abs=2)
+
+    def test_a_pool_label_places_water(self):
+        regions = regions_from_labels([self._box("SWIMMING POOL 30'0\"X12'0\"")], scale=20.0)
+
+        assert "water" in regions
+
+    def test_labels_without_dimensions_are_skipped(self):
+        # Nothing to size the region with; a guessed extent is worse than none.
+        assert regions_from_labels([self._box("TERRACE GARDEN")], scale=20.0) == {}
+
+    def test_ordinary_rooms_produce_no_region(self):
+        assert regions_from_labels([self._box("BEDROOM 15'0\"X18'0\"")], scale=20.0) == {}
+
+    def test_an_unusable_scale_produces_nothing(self):
+        assert regions_from_labels([self._box("LANDSCAPE 49'0\"X13'2\"")], scale=0.0) == {}
