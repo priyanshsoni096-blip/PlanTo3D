@@ -28,7 +28,11 @@ GROUND_COVER = {
 
 # Rooms open to the air at an upper storey. These need a railing along their
 # outer edge; without one an upper floor reads as a hole in the facade.
-OPEN_EDGE_KEYWORDS = ("BALCONY", "BALC", "TERRACE", "DECK")
+#
+# "BAL" is here because OCR routinely truncates the word: on the reference
+# first floor the label comes back as exactly "BAL", which matched none of
+# the longer spellings and left every balcony unrailed.
+OPEN_EDGE_KEYWORDS = ("BAL", "TERRACE", "DECK", "VERANDA", "PORCH")
 # Railing dimensions, in feet. Slim and waist-high, as a rail should be.
 RAILING_HEIGHT_FT = 3.4
 RAILING_THICKNESS_FT = 0.25

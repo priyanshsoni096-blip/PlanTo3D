@@ -572,10 +572,15 @@ def _site_parts(
     # Planting is found by colour rather than by label. The segmentation
     # model is trained on interiors and does not mark a garden at all, since
     # a garden is not a room -- so without this the lawns never appear.
+    #
+    # Laid on top of the storey's floor slab, not at its base. Placed at the
+    # base it sits inside the slab -- a terrace garden simply vanished into
+    # the floor it was supposed to be growing on.
     for floor_index, floor in enumerate(floors):
-        base_ft = floor_index * wall_height_ft if floor_index else 0.0
+        base_ft = floor_index * wall_height_ft
+        surface_ft = base_ft + SLAB_THICKNESS_FT if floor_index else 0.0
         for region in floor.planting:
-            patch = slab_mesh(region, COVER_THICKNESS_FT, base_ft, scale)
+            patch = slab_mesh(region, COVER_THICKNESS_FT, surface_ft, scale)
             if patch is not None:
                 parts["lawn"].append(patch)
 

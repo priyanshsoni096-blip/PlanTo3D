@@ -48,6 +48,12 @@ Segmenter = Callable[[np.ndarray], np.ndarray]
 # walls shorter than this are extraction noise.
 MIN_WALL_LENGTH = 25
 MIN_ROOM_AREA = 2000
+# Rooms are filtered again once the scale is known, in real units. A pixel
+# threshold cannot tell a cupboard from a bathroom without knowing how big a
+# pixel is: at the reference scale, 2000 px is 2.5 sq ft, so specks of
+# segmentation noise were surviving as "rooms". The smallest genuine room on
+# these plans is a WC at around 30 sq ft.
+MIN_ROOM_SQFT = 12.0
 
 
 @dataclass
@@ -91,6 +97,15 @@ class PipelineResult:
     @property
     def opening_count(self) -> int:
         return sum(len(f.plan.openings) for f in self.floors)
+
+
+def _polygon_area(polygon: list[tuple[float, float]]) -> float:
+    """Signed area of a polygon, by the shoelace formula."""
+    if len(polygon) < 3:
+        return 0.0
+    points = np.asarray(polygon, dtype=float)
+    x, y = points[:, 0], points[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
 
 
 def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorResult:
@@ -188,12 +203,10 @@ def run(
         [box for floor in floors for box in floor.text_boxes],
     )
 
-    for floor in floors:
-        floor.plan.rooms = assign_labels(floor.plan.rooms, floor.text_boxes)
-
     # Many plans carry no dimensions at all. Rather than give up, fall back
     # through progressively weaker references, each still grounded in the
-    # drawing itself before resorting to a drafting convention.
+    # drawing itself before resorting to a drafting convention. This has to
+    # settle before rooms can be filtered by real-world size.
     scale_source = "dimensions"
     if scale is None:
         scale = scale_from_doors(
@@ -211,6 +224,27 @@ def run(
             scale,
             ASSUMED_DRAWING_RATIO,
         )
+
+    # With a scale in hand, drop regions too small to be rooms. A pixel
+    # threshold cannot tell a cupboard from a bathroom without knowing how
+    # big a pixel is, so specks of segmentation noise survive extraction as
+    # 4 sq ft "rooms" and go on to be labelled, railed and paved.
+    minimum_px = MIN_ROOM_SQFT * scale * scale
+    for floor in floors:
+        kept = [
+            room
+            for room in floor.plan.rooms
+            if abs(_polygon_area(room.polygon)) >= minimum_px
+        ]
+        dropped = len(floor.plan.rooms) - len(kept)
+        if dropped:
+            logger.info(
+                "floor %d: dropped %d region(s) under %.0f sq ft",
+                floor.index,
+                dropped,
+                MIN_ROOM_SQFT,
+            )
+        floor.plan.rooms = assign_labels(kept, floor.text_boxes)
 
     model_path = None
     if scale is None:
