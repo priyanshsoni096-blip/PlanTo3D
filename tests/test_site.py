@@ -2,7 +2,7 @@ import pytest
 
 from planto3d.extrude import floors_to_parts
 from planto3d.geometry_types import FloorPlan, Room, Wall
-from planto3d.site import classify_cover, outdoor_rooms, site_outline
+from planto3d.site import boundary_walls, classify_cover, outdoor_rooms, site_outline
 
 SCALE = 20.0
 FOOTPRINT = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)]
@@ -60,6 +60,34 @@ class TestOutdoorRooms:
 
     def test_a_plan_with_no_outdoor_rooms_yields_nothing(self):
         assert outdoor_rooms([_room("BEDROOM"), _room("KITCHEN", 200)]) == {}
+
+
+class TestPlotFromTheDrawing:
+    def test_the_page_extent_is_preferred_over_a_margin(self):
+        # The sheet is cropped to the drawing frame, and that frame encloses
+        # the whole site -- setbacks, driveway and garden. It is the plot,
+        # measured rather than assumed.
+        outline = site_outline([FOOTPRINT], margin_px=50.0, page_size=(2275, 1570))
+
+        assert max(p[0] for p in outline) == pytest.approx(2275, abs=10)
+        assert max(p[1] for p in outline) == pytest.approx(1570, abs=10)
+
+    def test_the_plot_is_inset_from_the_sheet_edge(self):
+        outline = site_outline([], margin_px=0.0, page_size=(1000, 800))
+
+        assert min(p[0] for p in outline) > 0
+        assert max(p[0] for p in outline) < 1000
+
+    def test_a_boundary_wall_runs_right_around_the_plot(self):
+        outline = site_outline([], margin_px=0.0, page_size=(1000, 800))
+
+        walls = boundary_walls(outline, thickness_px=16.0)
+
+        assert len(walls) == 4
+        assert all(wall.length() > 0 for wall in walls)
+
+    def test_a_degenerate_outline_yields_no_boundary(self):
+        assert boundary_walls([(0.0, 0.0), (1.0, 1.0)], thickness_px=16.0) == []
 
 
 class TestSiteOutline:
@@ -125,6 +153,23 @@ class TestSiteInTheModel:
         building_base = min(mesh.bounds[0][1] for mesh in parts["floor"])
 
         assert ground_top <= building_base + 1e-6
+
+    def test_the_plot_gets_a_boundary_wall(self):
+        parts = floors_to_parts(
+            [self._floor()], wall_height_ft=9.0, scale=SCALE, page_size=(800, 600)
+        )
+
+        assert "boundary" in parts
+
+    def test_the_boundary_stands_lower_than_the_house(self):
+        parts = floors_to_parts(
+            [self._floor()], wall_height_ft=9.0, scale=SCALE, page_size=(800, 600)
+        )
+
+        boundary_top = max(mesh.bounds[1][1] for mesh in parts["boundary"])
+        house_top = max(mesh.bounds[1][1] for mesh in parts["roof"])
+
+        assert boundary_top < house_top
 
     def test_the_ground_extends_past_the_walls(self):
         parts = floors_to_parts([self._floor()], wall_height_ft=9.0, scale=SCALE)

@@ -141,8 +141,16 @@ def run(
     if scale is None:
         logger.warning("scale could not be determined; skipping 3D export")
     else:
+        # The cropped sheet is the plot: its frame encloses the whole site,
+        # so the drawing's extent gives the boundary rather than a guess.
+        first = cv2.imread(str(floors[0].image_path))
+        page_size = (first.shape[1], first.shape[0]) if first is not None else None
+
         scene = build_scene(
-            [floor.plan for floor in floors], wall_height_ft=wall_height_ft, scale=scale
+            [floor.plan for floor in floors],
+            wall_height_ft=wall_height_ft,
+            scale=scale,
+            page_size=page_size,
         )
         model_path = export_scene(scene, output_dir / "house.glb")
 

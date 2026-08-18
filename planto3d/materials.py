@@ -63,6 +63,7 @@ SURFACES = {
     "ground": Surface("ground", (132, 128, 120), roughness=0.97),
     "lawn": Surface("lawn", (104, 138, 74), roughness=0.98),
     "paving": Surface("paving", (158, 152, 143), roughness=0.9),
+    "boundary": Surface("boundary", (206, 198, 184), roughness=0.94),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)
@@ -72,9 +73,12 @@ def build_scene(
     floors: list[FloorPlan],
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     scale: float = 1.0,
+    page_size: tuple[int, int] | None = None,
 ) -> trimesh.Scene:
     """Assemble the building as a scene with one material per surface type."""
-    parts = floors_to_parts(floors, wall_height_ft=wall_height_ft, scale=scale)
+    parts = floors_to_parts(
+        floors, wall_height_ft=wall_height_ft, scale=scale, page_size=page_size
+    )
 
     scene = trimesh.Scene()
     for name, meshes in parts.items():

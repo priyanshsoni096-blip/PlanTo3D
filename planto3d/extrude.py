@@ -19,9 +19,12 @@ from trimesh.creation import extrude_polygon
 
 from planto3d.geometry_types import FloorPlan, Opening, Wall
 from planto3d.site import (
+    BOUNDARY_HEIGHT_FT,
+    BOUNDARY_THICKNESS_FT,
     COVER_THICKNESS_FT,
     SITE_MARGIN_FT,
     SITE_THICKNESS_FT,
+    boundary_walls,
     outdoor_rooms,
     site_outline,
 )
@@ -246,8 +249,12 @@ def slab_mesh(
     thickness_ft: float,
     base_ft: float,
     scale: float,
+    holes: list[list[tuple[float, float]]] | None = None,
 ) -> trimesh.Trimesh | None:
     """A horizontal slab covering a storey's footprint.
+
+    ``holes`` are regions to cut out -- an open terrace garden, for instance,
+    which must not be roofed over.
 
     Returns None when the outline cannot enclose an area, so a bad contour
     costs a slab rather than the whole model.
@@ -255,12 +262,28 @@ def slab_mesh(
     if len(footprint) < MIN_FOOTPRINT_VERTICES:
         return None
 
-    points = [(x / scale * FEET_TO_METRES, y / scale * FEET_TO_METRES) for x, y in footprint]
+    def to_metres(points):
+        return [(x / scale * FEET_TO_METRES, y / scale * FEET_TO_METRES) for x, y in points]
 
     try:
-        polygon = Polygon(points)
+        polygon = Polygon(to_metres(footprint))
         if not polygon.is_valid:
             polygon = polygon.buffer(0)  # repair self-intersections
+
+        for hole in holes or []:
+            if len(hole) < MIN_FOOTPRINT_VERTICES:
+                continue
+            cut = Polygon(to_metres(hole))
+            if not cut.is_valid:
+                cut = cut.buffer(0)
+            if cut.is_valid and not cut.is_empty:
+                polygon = polygon.difference(cut)
+
+        # A difference can split the slab into several pieces; keep the
+        # largest, since a roof reduced to slivers is worse than none.
+        if polygon.geom_type == "MultiPolygon":
+            polygon = max(polygon.geoms, key=lambda part: part.area)
+
         if polygon.is_empty or polygon.area <= 0:
             return None
         slab = extrude_polygon(polygon, height=thickness_ft * FEET_TO_METRES)
@@ -404,6 +427,7 @@ def floors_to_parts(
     floors: list[FloorPlan],
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     scale: float = 1.0,
+    page_size: tuple[int, int] | None = None,
 ) -> dict[str, list[trimesh.Trimesh]]:
     """Build the building's geometry grouped by what it is made of.
 
@@ -445,7 +469,12 @@ def floors_to_parts(
 
     roof_base_ft = len(floors) * wall_height_ft
     top = floors[-1]
-    roof = slab_mesh(top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale)
+
+    # A planted terrace is open to the sky. Roofing over it hides the garden
+    # entirely and makes the top storey read as a sealed box.
+    roof = slab_mesh(
+        top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale, holes=top.planting
+    )
     if roof is not None:
         parts["roof"].append(roof)
         parapet = _parapet_walls(top.footprint, roof_base_ft, scale)
@@ -460,14 +489,17 @@ def floors_to_parts(
                 )
             )
 
-    parts.update(_site_parts(floors, scale, wall_height_ft))
+    parts.update(_site_parts(floors, scale, wall_height_ft, page_size))
     return {name: meshes for name, meshes in parts.items() if meshes}
 
 
 def _site_parts(
-    floors: list[FloorPlan], scale: float, wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT
+    floors: list[FloorPlan],
+    scale: float,
+    wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
+    page_size: tuple[int, int] | None = None,
 ) -> dict[str, list[trimesh.Trimesh]]:
-    """The ground the building stands on, with lawn and paving laid over it.
+    """The ground the building stands on, with lawn, paving and a boundary.
 
     Sits just below zero so the building's own ground-floor slab reads as
     resting on it rather than z-fighting with it.
@@ -475,15 +507,29 @@ def _site_parts(
     outline = site_outline(
         [floor.footprint for floor in floors if floor.footprint],
         margin_px=SITE_MARGIN_FT * scale,
+        page_size=page_size,
     )
     if not outline:
         return {}
 
-    parts: dict[str, list[trimesh.Trimesh]] = {"ground": [], "lawn": [], "paving": []}
+    parts: dict[str, list[trimesh.Trimesh]] = {
+        "ground": [],
+        "lawn": [],
+        "paving": [],
+        "boundary": [],
+    }
 
     ground = slab_mesh(outline, SITE_THICKNESS_FT, -SITE_THICKNESS_FT, scale)
     if ground is not None:
         parts["ground"].append(ground)
+
+    # A compound wall around the plot, as the reference elevations show.
+    for wall in boundary_walls(outline, BOUNDARY_THICKNESS_FT * scale):
+        parts["boundary"].extend(
+            _wall_parts(
+                wall, [], BOUNDARY_HEIGHT_FT * FEET_TO_METRES, scale, 0.0
+            )
+        )
 
     # Ground cover comes from the ground floor's own labelled outdoor rooms.
     for cover, rooms in outdoor_rooms(floors[0].rooms).items():

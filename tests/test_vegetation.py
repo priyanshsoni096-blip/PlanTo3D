@@ -95,6 +95,26 @@ class TestPlantingInTheModel:
 
         assert "lawn" not in parts
 
+    def test_a_planted_terrace_is_not_roofed_over(self):
+        # A garden open to the sky must stay open; roofing it hides the
+        # planting entirely and the top storey reads as a sealed box.
+        bed = [(40.0, 40.0), (360.0, 40.0), (360.0, 260.0), (40.0, 260.0)]
+
+        roofed = floors_to_parts([self._floor()], wall_height_ft=9.0, scale=SCALE)
+        opened = floors_to_parts([self._floor([bed])], wall_height_ft=9.0, scale=SCALE)
+
+        roofed_area = sum(m.area for m in roofed["roof"])
+        opened_area = sum(m.area for m in opened["roof"])
+        assert opened_area < roofed_area
+
+    def test_planting_covering_the_whole_roof_does_not_erase_the_building(self):
+        # A cut that consumes the entire slab must cost only the roof.
+        bed = [(-100.0, -100.0), (900.0, -100.0), (900.0, 900.0), (-100.0, 900.0)]
+
+        parts = floors_to_parts([self._floor([bed])], wall_height_ft=9.0, scale=SCALE)
+
+        assert parts["wall"]
+
     def test_a_roof_garden_sits_at_its_own_storey(self):
         # Terrace planting belongs on the terrace, not on the ground.
         bed = [(50.0, 50.0), (250.0, 50.0), (250.0, 250.0), (50.0, 250.0)]

@@ -26,11 +26,17 @@ GROUND_COVER = {
     "paving": ("PARKING", "DRIVEWAY", "PORCH", "VERANDAH", "DECK", "PASSAGE"),
 }
 
-# The site slab extends this far beyond the building on every side, in feet.
+# Fallback margin around the building when the plot extent is unknown.
 SITE_MARGIN_FT = 14.0
 # Thicknesses in feet: the site slab, and the cover laid on top of it.
 SITE_THICKNESS_FT = 0.6
 COVER_THICKNESS_FT = 0.12
+# Compound wall around the plot: a boundary at roughly chest height.
+BOUNDARY_HEIGHT_FT = 6.0
+BOUNDARY_THICKNESS_FT = 0.8
+# The plot is inset from the sheet edge so the wall sits inside the drawing
+# rather than straddling its border.
+PLOT_INSET_PX = 6.0
 
 
 def classify_cover(label: str) -> str | None:
@@ -64,12 +70,28 @@ def outdoor_rooms(rooms: list[Room]) -> dict[str, list[Room]]:
 def site_outline(
     footprints: list[list[tuple[float, float]]],
     margin_px: float,
+    page_size: tuple[int, int] | None = None,
 ) -> list[tuple[float, float]]:
-    """A rectangle enclosing every floor's footprint, plus a margin.
+    """The plot the building sits on.
 
-    Rectangular rather than following the building's outline: a site is a
-    plot, and a ground slab that hugs the walls looks like a plinth.
+    Prefers the drawing's own extent: the sheet is cropped to the drawing
+    frame, and that frame encloses the whole site -- setbacks, driveway and
+    garden included -- so it is the plot, measured rather than assumed. Falls
+    back to a margin around the building when no page size is given.
+
+    Rectangular either way: a plot is a rectangle, and a ground slab that
+    hugs the walls looks like a plinth.
     """
+    if page_size is not None:
+        width, height = page_size
+        inset = PLOT_INSET_PX
+        return [
+            (inset, inset),
+            (width - inset, inset),
+            (width - inset, height - inset),
+            (inset, height - inset),
+        ]
+
     points = [point for footprint in footprints for point in footprint]
     if not points:
         return []
@@ -78,3 +100,20 @@ def site_outline(
     left, top = array.min(axis=0) - margin_px
     right, bottom = array.max(axis=0) + margin_px
     return [(left, top), (right, top), (right, bottom), (left, bottom)]
+
+
+def boundary_walls(outline: list[tuple[float, float]], thickness_px: float) -> list:
+    """A compound wall running around the plot's edge."""
+    from planto3d.geometry_types import Wall
+
+    if len(outline) < 3:
+        return []
+
+    return [
+        Wall(
+            start=outline[i],
+            end=outline[(i + 1) % len(outline)],
+            thickness=thickness_px,
+        )
+        for i in range(len(outline))
+    ]
