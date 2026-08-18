@@ -22,10 +22,13 @@ from planto3d.site import (
     BOUNDARY_HEIGHT_FT,
     BOUNDARY_THICKNESS_FT,
     COVER_THICKNESS_FT,
+    RAILING_HEIGHT_FT,
+    RAILING_THICKNESS_FT,
     SITE_MARGIN_FT,
     SITE_THICKNESS_FT,
     boundary_walls,
     outdoor_rooms,
+    railed_rooms,
     site_outline,
 )
 
@@ -306,6 +309,27 @@ def slab_mesh(
     return slab
 
 
+def _railing_parts(
+    polygon: list[tuple[float, float]], base_m: float, scale: float
+) -> list[trimesh.Trimesh]:
+    """A waist-high rail running around an open-edged room."""
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    thickness_px = RAILING_THICKNESS_FT * scale
+    height_m = RAILING_HEIGHT_FT * FEET_TO_METRES
+
+    parts = []
+    for index in range(len(polygon)):
+        rail = Wall(
+            start=polygon[index],
+            end=polygon[(index + 1) % len(polygon)],
+            thickness=thickness_px,
+        )
+        parts.extend(_wall_parts(rail, [], height_m, scale, base_m))
+    return parts
+
+
 def _parapet_walls(footprint: list[tuple[float, float]], base_ft: float, scale: float) -> list[Wall]:
     """The low wall running around a flat roof's edge."""
     if len(footprint) < MIN_FOOTPRINT_VERTICES:
@@ -465,6 +489,13 @@ def floors_to_parts(
             )
             parts["glass"].extend(
                 opening_panes(wall, openings, height_m, scale, wall_base_m)
+            )
+
+        # Balconies and terraces are open to the air. Without a railing an
+        # upper floor reads as a hole punched in the facade.
+        for room in railed_rooms(floor.rooms):
+            parts.setdefault("railing", []).extend(
+                _railing_parts(room.polygon, wall_base_m, scale)
             )
 
     roof_base_ft = len(floors) * wall_height_ft

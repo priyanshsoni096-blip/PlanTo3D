@@ -18,8 +18,14 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from planto3d.calibrate import TextBox, estimate_scale, read_text_boxes
-from planto3d.classical import classical_mask, vegetation_regions
+from planto3d.calibrate import (
+    ASSUMED_DRAWING_RATIO,
+    TextBox,
+    assumed_scale,
+    estimate_scale,
+    read_text_boxes,
+)
+from planto3d.classical import classical_mask, refine_windows, vegetation_regions
 from planto3d.extract import (
     extract_footprint,
     extract_openings,
@@ -29,7 +35,7 @@ from planto3d.extract import (
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
 from planto3d.materials import build_scene, export_scene
 from planto3d.geometry_types import FloorPlan, Wall
-from planto3d.ingest import crop_pages, rasterize_pdf
+from planto3d.ingest import WORKING_DPI, crop_pages, rasterize_pdf
 from planto3d.label_rooms import assign_labels
 
 logger = logging.getLogger(__name__)
@@ -61,6 +67,10 @@ class PipelineResult:
     floors: list[FloorResult]
     scale: float | None
     model_path: Path | None
+    # True when no dimension text could be read and the scale was assumed
+    # from a typical drafting ratio. The model is correctly proportioned but
+    # its absolute size is a guess, which callers must not present as measured.
+    scale_assumed: bool = False
 
     @property
     def wall_count(self) -> int:
@@ -80,7 +90,7 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     if image is None:
         raise FileNotFoundError(f"could not read page image: {image_path}")
 
-    mask = segmenter(image)
+    mask = refine_windows(segmenter(image), image)
     walls = extract_walls(mask, min_wall_length=MIN_WALL_LENGTH)
     rooms = extract_rooms(mask, min_area=MIN_ROOM_AREA)
     footprint = extract_footprint(mask)
@@ -137,6 +147,18 @@ def run(
     for floor in floors:
         floor.plan.rooms = assign_labels(floor.plan.rooms, floor.text_boxes)
 
+    # A drawing whose dimensions cannot be read still has usable geometry.
+    # Falling back to a typical drafting ratio gives a correctly proportioned
+    # model rather than nothing, so long as the assumption is reported.
+    scale_assumed = scale is None
+    if scale_assumed:
+        scale = assumed_scale(WORKING_DPI)
+        logger.warning(
+            "no dimensions could be read; assuming %.1f px/ft from a 1:%.0f ratio",
+            scale,
+            ASSUMED_DRAWING_RATIO,
+        )
+
     model_path = None
     if scale is None:
         logger.warning("scale could not be determined; skipping 3D export")
@@ -154,7 +176,12 @@ def run(
         )
         model_path = export_scene(scene, output_dir / "house.glb")
 
-    return PipelineResult(floors=floors, scale=scale, model_path=model_path)
+    return PipelineResult(
+        floors=floors,
+        scale=scale,
+        model_path=model_path,
+        scale_assumed=scale_assumed,
+    )
 
 
 def draw_overlay(floor: FloorResult) -> np.ndarray:

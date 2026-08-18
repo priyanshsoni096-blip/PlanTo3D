@@ -40,6 +40,12 @@ DIMENSION_PATTERN = re.compile(
 
 INCHES_PER_FOOT = 12
 MIN_CONFIDENCE = 40.0
+# Fallback when the drawing carries no readable dimensions. Residential plans
+# are typically drafted around 1:150, so at a known rasterization resolution
+# the scale follows from the ratio rather than being invented: on the
+# reference sheet this gives 32 px/ft against 28.15 measured, close enough
+# for a model of believable size while clearly flagged as assumed.
+ASSUMED_DRAWING_RATIO = 150.0
 # Words separated by more than this multiple of their height belong to
 # different labels. Tesseract assigns one "line" to text at the same
 # vertical position however far apart it sits, which on a floor plan merges
@@ -170,3 +176,15 @@ def estimate_scale(rooms: list[Room], text_boxes: list[TextBox]) -> float | None
     scale = median(samples)
     logger.info("scale estimated at %.2f px/ft from %d measurement(s)", scale, len(samples))
     return scale
+
+
+def assumed_scale(dpi: int, ratio: float = ASSUMED_DRAWING_RATIO) -> float:
+    """Pixels per foot implied by a drafting ratio at a known resolution.
+
+    Used only when the drawing carries no readable dimensions -- a scanned
+    sheet, or one whose labels OCR cannot resolve. The model is then correctly
+    proportioned but its absolute size is an assumption, which callers must
+    say out loud rather than present as measured.
+    """
+    inches_per_foot_on_paper = INCHES_PER_FOOT / ratio
+    return dpi * inches_per_foot_on_paper

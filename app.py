@@ -64,8 +64,9 @@ def convert(pdf_file, wall_height_ft: float):
 
     if result.model_path is None:
         raise gr.Error(
-            "No scale could be read from the drawing. PlanTo3D needs printed "
-            "room dimensions such as 15'0\"X18'0\" to size the model."
+            "Could not build a model from this drawing — no walls were found. "
+            "PlanTo3D expects a clean, digital floor plan rather than a photo "
+            "or a heavily compressed scan."
         )
 
     views = render_views(result.model_path, workdir, resolution=(1000, 750))
@@ -81,9 +82,21 @@ def convert(pdf_file, wall_height_ft: float):
         cv2.imwrite(str(path), draw_overlay(floor))
         overlays.append((str(path), f"Floor {floor.index + 1}"))
 
+    if result.scale_assumed:
+        scale_line = (
+            f"**Scale: assumed** at {result.scale:.1f} pixels per foot — no room "
+            "dimensions could be read from this drawing, so a typical 1:150 "
+            "drafting ratio was used. **The model's proportions are correct but "
+            "its absolute size is a guess.**"
+        )
+    else:
+        scale_line = (
+            f"**Scale read from the drawing:** {result.scale:.1f} pixels per foot"
+        )
+
     lines = [
         f"**Segmenter:** {SEGMENTER_NAME}",
-        f"**Scale read from the drawing:** {result.scale:.1f} pixels per foot",
+        scale_line,
         f"**Total:** {result.wall_count} wall segments, {result.room_count} rooms "
         f"across {len(result.floors)} floors",
         "",

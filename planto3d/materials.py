@@ -64,6 +64,8 @@ SURFACES = {
     "lawn": Surface("lawn", (104, 138, 74), roughness=0.98),
     "paving": Surface("paving", (158, 152, 143), roughness=0.9),
     "boundary": Surface("boundary", (206, 198, 184), roughness=0.94),
+    # Dark metal, as balcony rails are drawn in the reference elevations.
+    "railing": Surface("railing", (72, 70, 68), roughness=0.35, metallic=0.7),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)

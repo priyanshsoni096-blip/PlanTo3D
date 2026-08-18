@@ -26,6 +26,13 @@ GROUND_COVER = {
     "paving": ("PARKING", "DRIVEWAY", "PORCH", "VERANDAH", "DECK", "PASSAGE"),
 }
 
+# Rooms open to the air at an upper storey. These need a railing along their
+# outer edge; without one an upper floor reads as a hole in the facade.
+OPEN_EDGE_KEYWORDS = ("BALCONY", "BALC", "TERRACE", "DECK")
+# Railing dimensions, in feet. Slim and waist-high, as a rail should be.
+RAILING_HEIGHT_FT = 3.4
+RAILING_THICKNESS_FT = 0.25
+
 # Fallback margin around the building when the plot extent is unknown.
 SITE_MARGIN_FT = 14.0
 # Thicknesses in feet: the site slab, and the cover laid on top of it.
@@ -100,6 +107,21 @@ def site_outline(
     left, top = array.min(axis=0) - margin_px
     right, bottom = array.max(axis=0) + margin_px
     return [(left, top), (right, top), (right, bottom), (left, bottom)]
+
+
+def has_open_edge(label: str) -> bool:
+    """Whether a room is open to the air and so needs a railing."""
+    return bool(label) and any(
+        keyword in label.upper() for keyword in OPEN_EDGE_KEYWORDS
+    )
+
+
+def railed_rooms(rooms: list[Room]) -> list[Room]:
+    """Rooms that need a railing around them -- balconies and terraces."""
+    railed = [room for room in rooms if has_open_edge(room.label)]
+    if railed:
+        logger.info("railing %d open-edged room(s)", len(railed))
+    return railed
 
 
 def boundary_walls(outline: list[tuple[float, float]], thickness_px: float) -> list:
