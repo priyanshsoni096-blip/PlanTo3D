@@ -43,6 +43,11 @@ MAX_OPENING_DISTANCE = 40.0
 # Footprint cleanup: bridge doorways, then erase spurs narrower than this.
 CLOSE_SPAN = 9
 OPEN_SPAN = 25
+# Collinear runs closer than this along their line are one wall. Sized to
+# span a doorway, which is what usually splits a wall in two.
+MERGE_GAP = 90.0
+# Runs whose shared coordinate differs by less than this are on one line.
+MERGE_OFFSET = 12.0
 
 
 def _segments_along(binary: np.ndarray, horizontal: bool, min_length: int) -> list[Wall]:
@@ -80,10 +85,66 @@ def _segments_along(binary: np.ndarray, horizontal: bool, min_length: int) -> li
     return walls
 
 
+def _merge_collinear(walls: list[Wall], gap: float, offset: float) -> list[Wall]:
+    """Join wall segments lying on the same line into single runs.
+
+    Segmentation breaks one continuous wall into several runs wherever a
+    doorway, a dimension leader or a patch of noise interrupts it. Extruded
+    separately those become abutting boxes with a visible seam at every
+    joint, and openings measured along a stub sit at the wrong distance.
+    """
+    merged: list[Wall] = []
+
+    for horizontal in (True, False):
+        axis, along = (1, 0) if horizontal else (0, 1)
+
+        candidates = [
+            wall
+            for wall in walls
+            if (abs(wall.end[1] - wall.start[1]) < abs(wall.end[0] - wall.start[0]))
+            == horizontal
+        ]
+
+        # Group by the shared coordinate, so only walls on one line combine.
+        lanes: dict[int, list[Wall]] = {}
+        for wall in candidates:
+            key = int(round(wall.start[axis] / max(offset, 1e-6)))
+            lanes.setdefault(key, []).append(wall)
+
+        for lane in lanes.values():
+            lane.sort(key=lambda w: min(w.start[along], w.end[along]))
+
+            current = lane[0]
+            for wall in lane[1:]:
+                current_end = max(current.start[along], current.end[along])
+                next_start = min(wall.start[along], wall.end[along])
+
+                if next_start - current_end <= gap:
+                    next_end = max(wall.start[along], wall.end[along])
+                    far = max(current_end, next_end)
+                    near = min(current.start[along], current.end[along])
+                    shared = (current.start[axis] + wall.start[axis]) / 2
+
+                    start = (near, shared) if horizontal else (shared, near)
+                    end = (far, shared) if horizontal else (shared, far)
+                    current = Wall(
+                        start=start,
+                        end=end,
+                        thickness=max(current.thickness, wall.thickness),
+                    )
+                else:
+                    merged.append(current)
+                    current = wall
+            merged.append(current)
+
+    return merged
+
+
 def extract_walls(
     mask: np.ndarray,
     wall_class: int = WALL,
     min_wall_length: int = MIN_WALL_LENGTH,
+    merge: bool = True,
 ) -> list[Wall]:
     """Recover wall segments from a class mask, in the mask's pixel coordinates.
 
@@ -100,7 +161,13 @@ def extract_walls(
     walls = _segments_along(binary, horizontal=True, min_length=min_wall_length)
     walls += _segments_along(binary, horizontal=False, min_length=min_wall_length)
 
-    logger.info("extracted %d wall segment(s)", len(walls))
+    if merge and walls:
+        before = len(walls)
+        walls = _merge_collinear(walls, gap=MERGE_GAP, offset=MERGE_OFFSET)
+        logger.info("merged %d wall run(s) into %d", before, len(walls))
+    else:
+        logger.info("extracted %d wall segment(s)", len(walls))
+
     return walls
 
 
