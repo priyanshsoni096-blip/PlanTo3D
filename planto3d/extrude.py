@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 from shapely.geometry import Polygon
+from shapely.ops import unary_union
 from trimesh.creation import extrude_polygon
 
 from planto3d.geometry_types import FloorPlan, Opening, Wall
@@ -316,6 +317,42 @@ def opening_panes(
         )
 
     return panes
+
+
+def merge_regions(
+    polygons: list[list[tuple[float, float]]],
+) -> list[list[tuple[float, float]]]:
+    """Combine overlapping regions into one outline each.
+
+    The same area is often found twice -- once from the drawing's colour and
+    once from its dimension label -- and laying both down draws a garden two
+    or three times over, which makes it dominate the model and inflates its
+    measured area well past what the sheet states.
+    """
+    if len(polygons) < 2:
+        return polygons
+
+    shapes = []
+    for polygon in polygons:
+        if len(polygon) < MIN_FOOTPRINT_VERTICES:
+            continue
+        shape = Polygon(polygon)
+        if not shape.is_valid:
+            shape = shape.buffer(0)
+        if not shape.is_empty and shape.area > 0:
+            shapes.append(shape)
+
+    if not shapes:
+        return []
+
+    merged = unary_union(shapes)
+    pieces = merged.geoms if merged.geom_type == "MultiPolygon" else [merged]
+
+    return [
+        [(float(x), float(y)) for x, y in piece.exterior.coords[:-1]]
+        for piece in pieces
+        if piece.area > 0
+    ]
 
 
 def slab_mesh(
@@ -635,8 +672,12 @@ def floors_to_parts(
         for category in GROUND_COVERS:
             polygons = [room.polygon for room in features.get(category, [])]
             polygons += floor.labelled_regions.get(category, [])
+            if category == "lawn":
+                polygons += floor.planting
 
-            for polygon in polygons:
+            # Colour and labels frequently find the same area, so overlapping
+            # outlines are merged before anything is built.
+            for polygon in merge_regions(polygons):
                 if category == "water":
                     patch = slab_mesh(
                         polygon, POOL_DEPTH_FT, surface_ft - POOL_DEPTH_FT, scale
@@ -714,21 +755,6 @@ def _site_parts(
                 wall, [], BOUNDARY_HEIGHT_FT * FEET_TO_METRES, scale, 0.0
             )
         )
-
-    # Planting is found by colour rather than by label. The segmentation
-    # model is trained on interiors and does not mark a garden at all, since
-    # a garden is not a room -- so without this the lawns never appear.
-    #
-    # Laid on top of the storey's floor slab, not at its base. Placed at the
-    # base it sits inside the slab -- a terrace garden simply vanished into
-    # the floor it was supposed to be growing on.
-    for floor_index, floor in enumerate(floors):
-        base_ft = floor_index * wall_height_ft
-        surface_ft = base_ft + SLAB_THICKNESS_FT if floor_index else 0.0
-        for region in floor.planting:
-            patch = slab_mesh(region, COVER_THICKNESS_FT, surface_ft, scale)
-            if patch is not None:
-                parts["lawn"].append(patch)
 
     return parts
 
