@@ -5,6 +5,7 @@ Run with:  python app.py
 
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -20,10 +21,11 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 TITLE = "PlanTo3D"
 DESCRIPTION = (
-    "Upload a 2D architectural floor plan PDF and get back a 3D model of the "
-    "building. Walls, rooms and dimensions are read straight off the drawing: "
-    "the scale comes from the printed room sizes, so the model is measured in "
-    "real feet rather than guessed."
+    "Upload a 2D architectural floor plan — PDF, PNG or JPEG — and get back a "
+    "3D model of the building. Walls, rooms, doors and windows are read "
+    "straight off the drawing. Where the plan prints room dimensions the model "
+    "is measured in real feet; where it does not, the scale is inferred from "
+    "standard door widths and reported as such."
 )
 
 # A trained checkpoint is used when one is present; otherwise the classical
@@ -45,16 +47,29 @@ SEGMENTER_NAME = (
 )
 
 
-def convert(pdf_file, wall_height_ft: float):
-    """Run the pipeline and return the model, overlays, and a summary."""
-    if pdf_file is None:
-        raise gr.Error("Upload a floor plan PDF first.")
+def convert(uploads, wall_height_ft: float):
+    """Run the pipeline and return the model, views, overlays and a summary."""
+    if not uploads:
+        raise gr.Error("Upload a floor plan first — a PDF, PNG or JPEG.")
+
+    if isinstance(uploads, (str, Path)):
+        uploads = [uploads]
 
     workdir = Path(tempfile.mkdtemp(prefix="planto3d_"))
 
+    # Several images are one storey each; a single file speaks for itself.
+    # Images are collected into a folder so they arrive in upload order.
+    if len(uploads) > 1:
+        source = workdir / "floors"
+        source.mkdir()
+        for index, upload in enumerate(uploads):
+            shutil.copy(upload, source / f"{index:02d}{Path(upload).suffix.lower()}")
+    else:
+        source = Path(uploads[0])
+
     try:
         result = run(
-            Path(pdf_file),
+            source,
             workdir,
             segmenter=SEGMENTER,
             wall_height_ft=wall_height_ft,
@@ -128,7 +143,15 @@ def build_interface() -> gr.Blocks:
         with gr.Row():
             with gr.Column(scale=1):
                 pdf_input = gr.File(
-                    label="Floor plan PDF", file_types=[".pdf"], type="filepath"
+                    label="Floor plan",
+                    file_types=[".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"],
+                    file_count="multiple",
+                    type="filepath",
+                    height=180,
+                )
+                gr.Markdown(
+                    "PDF, PNG or JPEG. Upload one file per storey — ground "
+                    "floor first — or a single multi-page PDF."
                 )
                 height_input = gr.Slider(
                     minimum=7.0,

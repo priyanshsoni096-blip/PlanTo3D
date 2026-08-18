@@ -1,7 +1,10 @@
-"""Build a 3D model from a floor plan PDF.
+"""Build a 3D model from a floor plan.
 
 Usage:
-    python scripts/run_pipeline.py <pdf_path> <output_dir> [--checkpoint model.pt]
+    python scripts/run_pipeline.py <source> <output_dir> [--checkpoint model.pt]
+
+``source`` may be a PDF, a single image, or a directory of images -- one per
+storey, in filename order.
 
 Without a checkpoint the classical baseline is used, which is tuned to clean
 CAD sheets. Pass a trained checkpoint to segment plans in other styles.
@@ -18,11 +21,16 @@ from planto3d.preview import render_views
 from planto3d.segment import load_segmenter
 
 
-def main(pdf_path: str, output_dir: str, checkpoint: Path | None = None) -> None:
+def main(
+    source: str,
+    output_dir: str,
+    checkpoint: Path | None = None,
+    crop: bool = True,
+) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     out = Path(output_dir)
 
-    result = run(Path(pdf_path), out, segmenter=load_segmenter(checkpoint))
+    result = run(Path(source), out, segmenter=load_segmenter(checkpoint), crop=crop)
 
     print("\n" + "=" * 58)
     for floor in result.floors:
@@ -47,7 +55,7 @@ def main(pdf_path: str, output_dir: str, checkpoint: Path | None = None) -> None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("pdf_path")
+    parser.add_argument("source", help="PDF, image, or directory of images")
     parser.add_argument("output_dir")
     parser.add_argument(
         "--checkpoint",
@@ -55,5 +63,15 @@ if __name__ == "__main__":
         default=None,
         help="trained segmenter; omit to use the classical baseline",
     )
+    parser.add_argument(
+        "--no-crop",
+        action="store_true",
+        help="skip title-block cropping, for images that are already just the plan",
+    )
     arguments = parser.parse_args()
-    main(arguments.pdf_path, arguments.output_dir, arguments.checkpoint)
+    main(
+        arguments.source,
+        arguments.output_dir,
+        arguments.checkpoint,
+        crop=not arguments.no_crop,
+    )

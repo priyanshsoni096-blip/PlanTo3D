@@ -128,18 +128,54 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     )
 
 
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+
+
+def _load_pages(source: Path, pages_dir: Path) -> list[Path]:
+    """Rasterize a PDF, or take image files as the pages directly.
+
+    Plenty of plans arrive as images rather than PDFs -- exports, scans, and
+    every sample in CubiCasa5K -- so requiring a PDF would rule out most of
+    the world's floor plans for no good reason.
+    """
+    if source.is_dir():
+        images = sorted(
+            path for path in source.iterdir() if path.suffix.lower() in IMAGE_SUFFIXES
+        )
+        if not images:
+            raise ValueError(f"no images found in {source}")
+        logger.info("using %d image(s) from %s", len(images), source)
+        return images
+
+    if source.suffix.lower() in IMAGE_SUFFIXES:
+        logger.info("using single image %s", source.name)
+        return [source]
+
+    return rasterize_pdf(source, pages_dir)
+
+
 def run(
-    pdf_path: Path,
+    source: Path,
     output_dir: Path,
     segmenter: Segmenter = classical_mask,
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
+    crop: bool = True,
 ) -> PipelineResult:
-    """Convert a floor plan PDF into a stacked 3D model."""
-    pdf_path, output_dir = Path(pdf_path), Path(output_dir)
+    """Convert a floor plan into a stacked 3D model.
+
+    ``source`` may be a PDF, a single image, or a directory of images -- one
+    per storey, in filename order.
+
+    ``crop`` trims each sheet to its drawing frame. Turn it off for images
+    that are already just the plan, with no title block to remove: the crop
+    looks for borders common to every page, and on a single tight image it
+    finds none and can only take away.
+    """
+    source, output_dir = Path(source), Path(output_dir)
     pages_dir = output_dir / "pages"
 
-    pages = rasterize_pdf(pdf_path, pages_dir)
-    cropped = crop_pages(pages)
+    pages = _load_pages(source, pages_dir)
+    cropped = crop_pages(pages) if crop and len(pages) > 1 else pages
 
     floors = [
         _extract_floor(index, path, segmenter) for index, path in enumerate(cropped)
