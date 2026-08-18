@@ -68,6 +68,9 @@ SURFACES = {
     # against the sky, and at (72,70,68) it read as a solid black mass across
     # the facade instead of a balustrade.
     "railing": Surface("railing", (138, 136, 132), roughness=0.4, metallic=0.6),
+    # Window frames: dark slim members, the way glazing is detailed in the
+    # reference elevations.
+    "frame": Surface("frame", (58, 56, 54), roughness=0.45, metallic=0.4),
     # Water: smooth and translucent, so a pool reads as depth rather than
     # a blue slab.
     "water": Surface("water", (58, 132, 168), roughness=0.04, opacity=0.72),

@@ -57,6 +57,11 @@ MIN_PIER_M = 0.05
 # Glazing is thinner than the wall it sits in, so it reads as a pane rather
 # than a plug and does not z-fight with the reveal.
 GLASS_THICKNESS_RATIO = 0.25
+# Window frames: the section of a member, how far it stands proud of the
+# reveal, and the widest pane before a mullion divides it.
+FRAME_SECTION_FT = 0.28
+FRAME_DEPTH_RATIO = 0.45
+MAX_PANE_WIDTH_M = 1.4
 
 
 def _place(
@@ -199,6 +204,70 @@ def _wall_parts(
         )
 
     return parts
+
+
+def opening_frames(
+    wall: Wall,
+    openings: list[Opening],
+    height_m: float,
+    scale: float,
+    base_m: float,
+) -> list[trimesh.Trimesh]:
+    """Frames and mullions around each window opening.
+
+    Bare glass set into a hole reads as a void rather than a window. A frame
+    around the edge and mullions dividing wide openings give the facade the
+    articulation that makes glazing legible -- and wide windows really are
+    divided, since glass is not manufactured in arbitrary widths.
+    """
+    start = np.array(wall.start, dtype=float) / scale * FEET_TO_METRES
+    end = np.array(wall.end, dtype=float) / scale * FEET_TO_METRES
+    length_m = float(np.linalg.norm(end - start))
+    if length_m <= MIN_WALL_PIXELS:
+        return []
+
+    depth_m = max(wall.thickness / scale * FEET_TO_METRES, 1e-4) * FRAME_DEPTH_RATIO
+    section_m = FRAME_SECTION_FT * FEET_TO_METRES
+    head_m = min(OPENING_HEAD_FT * FEET_TO_METRES, height_m)
+    sill_m = SILL_HEIGHT_FT * FEET_TO_METRES
+
+    members: list[trimesh.Trimesh] = []
+    for opening in openings:
+        if opening.type != "window":
+            continue
+
+        half = (opening.width / scale * FEET_TO_METRES) / 2
+        centre = opening.position / scale * FEET_TO_METRES
+        low, high = max(0.0, centre - half), min(length_m, centre + half)
+        span = high - low
+        if span < MIN_OPENING_WIDTH_M or head_m <= sill_m:
+            continue
+
+        pane_height = head_m - sill_m
+
+        # Head and sill members, running the opening's width.
+        for level in (sill_m + section_m / 2, head_m - section_m / 2):
+            members.append(
+                _place(
+                    (span, section_m, depth_m), wall, low + span / 2, base_m + level, scale
+                )
+            )
+
+        # Jambs at each side, and mullions dividing anything wider than a
+        # single pane can sensibly span.
+        divisions = max(int(span / MAX_PANE_WIDTH_M), 1)
+        for step in range(divisions + 1):
+            members.append(
+                _place(
+                    (section_m, pane_height, depth_m),
+                    wall,
+                    low + span * step / divisions,
+                    base_m + sill_m + pane_height / 2,
+                    scale,
+                )
+            )
+
+    return members
 
 
 def opening_panes(
@@ -538,6 +607,9 @@ def floors_to_parts(
             )
             parts["glass"].extend(
                 opening_panes(wall, openings, height_m, scale, wall_base_m)
+            )
+            parts.setdefault("frame", []).extend(
+                opening_frames(wall, openings, height_m, scale, wall_base_m)
             )
 
         # Balconies and terraces are open to the air. Without a railing an
