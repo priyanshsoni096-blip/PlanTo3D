@@ -57,6 +57,12 @@ MIN_WALL_PIXELS = 1e-6
 SLAB_THICKNESS_FT = 0.5
 PARAPET_HEIGHT_FT = 3.0
 PARAPET_THICKNESS_FT = 0.6
+# A coping caps the parapet, oversailing it to throw water clear.
+COPING_THICKNESS_FT = 0.3
+COPING_OVERHANG_FT = 0.35
+# The enclosure over a stairwell that reaches the roof.
+HEADROOM_HEIGHT_FT = 7.5
+HEADROOM_WALL_FT = 0.6
 # A footprint needs this many vertices to enclose an area.
 MIN_FOOTPRINT_VERTICES = 3
 # Door and window heads sit at a common height; windows also get a sill.
@@ -652,6 +658,36 @@ def _stair_parts(
     return parts
 
 
+def _headroom_box(
+    polygon: list[tuple[float, float]], base_ft: float, scale: float
+) -> list[trimesh.Trimesh]:
+    """A small enclosure over a stairwell that reaches the roof.
+
+    A flight arriving at roof level has to come up through something. Left
+    off, the stair simply stops at the slab and the roofline loses the box
+    that appears on every one of these houses.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    height_m = HEADROOM_HEIGHT_FT * FEET_TO_METRES
+    thickness_px = HEADROOM_WALL_FT * scale
+
+    parts = []
+    for index in range(len(polygon)):
+        wall = Wall(
+            start=polygon[index],
+            end=polygon[(index + 1) % len(polygon)],
+            thickness=thickness_px,
+        )
+        parts.extend(_wall_parts(wall, [], height_m, scale, base_ft * FEET_TO_METRES))
+
+    cap = slab_mesh(polygon, SLAB_THICKNESS_FT, base_ft + HEADROOM_HEIGHT_FT, scale)
+    if cap is not None:
+        parts.append(cap)
+    return parts
+
+
 def _parapet_walls(footprint: list[tuple[float, float]], base_ft: float, scale: float) -> list[Wall]:
     """The low wall running around a flat roof's edge."""
     if len(footprint) < MIN_FOOTPRINT_VERTICES:
@@ -922,6 +958,7 @@ def floors_to_parts(
     )
     if roof is not None:
         parts["roof"].append(roof)
+        parapet_base_ft = roof_base_ft + SLAB_THICKNESS_FT
         parapet = _parapet_walls(top.footprint, roof_base_ft, scale)
         for wall in parapet:
             parts["roof"].extend(
@@ -930,9 +967,34 @@ def floors_to_parts(
                     [],
                     PARAPET_HEIGHT_FT * FEET_TO_METRES,
                     scale,
-                    (roof_base_ft + SLAB_THICKNESS_FT) * FEET_TO_METRES,
+                    parapet_base_ft * FEET_TO_METRES,
                 )
             )
+
+        # A coping caps the parapet and oversails it slightly, throwing water
+        # clear of the wall below. It also gives the roofline a defined edge
+        # instead of a raw extrusion, which is what makes a parapet read.
+        coping_outline = _expand_outline(top.footprint, COPING_OVERHANG_FT * scale)
+        inner = _expand_outline(
+            top.footprint, -(PARAPET_THICKNESS_FT + COPING_OVERHANG_FT) * scale
+        )
+        coping = slab_mesh(
+            coping_outline,
+            COPING_THICKNESS_FT,
+            parapet_base_ft + PARAPET_HEIGHT_FT,
+            scale,
+            holes=[inner] if len(inner) >= MIN_FOOTPRINT_VERTICES else None,
+        )
+        if coping is not None:
+            parts.setdefault("coping", []).append(coping)
+
+    # A flight reaching the top storey needs headroom above it, which on a
+    # flat roof is a small enclosure -- the box that appears on every roofline
+    # in the reference elevations.
+    for room in group_by_feature(top.rooms).get("stairs", []):
+        parts.setdefault("roof", []).extend(
+            _headroom_box(room.polygon, roof_base_ft + SLAB_THICKNESS_FT, scale)
+        )
 
     # Merged rather than assigned: the site block also produces lawn and
     # paving, and replacing the keys would discard whatever the storeys

@@ -86,6 +86,9 @@ SURFACES = {
     "timber": Surface("timber", (166, 124, 82), roughness=0.55),
     "tile": Surface("tile", (206, 202, 194), roughness=0.32),
     "stone": Surface("stone", (188, 180, 168), roughness=0.6),
+    # Coping, a shade paler than the parapet it caps so the roofline reads
+    # as a defined edge rather than a raw extrusion.
+    "coping": Surface("coping", (208, 202, 192), roughness=0.75),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)
