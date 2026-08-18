@@ -35,7 +35,11 @@ from planto3d.geometry_types import Room
         # Open-edged, needing a railing.
         ("BALCONY 20'6\"X6'6\"", "open"),
         ("BAL", "open"),
-        ("VERANDAH 8'10\"X5'8\"", "open"),
+        # A verandah is a covered space at ground level, not an elevated
+        # balcony -- railing one puts a balustrade across the front door.
+        ("VERANDAH 8'10\"X5'8\"", "paving"),
+        ("VERANDA", "paving"),
+        ("PORCH", "paving"),
         # Wet areas.
         ("DRESS/TOILET", "wet"),
         ("W.C.", "wet"),

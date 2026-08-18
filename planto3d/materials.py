@@ -78,6 +78,9 @@ SURFACES = {
     "wet": Surface("wet", (214, 214, 210), roughness=0.28),
     # Stairs, a shade lighter than the slabs so the flight reads against them.
     "stairs": Surface("stairs", (188, 184, 178), roughness=0.8),
+    # The plinth, in a darker stone than the walls it carries -- a base
+    # reads as a base by being heavier than what stands on it.
+    "plinth": Surface("plinth", (168, 160, 148), roughness=0.9),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)

@@ -118,11 +118,16 @@ class TestStairsInTheModel:
         assert "stairs" not in parts
 
     def test_an_upper_storey_s_flight_starts_at_its_own_floor(self):
+        from planto3d.extrude import SLAB_THICKNESS_FT
+        from planto3d.site import PLINTH_HEIGHT_FT
+
         parts = floors_to_parts(
             [self._floor(), self._floor([Room(polygon=STAIRWELL, label="STAIR")])],
             wall_height_ft=9.0,
             scale=SCALE,
         )
 
+        # Measured from the plinth the building stands on, not from the site.
+        expected = PLINTH_HEIGHT_FT + 9.0 + SLAB_THICKNESS_FT
         lowest = min(s.bounds[0][1] for s in parts["stairs"])
-        assert lowest == pytest.approx(9.5 * FEET_TO_METRES, abs=0.1)
+        assert lowest == pytest.approx(expected * FEET_TO_METRES, abs=0.1)

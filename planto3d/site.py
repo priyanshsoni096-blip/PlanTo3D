@@ -44,6 +44,18 @@ POST_SPACING_FT = 4.0
 # How far a pool is sunk below the surface around it. A pool laid flat on the
 # ground reads as a blue carpet rather than water.
 POOL_DEPTH_FT = 4.0
+# Houses stand on a plinth rather than flush with the ground, which keeps
+# water out and gives the elevation a base to sit on. Standing the building
+# directly on the site makes it look sunk into the earth.
+PLINTH_HEIGHT_FT = 1.75
+# How far the plinth oversails the walls, forming a visible shelf.
+PLINTH_OVERHANG_FT = 1.0
+# An entrance step's rise. Fewer, deeper steps than an internal flight.
+ENTRANCE_RISER_FT = 0.58
+ENTRANCE_TREAD_FT = 1.1
+# A door within this distance of the building's outline is an external one
+# and needs steps down to the ground.
+EXTERNAL_DOOR_MARGIN_FT = 3.0
 
 # Fallback margin around the building when the plot extent is unknown.
 SITE_MARGIN_FT = 14.0

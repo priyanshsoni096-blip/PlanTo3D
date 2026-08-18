@@ -78,6 +78,7 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "DRIVEWAY",
             "DRIVE WAY",
             "CAR PORCH",
+            "PORCH",
             "GARAGE",
             "COURTYARD",
             "PATIO",
@@ -86,20 +87,15 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "PAVING",
             "SIT OUT",
             "SITOUT",
+            # A verandah is a covered space at ground level, not an elevated
+            # balcony. Railing one puts a balustrade across the front door.
+            "VERANDA",
+            "VERANDAH",
         ),
     ),
     (
         "open",
-        (
-            "BALCONY",
-            "BAL",
-            "TERRACE",
-            "DECK",
-            "VERANDA",
-            "VERANDAH",
-            "PORCH",
-            "CHAJJA",
-        ),
+        ("BALCONY", "BAL", "TERRACE", "DECK", "CHAJJA"),
     ),
     (
         "stairs",

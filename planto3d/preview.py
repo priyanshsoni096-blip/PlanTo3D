@@ -31,6 +31,10 @@ FILL_LIGHT = np.array([-0.6, 0.35, -0.5])
 KEY_STRENGTH = 0.62
 FILL_STRENGTH = 0.22
 AMBIENT = 0.28
+# Glazing and water mirror the sky, so they never go as dark as masonry.
+REFLECTIVE_FLOOR = 0.82
+# Materials that reflect rather than scatter.
+REFLECTIVE_MATERIALS = {"glass", "water"}
 
 BASE_COLOUR = np.array([214, 208, 198], dtype=float)
 SKY_TOP = np.array([28, 32, 44], dtype=float)
@@ -56,11 +60,23 @@ def _rotation(azimuth_deg: float, elevation_deg: float) -> np.ndarray:
     return pitch @ yaw
 
 
-def _shading(normals: np.ndarray) -> np.ndarray:
-    """Brightness per face from a key light, a fill light and ambient."""
+def _shading(normals: np.ndarray, reflective: np.ndarray | None = None) -> np.ndarray:
+    """Brightness per face from a key light, a fill light and ambient.
+
+    ``reflective`` marks faces that mirror the sky rather than scattering
+    light -- glazing and water. Shaded diffusely they go almost black
+    whenever they face away from the key light, which is most of the time,
+    and every window on the shaded side of a building turns into a hole.
+    """
     key = np.clip(normals @ (KEY_LIGHT / np.linalg.norm(KEY_LIGHT)), 0, 1)
     fill = np.clip(normals @ (FILL_LIGHT / np.linalg.norm(FILL_LIGHT)), 0, 1)
-    return AMBIENT + KEY_STRENGTH * key + FILL_STRENGTH * fill
+    brightness = AMBIENT + KEY_STRENGTH * key + FILL_STRENGTH * fill
+
+    if reflective is not None:
+        brightness = np.where(
+            reflective, np.maximum(brightness, REFLECTIVE_FLOOR), brightness
+        )
+    return brightness
 
 
 def _background(resolution: tuple[int, int]) -> np.ndarray:
@@ -116,6 +132,7 @@ def _draw(
     azimuth: float,
     elevation: float,
     face_colours: np.ndarray | None,
+    reflective: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Rasterize a view, returning the colour canvas and its depth buffer."""
     width, height = resolution
@@ -135,7 +152,7 @@ def _draw(
     projected[:, 1] = height - projected[:, 1]  # screen Y grows downward
     projected[:, 2] = vertices[:, 2]
 
-    brightness = _shading(normals)
+    brightness = _shading(normals, reflective)
     base = BASE_COLOUR if face_colours is None else face_colours
 
     canvas = _background(resolution)
@@ -156,15 +173,16 @@ def render(
     azimuth: float = DEFAULT_AZIMUTH,
     elevation: float = DEFAULT_ELEVATION,
     face_colours: np.ndarray | None = None,
+    reflective: np.ndarray | None = None,
 ) -> Path:
     """Paint a shaded view of ``mesh`` to a PNG.
 
     ``face_colours`` gives a per-face base colour; without it the whole mesh
-    takes one stone tone.
+    takes one stone tone. ``reflective`` marks faces that mirror the sky.
     """
     from PIL import Image
 
-    canvas, _ = _draw(mesh, resolution, azimuth, elevation, face_colours)
+    canvas, _ = _draw(mesh, resolution, azimuth, elevation, face_colours, reflective)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -221,30 +239,44 @@ def _material_colour(geometry) -> np.ndarray | None:
     return channels * 255 if channels.max() <= 1.0 else channels
 
 
-def _painted(model_path: Path) -> tuple[trimesh.Trimesh, np.ndarray | None]:
-    """Load a model, returning it merged with a per-face colour array."""
+def _painted(
+    model_path: Path,
+) -> tuple[trimesh.Trimesh, np.ndarray | None, np.ndarray | None]:
+    """Load a model merged with per-face colours and a reflective mask."""
     loaded = trimesh.load(str(model_path))
 
     if not isinstance(loaded, trimesh.Scene):
-        return loaded, None
+        return loaded, None, None
 
-    parts, colours = [], []
-    for geometry in loaded.geometry.values():
+    parts, colours, reflective = [], [], []
+    for name, geometry in loaded.geometry.items():
         colour = _material_colour(geometry)
+        material = getattr(geometry.visual, "material", None)
+        material_name = getattr(material, "name", None) or name
+
         parts.append(geometry)
         colours.append(
             np.tile(
                 colour if colour is not None else BASE_COLOUR, (len(geometry.faces), 1)
             )
         )
+        reflective.append(
+            np.full(len(geometry.faces), material_name in REFLECTIVE_MATERIALS)
+        )
 
-    return trimesh.util.concatenate(parts), np.vstack(colours)
+    return (
+        trimesh.util.concatenate(parts),
+        np.vstack(colours),
+        np.concatenate(reflective),
+    )
 
 
 def render_glb(model_path: Path, output_path: Path, **kwargs) -> Path:
     """Load a .glb and render it, honouring per-material colours."""
-    mesh, colours = _painted(Path(model_path))
-    return render(mesh, output_path, face_colours=colours, **kwargs)
+    mesh, colours, reflective = _painted(Path(model_path))
+    return render(
+        mesh, output_path, face_colours=colours, reflective=reflective, **kwargs
+    )
 
 
 # Standard architectural views. Azimuth turns the model about the vertical
@@ -272,7 +304,7 @@ def render_views(
     The model is loaded once and reused, since parsing the glTF costs far
     more than drawing it.
     """
-    mesh, colours = _painted(Path(model_path))
+    mesh, colours, reflective = _painted(Path(model_path))
     output_dir = Path(output_dir)
 
     rendered = {}
@@ -284,6 +316,7 @@ def render_views(
             azimuth=azimuth,
             elevation=elevation,
             face_colours=colours,
+            reflective=reflective,
         )
 
     logger.info("rendered %d view(s) to %s", len(rendered), output_dir)

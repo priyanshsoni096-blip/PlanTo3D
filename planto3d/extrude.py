@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
+from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from trimesh.creation import extrude_polygon
@@ -24,6 +25,11 @@ from planto3d.site import (
     BOUNDARY_HEIGHT_FT,
     BOUNDARY_THICKNESS_FT,
     COVER_THICKNESS_FT,
+    ENTRANCE_RISER_FT,
+    ENTRANCE_TREAD_FT,
+    EXTERNAL_DOOR_MARGIN_FT,
+    PLINTH_HEIGHT_FT,
+    PLINTH_OVERHANG_FT,
     POOL_DEPTH_FT,
     POST_SPACING_FT,
     RAIL_DEPTH_FT,
@@ -480,6 +486,100 @@ def _railing_parts(
     return parts
 
 
+def _expand_outline(
+    polygon: list[tuple[float, float]], margin_px: float
+) -> list[tuple[float, float]]:
+    """Grow an outline outwards, for a plinth that oversails its walls."""
+    try:
+        shape = Polygon(polygon)
+        if not shape.is_valid:
+            shape = shape.buffer(0)
+        grown = shape.buffer(margin_px, join_style=2)  # mitred, to stay square
+        if grown.geom_type == "MultiPolygon":
+            grown = max(grown.geoms, key=lambda part: part.area)
+        return [(float(x), float(y)) for x, y in grown.exterior.coords[:-1]]
+    except Exception as error:
+        logger.warning("could not expand outline: %s", error)
+        return polygon
+
+
+def _near_outline(
+    wall: Wall, outline: list[tuple[float, float]], margin_px: float
+) -> bool:
+    """Whether a wall runs along the building's outer edge.
+
+    Used to tell an external door from an internal one: only the former
+    needs steps down to the ground.
+    """
+    if len(outline) < MIN_FOOTPRINT_VERTICES:
+        return False
+
+    try:
+        edge = Polygon(outline).exterior
+    except Exception:
+        return False
+
+    midpoint = (
+        (wall.start[0] + wall.end[0]) / 2,
+        (wall.start[1] + wall.end[1]) / 2,
+    )
+    return edge.distance(ShapelyPoint(midpoint)) <= margin_px
+
+
+def _entrance_steps(
+    wall: Wall,
+    opening: Opening,
+    plinth_ft: float,
+    scale: float,
+) -> list[trimesh.Trimesh]:
+    """Steps from the ground up to a door standing on the plinth.
+
+    Each tread projects further out than the one above it, so the flight
+    steps down and away from the threshold rather than hanging off it.
+    """
+    if plinth_ft <= 0:
+        return []
+
+    start = np.array(wall.start, dtype=float) / scale * FEET_TO_METRES
+    end = np.array(wall.end, dtype=float) / scale * FEET_TO_METRES
+    direction = end - start
+    length_m = float(np.linalg.norm(direction))
+    if length_m <= MIN_WALL_PIXELS:
+        return []
+
+    # The outward normal, taken in the horizontal plane.
+    unit = direction / length_m
+    normal = np.array([-unit[1], unit[0]])
+
+    width_m = max(opening.width / scale * FEET_TO_METRES, 0.6)
+    along_m = opening.position / scale * FEET_TO_METRES
+    tread_m = ENTRANCE_TREAD_FT * FEET_TO_METRES
+
+    count = max(int(round(plinth_ft / ENTRANCE_RISER_FT)), 1)
+    riser_m = plinth_ft * FEET_TO_METRES / count
+
+    threshold = start + unit * along_m
+    angle = -np.arctan2(direction[1], direction[0])
+
+    steps = []
+    for index in range(count):
+        height_m = riser_m * (index + 1)
+        # The lowest step reaches furthest from the wall.
+        offset = tread_m * (count - index - 0.5)
+        centre = threshold + normal * offset
+
+        box = trimesh.creation.box(extents=[width_m, height_m, tread_m])
+        box.apply_transform(trimesh.transformations.rotation_matrix(angle, [0, 1, 0]))
+        box.apply_transform(
+            trimesh.transformations.translation_matrix(
+                [centre[0], height_m / 2, centre[1]]
+            )
+        )
+        steps.append(box)
+
+    return steps
+
+
 def _stair_parts(
     polygon: list[tuple[float, float]],
     base_ft: float,
@@ -684,8 +784,10 @@ def floors_to_parts(
         "glass": [],
     }
 
+    # The building stands on a plinth rather than flush with the ground.
+    # Standing it directly on the site makes it look sunk into the earth.
     for index, floor in enumerate(floors):
-        base_ft = index * wall_height_ft
+        base_ft = PLINTH_HEIGHT_FT + index * wall_height_ft
         wall_base_m = (base_ft + SLAB_THICKNESS_FT) * FEET_TO_METRES
 
         features = group_by_feature(floor.rooms)
@@ -766,7 +868,27 @@ def floors_to_parts(
                 if patch is not None:
                     parts.setdefault(category, []).append(patch)
 
-    roof_base_ft = len(floors) * wall_height_ft
+    # The plinth itself: the ground floor's footprint, oversailing the walls
+    # so the elevation has a visible base, with steps at every external door.
+    ground = floors[0]
+    if ground.footprint:
+        plinth = _expand_outline(ground.footprint, PLINTH_OVERHANG_FT * scale)
+        block = slab_mesh(plinth, PLINTH_HEIGHT_FT, 0.0, scale)
+        if block is not None:
+            parts.setdefault("plinth", []).append(block)
+
+        for opening in ground.openings:
+            if opening.type != "door":
+                continue
+            if not 0 <= opening.wall_id < len(ground.walls):
+                continue
+            wall = ground.walls[opening.wall_id]
+            if _near_outline(wall, ground.footprint, EXTERNAL_DOOR_MARGIN_FT * scale):
+                parts.setdefault("plinth", []).extend(
+                    _entrance_steps(wall, opening, PLINTH_HEIGHT_FT, scale)
+                )
+
+    roof_base_ft = PLINTH_HEIGHT_FT + len(floors) * wall_height_ft
     top = floors[-1]
 
     # A planted terrace is open to the sky. Roofing over it hides the garden

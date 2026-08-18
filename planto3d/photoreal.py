@@ -99,7 +99,7 @@ def build_guides(
     """
     from planto3d.preview import _painted, render, render_depth
 
-    mesh, colours = _painted(Path(model_path))
+    mesh, colours, reflective = _painted(Path(model_path))
     output_dir = Path(output_dir)
 
     shaded = render(
@@ -109,6 +109,7 @@ def build_guides(
         azimuth=azimuth,
         elevation=elevation,
         face_colours=colours,
+        reflective=reflective,
     )
     depth = render_depth(
         mesh,
