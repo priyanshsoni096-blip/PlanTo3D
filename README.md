@@ -174,6 +174,13 @@ tile where it is worked in, stone through circulation.
 - Multi-storey alignment assumes the sheets share a drawing frame, which is
   true within one drawing set and not across separately drafted plans.
 
+## Picking the work back up
+
+[`docs/STATE.md`](docs/STATE.md) records where the project stands, what is
+left to run, the limitations that are understood rather than mysterious, and
+the handful of things that cost real time to discover and would be easy to
+undo by accident.
+
 ## Layout
 
 ```
