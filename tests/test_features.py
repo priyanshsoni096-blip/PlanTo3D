@@ -148,6 +148,31 @@ class TestRegionsFromLabels:
         # Nothing to size the region with; a guessed extent is worse than none.
         assert regions_from_labels([self._box("TERRACE GARDEN")], scale=20.0) == {}
 
+    def test_a_size_printed_under_its_name_is_paired_with_it(self):
+        name = self._box("LANDSCAPE", x=500, y=400)
+        size = self._box("49'0\"X13'2\"", x=500, y=418)
+
+        regions = regions_from_labels([name, size], scale=20.0)
+
+        assert "lawn" in regions
+
+    def test_a_size_belonging_to_another_room_is_not_stolen(self):
+        # "TERRACE GARDEN 2130 SQ.FT." states an area, not a width. Pairing
+        # it with whichever dimension sits nearest builds the garden at some
+        # other room's size, in the wrong place.
+        name = self._box("TERRACE GARDEN", x=500, y=400)
+        elsewhere = self._box("21'6\"X27'6\"", x=1400, y=402)
+
+        assert regions_from_labels([name, elsewhere], scale=20.0) == {}
+
+    def test_a_size_printed_above_a_name_is_not_paired_with_it(self):
+        # Dimensions are set beneath their name; text above belongs to the
+        # room before it.
+        name = self._box("LANDSCAPE", x=500, y=400)
+        above = self._box("15'0\"X18'0\"", x=500, y=380)
+
+        assert regions_from_labels([name, above], scale=20.0) == {}
+
     def test_ordinary_rooms_produce_no_region(self):
         assert regions_from_labels([self._box("BEDROOM 15'0\"X18'0\"")], scale=20.0) == {}
 

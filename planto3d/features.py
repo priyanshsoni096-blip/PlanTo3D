@@ -196,6 +196,9 @@ GROUND_COVERS = {"water", "lawn", "paving"}
 # consecutive lines, so a few line heights covers the pairing while keeping
 # the next room's label out of reach.
 LABEL_PAIRING_LINES = 3.5
+# And how far it may sit sideways, as a multiple of the name's own width. A
+# dimension is centred under its name, not beside a different room's.
+LABEL_PAIRING_WIDTHS = 1.2
 
 
 def normalize(label: str) -> str:
@@ -242,24 +245,35 @@ def classify(label: str) -> str | None:
 
 
 def _nearest_dimensions(box, dimension_boxes: list) -> tuple[float, float] | None:
-    """The size printed nearest a name, if it is close enough to belong to it.
+    """The size belonging to a room's name, if one is printed with it.
 
-    Distance is measured in multiples of the name's own text height, so the
+    A room's dimensions are set immediately beneath its name and roughly
+    centred on it, so only boxes below and horizontally aligned are
+    considered. Taking the nearest text in any direction lets a label with no
+    size of its own -- "TERRACE GARDEN 2130 SQ.FT." states an area, not a
+    width -- steal the dimensions of whichever room happens to sit closest,
+    and be built at that room's size in the wrong place.
+
+    Distances are measured in multiples of the name's own text height, so the
     rule holds whatever resolution the sheet was rendered at.
     """
     if not dimension_boxes:
         return None
 
     line_height = max(box.bbox[3], 1)
-    limit = LABEL_PAIRING_LINES * line_height
+    vertical_limit = LABEL_PAIRING_LINES * line_height
+    horizontal_limit = max(box.bbox[2], line_height) * LABEL_PAIRING_WIDTHS
 
-    best, best_distance = None, limit
+    best, best_distance = None, None
     for candidate, dimensions in dimension_boxes:
-        dx = candidate.centre[0] - box.centre[0]
-        dy = candidate.centre[1] - box.centre[1]
-        distance = (dx * dx + dy * dy) ** 0.5
-        if distance < best_distance:
-            best, best_distance = dimensions, distance
+        drop = candidate.centre[1] - box.centre[1]
+        offset = abs(candidate.centre[0] - box.centre[0])
+
+        # Below the name, not above it, and not off to one side.
+        if not 0 < drop <= vertical_limit or offset > horizontal_limit:
+            continue
+        if best_distance is None or drop < best_distance:
+            best, best_distance = dimensions, drop
 
     return best
 
