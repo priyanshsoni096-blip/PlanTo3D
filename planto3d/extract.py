@@ -40,6 +40,9 @@ MIN_OPENING_AREA = 40
 # An opening further than this from any wall is dropped rather than bound to
 # a distant one -- a misplaced opening cuts a hole through solid geometry.
 MAX_OPENING_DISTANCE = 40.0
+# Footprint cleanup: bridge doorways, then erase spurs narrower than this.
+CLOSE_SPAN = 9
+OPEN_SPAN = 25
 
 
 def _segments_along(binary: np.ndarray, horizontal: bool, min_length: int) -> list[Wall]:
@@ -82,7 +85,14 @@ def extract_walls(
     wall_class: int = WALL,
     min_wall_length: int = MIN_WALL_LENGTH,
 ) -> list[Wall]:
-    """Recover wall segments from a class mask, in the mask's pixel coordinates."""
+    """Recover wall segments from a class mask, in the mask's pixel coordinates.
+
+    Walls come out exactly axis-aligned: each run's endpoints are placed on
+    its bounding box centreline, so segmentation noise along an edge cannot
+    tilt the result. The cost is that a genuinely diagonal wall is not
+    recovered at all -- the orientation filters erase it -- which is
+    acceptable for the rectilinear plans this targets.
+    """
     binary = (mask == wall_class).astype(np.uint8)
     if not binary.any():
         return []
@@ -180,8 +190,24 @@ def extract_footprint(
         return []
 
     # Bridge doorways and joints so the storey reads as one region.
-    closed = cv2.morphologyEx(built, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    closed = cv2.morphologyEx(built, cv2.MORPH_CLOSE, np.ones((CLOSE_SPAN, CLOSE_SPAN), np.uint8))
+
+    # Erode away thin spurs, then restore the body. Segmentation bleeds into
+    # landscaping and paving around the building, and those tendrils otherwise
+    # end up in the outline -- producing slabs with jagged fingers reaching
+    # out over open ground.
+    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, np.ones((OPEN_SPAN, OPEN_SPAN), np.uint8))
+    if not opened.any():
+        opened = closed
+
+    # Keep only the main mass, so a detached patch of paving cannot drag the
+    # outline out across the site.
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(opened, 8)
+    if count > 1:
+        largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        opened = (labels == largest).astype(np.uint8)
+
+    contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return []
 
