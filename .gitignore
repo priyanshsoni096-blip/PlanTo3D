@@ -15,3 +15,4 @@ output/
 
 # Trained checkpoints (~98 MB each)
 models/*.pt
+output_unet/
