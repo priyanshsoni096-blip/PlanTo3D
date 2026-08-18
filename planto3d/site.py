@@ -35,7 +35,12 @@ GROUND_COVER = {
 OPEN_EDGE_KEYWORDS = ("BAL", "TERRACE", "DECK", "VERANDA", "PORCH")
 # Railing dimensions, in feet. Slim and waist-high, as a rail should be.
 RAILING_HEIGHT_FT = 3.4
-RAILING_THICKNESS_FT = 0.25
+# Slim, as a balustrade is. Thicker than this and a rail reads as a parapet
+# wall, which changes how the whole facade looks.
+RAILING_THICKNESS_FT = 0.15
+# The top rail's depth, and how far apart the posts beneath it stand.
+RAIL_DEPTH_FT = 0.3
+POST_SPACING_FT = 4.0
 # How far a pool is sunk below the surface around it. A pool laid flat on the
 # ground reads as a blue carpet rather than water.
 POOL_DEPTH_FT = 4.0

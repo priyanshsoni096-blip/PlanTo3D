@@ -64,8 +64,10 @@ SURFACES = {
     "lawn": Surface("lawn", (104, 138, 74), roughness=0.98),
     "paving": Surface("paving", (158, 152, 143), roughness=0.9),
     "boundary": Surface("boundary", (206, 198, 184), roughness=0.94),
-    # Dark metal, as balcony rails are drawn in the reference elevations.
-    "railing": Surface("railing", (72, 70, 68), roughness=0.35, metallic=0.7),
+    # Mid-grey metal rather than near-black. A rail is a slim element seen
+    # against the sky, and at (72,70,68) it read as a solid black mass across
+    # the facade instead of a balustrade.
+    "railing": Surface("railing", (138, 136, 132), roughness=0.4, metallic=0.6),
     # Water: smooth and translucent, so a pool reads as depth rather than
     # a blue slab.
     "water": Surface("water", (58, 132, 168), roughness=0.04, opacity=0.72),

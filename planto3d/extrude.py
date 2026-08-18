@@ -24,6 +24,8 @@ from planto3d.site import (
     BOUNDARY_THICKNESS_FT,
     COVER_THICKNESS_FT,
     POOL_DEPTH_FT,
+    POST_SPACING_FT,
+    RAIL_DEPTH_FT,
     RAILING_HEIGHT_FT,
     RAILING_THICKNESS_FT,
     SITE_MARGIN_FT,
@@ -312,21 +314,60 @@ def slab_mesh(
 def _railing_parts(
     polygon: list[tuple[float, float]], base_m: float, scale: float
 ) -> list[trimesh.Trimesh]:
-    """A waist-high rail running around an open-edged room."""
+    """A balustrade around an open-edged room: posts under a top rail.
+
+    Modelled as separate members rather than one solid panel. A panel the
+    full height of a rail reads as a parapet wall and blocks the view through
+    a balcony, which is most of what a balcony is for.
+    """
     if len(polygon) < MIN_FOOTPRINT_VERTICES:
         return []
 
     thickness_px = RAILING_THICKNESS_FT * scale
+    thickness_m = max(RAILING_THICKNESS_FT * FEET_TO_METRES, 1e-4)
     height_m = RAILING_HEIGHT_FT * FEET_TO_METRES
+    rail_m = RAIL_DEPTH_FT * FEET_TO_METRES
+    spacing_m = POST_SPACING_FT * FEET_TO_METRES
 
-    parts = []
+    parts: list[trimesh.Trimesh] = []
     for index in range(len(polygon)):
-        rail = Wall(
+        run = Wall(
             start=polygon[index],
             end=polygon[(index + 1) % len(polygon)],
             thickness=thickness_px,
         )
-        parts.extend(_wall_parts(rail, [], height_m, scale, base_m))
+
+        start = np.array(run.start, dtype=float) / scale * FEET_TO_METRES
+        end = np.array(run.end, dtype=float) / scale * FEET_TO_METRES
+        length_m = float(np.linalg.norm(end - start))
+        if length_m <= MIN_OPENING_WIDTH_M:
+            continue
+
+        # The top rail, running the whole length.
+        parts.append(
+            _place(
+                (length_m, rail_m, thickness_m),
+                run,
+                length_m / 2,
+                base_m + height_m - rail_m / 2,
+                scale,
+            )
+        )
+
+        # Posts at regular intervals, with one at each end.
+        count = max(int(length_m / spacing_m), 1)
+        for step in range(count + 1):
+            along = length_m * step / count
+            parts.append(
+                _place(
+                    (thickness_m, height_m, thickness_m),
+                    run,
+                    along,
+                    base_m + height_m / 2,
+                    scale,
+                )
+            )
+
     return parts
 
 
