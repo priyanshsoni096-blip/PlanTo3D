@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 import trimesh
 from PIL import Image
 
@@ -11,6 +11,18 @@ FOOTPRINT = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)]
 
 def _pixels(path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("RGB"))
+
+
+def _drawn(pixels: np.ndarray) -> np.ndarray:
+    """Coordinates of pixels showing geometry rather than sky.
+
+    The sky is a vertical gradient, so it is constant across any row. Anything
+    differing from its own row's most common value is the model. Testing
+    brightness instead would fail the moment the sky stopped being dark.
+    """
+    rows = np.median(pixels.reshape(pixels.shape[0], -1, 3), axis=1)
+    difference = np.abs(pixels.astype(int) - rows[:, None, :]).sum(axis=2)
+    return np.argwhere(difference > 30)
 
 
 def test_a_near_surface_hides_what_is_behind_it(tmp_path):
@@ -108,7 +120,7 @@ class TestStandardViews:
         views = render_views(self._model(tmp_path), tmp_path, resolution=(400, 400))
 
         pixels = _pixels(views["top"])
-        drawn = np.argwhere(pixels.sum(axis=2) > 90)
+        drawn = _drawn(pixels)
 
         assert np.ptp(drawn[:, 1]) > np.ptp(drawn[:, 0])
 
@@ -117,7 +129,7 @@ class TestStandardViews:
         views = render_views(self._model(tmp_path), tmp_path, resolution=(400, 400))
 
         pixels = _pixels(views["front"])
-        drawn = np.argwhere(pixels.sum(axis=2) > 90)
+        drawn = _drawn(pixels)
 
         assert np.ptp(drawn[:, 1]) > np.ptp(drawn[:, 0])
 
