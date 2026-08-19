@@ -54,7 +54,7 @@ ASSUMED_DRAWING_RATIO = 150.0
 TYPICAL_DOOR_FT = 2.5
 TYPICAL_WALL_FT = 0.75  # 9 inches
 # Too few of either and the median means nothing.
-MIN_DOORS_FOR_SCALE = 4
+MIN_DOORS_FOR_SCALE = 3
 MIN_WALLS_FOR_SCALE = 8
 # Words separated by more than this multiple of their height belong to
 # different labels. Tesseract assigns one "line" to text at the same
@@ -248,6 +248,26 @@ def scale_from_walls(walls: list, typical_thickness_ft: float = TYPICAL_WALL_FT)
 
     scale = median(thicknesses) / typical_thickness_ft
     logger.info("scale %.2f px/ft from %d wall thickness(es)", scale, len(thicknesses))
+    return scale
+
+
+def scale_from_gauge(gauge: float, typical_thickness_ft: float = TYPICAL_WALL_FT) -> float:
+    """Estimate scale from the drawing's measured wall thickness.
+
+    Preferred over ``scale_from_walls`` wherever the gauge is available.
+    Both ask the same question, but the gauge measures the drawn wall
+    directly from the mask, while the extracted walls have been through
+    orientation filtering and merging first -- and those steps erode. On
+    one CubiCasa plan the drawn wall gauges at 20 pixels while the median
+    extracted wall reports 10, so the same drawing calibrated at half its
+    real size.
+
+    Still the weaker reference, because a plan mixes thin partitions with
+    thick external walls and no convention fixes either. Doors are better
+    and are tried first.
+    """
+    scale = gauge / typical_thickness_ft
+    logger.info("scale %.2f px/ft from a wall gauge of %.1f px", scale, gauge)
     return scale
 
 
