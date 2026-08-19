@@ -1,4 +1,4 @@
-"""CubiCasa5K as a PyTorch dataset of five-class segmentation masks."""
+"""CubiCasa5K as a PyTorch dataset of segmentation masks."""
 
 import logging
 from pathlib import Path
@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from planto3d.cubicasa import sample_paths, svg_to_mask
+from training.augment import augment
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,11 @@ class CubiCasaDataset(Dataset):
     Masks are rendered at the annotation's own resolution and then resized
     with nearest-neighbour interpolation -- anything smoother invents class
     indices that were never labelled, blending a wall and a room into a door.
+
+    ``augment`` turns on the training transforms. Leave it off for
+    validation: a score measured on randomly rotated and re-compressed
+    inputs is not comparable between epochs, and the point of validation is
+    to be comparable.
     """
 
     def __init__(
@@ -33,14 +39,27 @@ class CubiCasaDataset(Dataset):
         split_file: Path,
         size: int = DEFAULT_SIZE,
         limit: int | None = None,
+        augment: bool = False,
+        seed: int = 0,
     ):
         self.samples = sample_paths(Path(root), Path(split_file))
         if limit is not None:
             self.samples = self.samples[:limit]
         self.size = size
+        self.augment = augment
+        self.seed = seed
 
         if not self.samples:
             raise ValueError(f"no usable samples found under {root}")
+
+    # Bumped between epochs so the same sample is drawn differently each
+    # time. Left at zero the augmentation is fixed per sample, which gives
+    # the variety of a slightly larger dataset rather than of a much larger
+    # one.
+    epoch: int = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -61,6 +80,13 @@ class CubiCasaDataset(Dataset):
             (self.size, self.size),
             interpolation=cv2.INTER_NEAREST,
         )
+
+        if self.augment:
+            # Seeded on the sample and the epoch's worth of draws so far,
+            # so a run is reproducible while every epoch still sees the
+            # drawing differently.
+            rng = np.random.default_rng((self.seed, index, self.epoch))
+            image, mask = augment(image, mask, rng)
 
         normalized = (image.astype(np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
         return (

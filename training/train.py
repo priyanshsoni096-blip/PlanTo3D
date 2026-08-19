@@ -156,13 +156,19 @@ def train(
     size: int = DEFAULT_SIZE,
     limit: int | None = None,
     num_workers: int = 2,
+    augment: bool = True,
 ) -> Path:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cpu":
         logger.warning("no GPU detected; training on CPU will be impractically slow")
 
     data_root = Path(data_root)
-    train_set = CubiCasaDataset(data_root, data_root / "train.txt", size, limit)
+    # Augmented for training, plain for validation: a score measured on
+    # randomly rotated and re-compressed inputs is not comparable between
+    # epochs, and being comparable is the whole job of validation.
+    train_set = CubiCasaDataset(
+        data_root, data_root / "train.txt", size, limit, augment=augment
+    )
     val_set = CubiCasaDataset(data_root, data_root / "val.txt", size, limit)
     logger.info("train %d, val %d", len(train_set), len(val_set))
 
@@ -181,6 +187,10 @@ def train(
     best_dice = 0.0
 
     for epoch in range(1, epochs + 1):
+        # So the same drawing is transformed differently each time round.
+        # Left unset, augmentation is fixed per sample and buys the variety
+        # of a slightly larger dataset rather than of a much larger one.
+        train_set.set_epoch(epoch)
         model.train()
         running, seen = 0.0, 0
         for images, masks in train_loader:
