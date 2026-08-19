@@ -56,6 +56,12 @@ MIN_GUTTER_FRACTION = 0.05
 MIN_PIECE_FRACTION = 0.12
 MIN_PIECE_INK = 0.01
 MIN_SPLIT_WIDTH = 400
+# Detecting the page itself. A tone this light covering this much of a sheet
+# is paper, not drawing -- no plan's linework covers a tenth of the page in
+# one flat shade.
+PAPER_MIN_VALUE = 150
+PAPER_MIN_SHARE = 0.10
+PAPER_TOLERANCE = 6
 
 Box = tuple[int, int, int, int]
 
@@ -99,9 +105,37 @@ def read_image(path: Path) -> np.ndarray | None:
     return image
 
 
+def paper_tones(grey: np.ndarray) -> set[int]:
+    """Light tones that make up the page rather than the drawing.
+
+    A fixed threshold assumes paper is white. Plenty of exports have a
+    transparency checkerboard flattened into the image, whose mid-greys sit
+    below any sensible ink cutoff and are counted as drawing -- on CubiCasa
+    samples that left no column below 8% ink, so no part of the sheet could
+    ever look blank and gutters between plans were undetectable.
+
+    Any light tone occupying a large share of the sheet is background: a
+    drawing's lines never cover that much of a page.
+    """
+    counts = np.bincount(grey.ravel(), minlength=256)
+    share = counts / max(grey.size, 1)
+    return {
+        value
+        for value in range(PAPER_MIN_VALUE, 256)
+        if share[value] >= PAPER_MIN_SHARE
+    }
+
+
 def _ink_mask(image: np.ndarray) -> np.ndarray:
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
-    return (gray < INK_THRESHOLD).astype(np.uint8)
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    ink = grey < INK_THRESHOLD
+
+    # Knock out whatever light tone dominates the sheet, with a little
+    # latitude either side for the softening a resize introduces.
+    for tone in paper_tones(grey):
+        ink &= ~(np.abs(grey.astype(np.int16) - tone) <= PAPER_TOLERANCE)
+
+    return ink.astype(np.uint8)
 
 
 def _content_bbox(ink: np.ndarray) -> Box:
