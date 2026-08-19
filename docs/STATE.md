@@ -331,6 +331,36 @@ fragments are small enough to throw the scale badly off -- sample 11578 is
 split into 3 and lands at 8.8 px/ft against a true 30.6, a 71% error and the
 worst in the whole scale run.
 
+## What a random test found
+
+Picking a CubiCasa plan at random rather than reaching for the familiar one
+is worth doing regularly; it found a real bug the first time. The draw
+landed on `high_quality/3191`, a single-storey Finnish apartment.
+
+| | Before the splitter work | After |
+| --- | --- | --- |
+| Storeys | 2 (wrong) | **1** |
+| Openings | 5 | **19** |
+| Scale | 20.0 px/ft, **-34%** | 32.4 px/ft, **+6%** |
+
+It had been cutting the plan in two along an internal wall, and the halves
+carried too little to calibrate from. Requiring a *pair* of rules before
+splitting on them fixed it, and the same change nearly halved the worst
+scale error across the whole corpus.
+
+### Sheets printed sideways
+
+3191's room names run bottom to top, so OCR reads none of them. That looked
+like it might be a general problem worth fixing, so it was measured over 30
+sheets: 5 read better upright, 4 read better turned, and **21 carry no
+useful text in any orientation**.
+
+So rotation is a 13% problem sitting on top of a 70% one. Detecting it would
+mean running OCR at several orientations and keeping the best, which
+multiplies the cost of the slowest stage to recover a signal that is absent
+from most sheets anyway. Not worth it while room type comes from the model
+instead. Recorded so the reasoning does not have to be redone.
+
 ## One image is assumed to be one storey
 
 Found by running a random CubiCasa sample end to end rather than testing the
