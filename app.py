@@ -16,6 +16,14 @@ from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
 from planto3d.pipeline import draw_overlay, run
 from planto3d.preview import render_views
 from planto3d.segment import load_segmenter
+from planto3d.design import (
+    CREATIVITY,
+    LANDSCAPING,
+    STYLES,
+    TIMES,
+    TONES,
+    Design,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -33,6 +41,8 @@ DESCRIPTION = (
 MODEL_DIR = Path(__file__).parent / "models"
 
 
+
+
 def _checkpoint() -> Path | None:
     override = os.environ.get("PLANTO3D_CHECKPOINT")
     if override:
@@ -47,12 +57,20 @@ SEGMENTER_NAME = (
 )
 
 
-def convert(uploads, wall_height_ft: float):
+def convert(uploads, wall_height_ft: float, *choices):
     """Run the pipeline and return the model, views, overlays and a summary."""
-    return convert_with_details(uploads, wall_height_ft)[:5]
+    return convert_with_details(uploads, wall_height_ft, *choices)[:5]
 
 
-def convert_with_details(uploads, wall_height_ft: float):
+def convert_with_details(
+    uploads,
+    wall_height_ft: float,
+    style: str = "modern",
+    colour: str = "warm",
+    time: str = "day",
+    landscaping: str = "basic",
+    creativity: str = "balanced",
+):
     """As ``convert``, plus what the drawing turned out to contain.
 
     The extra detail is what a photoreal pass needs to describe this house
@@ -65,6 +83,13 @@ def convert_with_details(uploads, wall_height_ft: float):
     if isinstance(uploads, (str, Path)):
         uploads = [uploads]
 
+    design = Design(
+        style=style,
+        colour=colour,
+        time=time,
+        landscaping=landscaping,
+        creativity=creativity,
+    )
     workdir = Path(tempfile.mkdtemp(prefix="planto3d_"))
 
     # Several images are one storey each; a single file speaks for itself.
@@ -83,6 +108,8 @@ def convert_with_details(uploads, wall_height_ft: float):
             workdir,
             segmenter=SEGMENTER,
             wall_height_ft=wall_height_ft,
+            palette=design.palette(),
+            site=design.site(),
         )
     except Exception as error:
         raise gr.Error(f"Could not process this plan: {error}") from error
@@ -94,7 +121,9 @@ def convert_with_details(uploads, wall_height_ft: float):
             "or a heavily compressed scan."
         )
 
-    views = render_views(result.model_path, workdir, resolution=(1000, 750))
+    views = render_views(
+        result.model_path, workdir, resolution=(1000, 750), lighting=design.lighting()
+    )
     view_gallery = [
         (str(views[name]), name.title())
         for name in ("top", "front", "back", "left", "right", "aerial")
@@ -167,6 +196,7 @@ def convert_with_details(uploads, wall_height_ft: float):
     hero = str(views.get("aerial", result.model_path))
     details = {
         "storeys": len(result.floors),
+        "conditioning": design.conditioning(),
         "labels": [label for floor in result.floors for label in floor.named_rooms],
     }
     return (
@@ -207,6 +237,40 @@ def build_interface() -> gr.Blocks:
                     label="Storey height (feet)",
                     info="Floor plans do not state ceiling height, so set it here.",
                 )
+
+                # A drawing fixes the geometry and says nothing about the
+                # building: not what it is clad in, not what hour it is
+                # seen at, not whether there is a garden. Five choices,
+                # because an earlier version offered a colour picker per
+                # surface and that is a spreadsheet rather than a choice.
+                with gr.Accordion("How it should look", open=True):
+                    style_input = gr.Radio(
+                        list(STYLES), value="modern", label="Style"
+                    )
+                    colour_input = gr.Radio(
+                        list(TONES), value="warm", label="Colour"
+                    )
+                    time_input = gr.Radio(
+                        list(TIMES),
+                        value="day",
+                        label="Time of day",
+                    )
+                    landscaping_input = gr.Radio(
+                        list(LANDSCAPING),
+                        value="basic",
+                        label="Landscaping",
+                        info="None leaves the building alone against the sky, "
+                        "which is what a massing study wants.",
+                    )
+                    creativity_input = gr.Radio(
+                        list(CREATIVITY),
+                        value="balanced",
+                        label="Creativity",
+                        info="How far the photoreal pass may stray from the "
+                        "plan. Strict holds the geometry and looks like a "
+                        "shaded model; creative invents.",
+                    )
+
                 convert_button = gr.Button("Convert to 3D", variant="primary")
 
             with gr.Column(scale=2):
@@ -239,7 +303,15 @@ def build_interface() -> gr.Blocks:
 
         convert_button.click(
             fn=convert,
-            inputs=[pdf_input, height_input],
+            inputs=[
+                pdf_input,
+                height_input,
+                style_input,
+                colour_input,
+                time_input,
+                landscaping_input,
+                creativity_input,
+            ],
             outputs=[
                 render_output,
                 model_output,

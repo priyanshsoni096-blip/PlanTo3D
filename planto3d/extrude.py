@@ -19,6 +19,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from trimesh.creation import extrude_polygon
 
+from planto3d.design import Landscaping
 from planto3d.geometry_types import FloorPlan, Opening, Wall
 from planto3d.features import (
     GROUND_COVERS,
@@ -721,6 +722,40 @@ def _stair_parts(
     return parts
 
 
+# Share of a region that must fall within the building's outline before it
+# is treated as part of the building rather than the plot around it. Well
+# under half, because a terrace that oversails its own storey is still a
+# terrace, while a lawn merely brushing a corner of the footprint is not.
+INSIDE_FRACTION = 0.4
+
+
+def _mostly_inside(
+    polygon: list[tuple[float, float]], footprint: list[tuple[float, float]]
+) -> bool:
+    """Whether a region lies within the building rather than on the plot.
+
+    A garden drawn inside the ground floor's outline is a courtyard and
+    sits on that floor. One drawn beside the building is on the ground, and
+    raising it to the floor level would leave it hanging at the front door.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES or len(footprint) < MIN_FOOTPRINT_VERTICES:
+        return False
+
+    try:
+        region = Polygon(polygon)
+        outline = Polygon(footprint)
+        if not region.is_valid:
+            region = region.buffer(0)
+        if not outline.is_valid:
+            outline = outline.buffer(0)
+        if region.is_empty or region.area <= 0:
+            return False
+        return region.intersection(outline).area / region.area >= INSIDE_FRACTION
+    except Exception as error:  # a malformed outline decides nothing
+        logger.warning("could not place region against the footprint: %s", error)
+        return False
+
+
 def _bounds(polygon: list[tuple[float, float]]) -> tuple[float, float, float, float]:
     xs = [point[0] for point in polygon]
     ys = [point[1] for point in polygon]
@@ -1178,12 +1213,18 @@ def floors_to_parts(
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     scale: float = 1.0,
     page_size: tuple[int, int] | None = None,
+    site: Landscaping | None = None,
 ) -> dict[str, list[trimesh.Trimesh]]:
     """Build the building's geometry grouped by what it is made of.
 
     Keys name a material rather than a floor, so the scene builder can give
     walls, slabs, the roof and glazing distinct appearances.
+
+    ``site`` decides how much of a setting the building gets. Turned off
+    entirely it stands alone against the sky, which is what a massing study
+    wants and a presentation render does not.
     """
+    site = site or Landscaping()
     if not floors:
         raise ValueError("no floors to extrude")
 
@@ -1302,8 +1343,18 @@ def floors_to_parts(
         for room in features.get("ramp", []):
             parts.setdefault("stairs", []).extend(_ramp(room.polygon, floor_ft, scale))
 
-        surface_ft = base_ft + SLAB_THICKNESS_FT if index else 0.0
-        for category in GROUND_COVERS:
+        # A cover belongs to the storey it was drawn on, at that storey's
+        # own floor level. The one exception is the plot around the
+        # building: a lawn beside the house lies on the ground, not on the
+        # plinth the house stands on, and lifting it would leave the garden
+        # hanging in the air at the front door.
+        #
+        # So the level is decided per region by where it actually is rather
+        # than per storey. Deciding it per storey -- ground floor at site
+        # level, everything else at its own -- buried any garden drawn
+        # inside the ground floor's own outline underneath the plinth.
+        storey_ft = base_ft + SLAB_THICKNESS_FT
+        for category in GROUND_COVERS if site.planting else ():
             polygons = [room.polygon for room in features.get(category, [])]
             polygons += floor.labelled_regions.get(category, [])
             if category == "lawn":
@@ -1312,9 +1363,19 @@ def floors_to_parts(
             # Colour and labels frequently find the same area, so overlapping
             # outlines are merged before anything is built.
             for polygon in merge_regions(polygons):
+                surface_ft = storey_ft
+                if index == 0 and not _mostly_inside(polygon, floor.footprint):
+                    surface_ft = 0.0
+
                 if category == "water":
+                    # A pool on the ground storey is excavated: there is
+                    # earth under it, whether it sits on the plot or in a
+                    # courtyard. One on any storey above is built up on the
+                    # slab, because sinking it would drop it through the
+                    # ceiling of the room beneath.
+                    top_ft = surface_ft if index == 0 else surface_ft + POOL_DEPTH_FT
                     patch = slab_mesh(
-                        polygon, POOL_DEPTH_FT, surface_ft - POOL_DEPTH_FT, scale
+                        polygon, POOL_DEPTH_FT, top_ft - POOL_DEPTH_FT, scale
                     )
                 else:
                     patch = slab_mesh(polygon, COVER_THICKNESS_FT, surface_ft, scale)
@@ -1446,8 +1507,11 @@ def floors_to_parts(
     # Merged rather than assigned: the site block also produces lawn and
     # paving, and replacing the keys would discard whatever the storeys
     # contributed under the same names.
-    for name, meshes in _site_parts(floors, scale, wall_height_ft, page_size).items():
-        parts.setdefault(name, []).extend(meshes)
+    if site.ground:
+        for name, meshes in _site_parts(
+            floors, scale, wall_height_ft, page_size, boundary=site.boundary
+        ).items():
+            parts.setdefault(name, []).extend(meshes)
 
     return {name: meshes for name, meshes in parts.items() if meshes}
 
@@ -1457,6 +1521,7 @@ def _site_parts(
     scale: float,
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     page_size: tuple[int, int] | None = None,
+    boundary: bool = True,
 ) -> dict[str, list[trimesh.Trimesh]]:
     """The ground the building stands on, with lawn, paving and a boundary.
 
@@ -1483,7 +1548,7 @@ def _site_parts(
         parts["ground"].append(ground)
 
     # A compound wall around the plot, as the reference elevations show.
-    for wall in boundary_walls(outline, BOUNDARY_THICKNESS_FT * scale):
+    for wall in boundary_walls(outline, BOUNDARY_THICKNESS_FT * scale) if boundary else ():
         parts["boundary"].extend(
             _wall_parts(
                 wall, [], BOUNDARY_HEIGHT_FT * FEET_TO_METRES, scale, 0.0

@@ -18,6 +18,8 @@ from trimesh.visual.material import PBRMaterial
 
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT, floors_to_parts
 from planto3d.geometry_types import FloorPlan
+from planto3d.design import Landscaping
+from planto3d.style import Palette
 
 logger = logging.getLogger(__name__)
 
@@ -131,16 +133,39 @@ def build_scene(
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     scale: float = 1.0,
     page_size: tuple[int, int] | None = None,
+    palette: Palette | None = None,
+    site: Landscaping | None = None,
 ) -> trimesh.Scene:
-    """Assemble the building as a scene with one material per surface type."""
+    """Assemble the building as a scene with one material per surface type.
+
+    ``palette`` overrides surface colours. A drawing does not say what a
+    building is clad in -- that is the architect's decision rather than the
+    plan's -- so it is the caller's to make. Roughness stays as built: it is
+    what separates glass from masonry, and letting it be set alongside
+    colour invites a polished brick wall.
+    """
     parts = floors_to_parts(
-        floors, wall_height_ft=wall_height_ft, scale=scale, page_size=page_size
+        floors,
+        wall_height_ft=wall_height_ft,
+        scale=scale,
+        page_size=page_size,
+        site=site,
     )
+    palette = palette or Palette()
 
     scene = trimesh.Scene()
     for name, meshes in parts.items():
         combined = trimesh.util.concatenate(meshes)
         surface = SURFACES.get(name, FALLBACK)
+        chosen = palette.for_surface(name, surface.colour)
+        if chosen != surface.colour:
+            surface = Surface(
+                surface.name,
+                chosen,
+                roughness=surface.roughness,
+                metallic=surface.metallic,
+                opacity=surface.opacity,
+            )
         combined.visual = trimesh.visual.TextureVisuals(material=surface.to_material())
         scene.add_geometry(combined, node_name=name, geom_name=name)
         logger.info("%s: %d faces", name, len(combined.faces))
