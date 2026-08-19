@@ -117,9 +117,30 @@ def convert(uploads, wall_height_ft: float):
             "size is inferred rather than measured."
         )
 
+    # Room names drive the floor finishes, planting, paving, railings and
+    # stairs. When none are read the model still builds, but comes out far
+    # plainer than the plan deserves -- and the usual cause is an image too
+    # small for OCR rather than anything wrong with the drawing.
+    named = sum(len(floor.named_rooms) for floor in result.floors)
+    warning = ""
+    if named == 0:
+        warning = (
+            "\n\n> **No room names could be read.** Floor finishes, planting, "
+            "paving, railings and stairs all come from the labels, so the "
+            "model is much plainer than it should be. This is nearly always "
+            "an input resolution problem: upload the original PDF, or images "
+            "at least 2000px across. Screenshots are usually too small."
+        )
+    elif named < result.room_count / 3:
+        warning = (
+            f"\n\n> Only {named} of {result.room_count} rooms could be named, "
+            "so some finishes and features are missing. A higher-resolution "
+            "scan would read more of them."
+        )
+
     lines = [
         f"**Segmenter:** {SEGMENTER_NAME}",
-        scale_line,
+        scale_line + warning,
         f"**Total:** {result.wall_count} wall segments, {result.room_count} rooms "
         f"across {len(result.floors)} floors",
         "",
@@ -151,7 +172,10 @@ def build_interface() -> gr.Blocks:
                 )
                 gr.Markdown(
                     "PDF, PNG or JPEG. Upload one file per storey — ground "
-                    "floor first — or a single multi-page PDF."
+                    "floor first — or a single multi-page PDF.\n\n"
+                    "**Prefer the original PDF.** Room names drive the floor "
+                    "finishes, planting and railings, and reading them needs "
+                    "resolution — a screenshot is usually too small."
                 )
                 height_input = gr.Slider(
                     minimum=7.0,
