@@ -1,4 +1,4 @@
-"""End-to-end: a floor plan PDF in, a 3D model out.
+﻿"""End-to-end: a floor plan PDF in, a 3D model out.
 
 Stages run in order -- rasterize, crop, segment, extract, calibrate, label,
 extrude -- with the segmenter swappable so the classical baseline and the
@@ -39,7 +39,13 @@ from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
 from planto3d.features import regions_from_labels
 from planto3d.materials import build_scene, export_scene
 from planto3d.geometry_types import FloorPlan, Wall
-from planto3d.ingest import WORKING_DPI, crop_pages, rasterize_pdf
+from planto3d.ingest import (
+    WORKING_DPI,
+    crop_pages,
+    rasterize_pdf,
+    read_image,
+    split_sheet,
+)
 from planto3d.label_rooms import assign_labels
 
 logger = logging.getLogger(__name__)
@@ -101,6 +107,31 @@ class PipelineResult:
         return sum(len(f.plan.openings) for f in self.floors)
 
 
+def _split_into_storeys(page: Path, output_dir: Path) -> list[Path]:
+    """Split a sheet carrying several plans, writing one image per storey.
+
+    Left in sheet order, which reads basement to top floor on the drawings
+    that do this -- the same order the storeys stack in.
+    """
+    image = read_image(page)
+    if image is None:
+        return [page]
+
+    pieces = split_sheet(image)
+    if len(pieces) < 2:
+        return [page]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for index, piece in enumerate(pieces):
+        path = output_dir / f"{page.stem}-storey-{index}.png"
+        cv2.imwrite(str(path), piece)
+        written.append(path)
+
+    logger.info("split %s into %d storey(s)", page.name, len(written))
+    return written
+
+
 def _polygon_area(polygon: list[tuple[float, float]]) -> float:
     """Signed area of a polygon, by the shoelace formula."""
     if len(polygon) < 3:
@@ -111,7 +142,7 @@ def _polygon_area(polygon: list[tuple[float, float]]) -> float:
 
 
 def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorResult:
-    image = cv2.imread(str(image_path))
+    image = read_image(image_path)
     if image is None:
         raise FileNotFoundError(f"could not read page image: {image_path}")
 
@@ -206,6 +237,12 @@ def run(
 
     pages = _load_pages(source, pages_dir)
     cropped = crop_pages(pages) if crop and len(pages) > 1 else pages
+
+    # A single sheet often carries several plans side by side. Read as one
+    # storey it reconstructs several buildings as one flat floor, so each
+    # sheet is split before anything else looks at it.
+    if len(cropped) == 1:
+        cropped = _split_into_storeys(cropped[0], pages_dir)
 
     floors = [
         _extract_floor(index, path, segmenter) for index, path in enumerate(cropped)

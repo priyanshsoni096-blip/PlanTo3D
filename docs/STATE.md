@@ -124,9 +124,21 @@ and produces a model that is confidently wrong -- which is worse than
 failing. The reference drawings hid it because they put one floor per sheet,
 as an architectural drawing set does.
 
-Fixing it means detecting that a sheet holds several plans and splitting
-them, probably by looking for wide vertical bands of empty page between
-dense regions. Until then, feed one storey per image.
+`ingest.split_sheet` now does this, cutting at gutters -- bands of near-empty
+page far wider than the gaps inside a drawing, measured as a fraction of the
+sheet so the rule holds at any resolution. It works on clean sheets and
+leaves single plans alone, which ten tests pin down.
+
+**It does not fire on CubiCasa's own exports.** Those images carry a
+transparency checkerboard baked into the colour channels, so no column is
+ever close to empty -- the minimum column ink on sample 9285 is 8%, and a
+gutter simply cannot look like one. Reading transparency properly was added
+for the same reason and helps files that carry a real alpha channel, but not
+these.
+
+So the split is real and useful for ordinary sheets, and CubiCasa's
+multi-plan exports still need splitting by hand. Detecting a checkerboard
+background and erasing it before the gutter search is the next step.
 
 ## Known limitations
 
