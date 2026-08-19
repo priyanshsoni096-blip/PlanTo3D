@@ -42,8 +42,28 @@ The segmenter was trained on [CubiCasa5K](https://github.com/CubiCasa/CubiCasa5k
 
 Wall IoU is the figure that matters most, since walls drive the entire
 reconstruction. Window IoU is poor for a reason worth stating: windows are
-0.11% of CubiCasa's pixels, and no amount of Dice loss overcomes a 900:1
-class imbalance.
+0.11% of CubiCasa's pixels, and Dice loss alone does not overcome that
+imbalance. The loss now weights the cross-entropy term by class frequency
+as well, which is aimed squarely at this.
+
+These are the five-class figures. The segmenter has since been given the
+room type to predict as well -- bedroom, kitchen, bath, storage,
+circulation, outdoor -- and the numbers above will be replaced once it has
+been retrained on the wider scheme.
+
+### Why the room type is predicted rather than read
+
+Floor finishes, planting, railings and wet areas all depend on knowing what
+a room is for. That came from OCR, which works only on a drawing with room
+names printed on it -- and most have none. Over sixty CubiCasa plans the
+pipeline read a room name on three; the rest carry a disclaimer and a
+watermark, and their rooms are identifiable only from the fixtures drawn
+inside them.
+
+CubiCasa annotates a room type on every space, so the model is asked for it
+directly and needs no text at all. Where a drawing *does* print a name, the
+name wins: it distinguishes a verandah from a balcony in a way no segmenter
+trained on Finnish apartments can.
 
 ### Against a classical baseline
 
