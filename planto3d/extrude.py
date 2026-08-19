@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 from shapely.geometry import Point as ShapelyPoint
+from shapely.geometry import LineString
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from trimesh.creation import extrude_polygon
@@ -26,6 +27,7 @@ from planto3d.features import (
     feature_for,
     finish_for_room,
     group_by_feature,
+    is_open_to_sky,
 )
 from planto3d.site import (
     BOUNDARY_HEIGHT_FT,
@@ -729,6 +731,73 @@ def _stair_parts(
 INSIDE_FRACTION = 0.4
 
 
+# How far from an enclosed room a wall may stand and still be counted as
+# enclosing it, in multiples of its own thickness. A wall bounding a room
+# sits against it; one bounding open sky does not.
+ENCLOSING_REACH = 2.5
+
+
+def _open_air_walls(floor: FloorPlan) -> set[int]:
+    """Walls on this storey that enclose nothing, so should be low.
+
+    A terrace garden or an open deck is drawn with its edge marked exactly
+    as a wall is, and built at storey height it turns the terrace into the
+    bottom of a well: three metres of blank masonry round a lawn, with the
+    roof parapet on top of that. Seen from outside, the terrace reads a
+    full floor lower than it is.
+
+    Anything roofed is enclosed by definition, so this only asks which
+    walls have a room behind them. Where a storey has no open feature at
+    all -- the usual case -- the answer is "none of them" and nothing
+    changes.
+    """
+    open_regions = [room.polygon for room in floor.rooms if is_open_to_sky(room)]
+    open_regions += floor.planting
+    for category in GROUND_COVERS:
+        open_regions += floor.labelled_regions.get(category, [])
+    if not open_regions:
+        return set()
+
+    enclosed = [
+        room.polygon
+        for room in floor.rooms
+        if not is_open_to_sky(room) and feature_for(room) != "void"
+    ]
+    if not enclosed:
+        return set()
+
+    try:
+        rooms = unary_union(
+            [Polygon(p).buffer(0) for p in enclosed if len(p) >= MIN_FOOTPRINT_VERTICES]
+        )
+        sky = unary_union(
+            [
+                Polygon(p).buffer(0)
+                for p in open_regions
+                if len(p) >= MIN_FOOTPRINT_VERTICES
+            ]
+        )
+    except Exception as error:
+        logger.warning("could not work out which walls are parapets: %s", error)
+        return set()
+
+    if rooms.is_empty or sky.is_empty:
+        return set()
+
+    low = set()
+    for wall_id, wall in enumerate(floor.walls):
+        reach = max(wall.thickness * ENCLOSING_REACH, 1.0)
+        line = LineString([wall.start, wall.end]).buffer(reach)
+        # A wall with a room against it is holding something up. One with
+        # only open ground either side is an edge.
+        if not line.intersects(rooms) and line.intersects(sky):
+            low.add(wall_id)
+
+    if low:
+        logger.info("%d wall(s) bound open sky and are built as parapets", len(low))
+    return low
+
+
 def _mostly_inside(
     polygon: list[tuple[float, float]], footprint: list[tuple[float, float]]
 ) -> bool:
@@ -1091,6 +1160,38 @@ def _headroom_box(
     return parts
 
 
+def _roof_outline(
+    footprint: list[tuple[float, float]], open_regions: list
+) -> list[tuple[float, float]]:
+    """The part of the top storey that is actually roofed.
+
+    A parapet belongs around the roof rather than around the storey. Run
+    around the whole footprint it stands over the open terrace too, three
+    metres above the garden and attached to nothing.
+
+    Falls back to the footprint whenever the difference cannot be taken or
+    leaves nothing usable -- a parapet in the wrong place is a smaller
+    fault than a roof with no edge at all.
+    """
+    if not open_regions:
+        return footprint
+
+    try:
+        roofed = Polygon(footprint).buffer(0)
+        for region in open_regions:
+            if len(region) >= MIN_FOOTPRINT_VERTICES:
+                roofed = roofed.difference(Polygon(region).buffer(0))
+
+        if roofed.geom_type == "MultiPolygon":
+            roofed = max(roofed.geoms, key=lambda part: part.area)
+        if roofed.is_empty or roofed.area <= 0:
+            return footprint
+        return [(float(x), float(y)) for x, y in roofed.exterior.coords[:-1]]
+    except Exception as error:
+        logger.warning("could not trace the roofed area: %s", error)
+        return footprint
+
+
 def _parapet_walls(footprint: list[tuple[float, float]], base_ft: float, scale: float) -> list[Wall]:
     """The low wall running around a flat roof's edge."""
     if len(footprint) < MIN_FOOTPRINT_VERTICES:
@@ -1267,8 +1368,21 @@ def floors_to_parts(
             if 0 <= opening.wall_id < len(floor.walls):
                 by_wall.setdefault(opening.wall_id, []).append(opening)
 
+        # Walls around an open terrace are its edge, not its enclosure.
+        parapets = _open_air_walls(floor)
+        parapet_m = PARAPET_HEIGHT_FT * FEET_TO_METRES
+
         for wall_id, wall in enumerate(floor.walls):
             openings = by_wall.get(wall_id, [])
+            if wall_id in parapets:
+                # No glazing in a parapet, and no opening cut through it:
+                # a door onto a terrace is in the wall behind, not in the
+                # rail around it.
+                parts["wall"].extend(
+                    _wall_parts(wall, [], parapet_m, scale, wall_base_m)
+                )
+                continue
+
             parts["wall"].extend(
                 _wall_parts(wall, openings, height_m, scale, wall_base_m)
             )
@@ -1407,13 +1521,26 @@ def floors_to_parts(
 
     # A planted terrace is open to the sky. Roofing over it hides the garden
     # entirely and makes the top storey read as a sealed box.
+    #
+    # Every open area counts, not only the ones found by colour. The
+    # reference sheet's colour blobs cover 48% of the top storey while the
+    # room it labels TERRACE GARDEN covers 73%, so roofing to the colour
+    # alone left a quarter of the garden under a slab.
+    open_to_sky = list(top.planting)
+    for category in GROUND_COVERS:
+        open_to_sky += top.labelled_regions.get(category, [])
+    open_to_sky += [room.polygon for room in top.rooms if is_open_to_sky(room)]
+    open_to_sky = merge_regions(open_to_sky) if open_to_sky else []
+
     roof = slab_mesh(
-        top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale, holes=top.planting
+        top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale, holes=open_to_sky
     )
     if roof is not None:
         parts["roof"].append(roof)
         parapet_base_ft = roof_base_ft + SLAB_THICKNESS_FT
-        parapet = _parapet_walls(top.footprint, roof_base_ft, scale)
+        # Around the roof that exists, not around the whole storey: a
+        # parapet standing over an open terrace is a wall in mid-air.
+        parapet = _parapet_walls(_roof_outline(top.footprint, open_to_sky), roof_base_ft, scale)
         for wall in parapet:
             parts["roof"].extend(
                 _wall_parts(
@@ -1428,9 +1555,13 @@ def floors_to_parts(
         # A coping caps the parapet and oversails it slightly, throwing water
         # clear of the wall below. It also gives the roofline a defined edge
         # instead of a raw extrusion, which is what makes a parapet read.
-        coping_outline = _expand_outline(top.footprint, COPING_OVERHANG_FT * scale)
+        # Following the roof as the parapet does. Traced round the whole
+        # storey it left a thin rail hanging in the air over the terrace,
+        # capping a parapet that is not there.
+        roofed = _roof_outline(top.footprint, open_to_sky)
+        coping_outline = _expand_outline(roofed, COPING_OVERHANG_FT * scale)
         inner = _expand_outline(
-            top.footprint, -(PARAPET_THICKNESS_FT + COPING_OVERHANG_FT) * scale
+            roofed, -(PARAPET_THICKNESS_FT + COPING_OVERHANG_FT) * scale
         )
         coping = slab_mesh(
             coping_outline,
