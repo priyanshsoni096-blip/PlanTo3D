@@ -98,6 +98,18 @@ SURFACES = {
     # Sharing the deck's grey made it vanish: the slope sits low behind a
     # parapet, and without a change of colour there was nothing to see.
     "pitched": Surface("pitched", (142, 78, 58), roughness=0.82),
+    # A chimney is brick, and darker than the walls so a stack reads against
+    # the sky rather than merging into the elevation behind it.
+    "chimney": Surface("chimney", (132, 92, 76), roughness=0.93),
+    # An overhead tank is moulded plastic or steel: lighter and glossier
+    # than any masonry on the roof, which is how it reads from the street.
+    "tank": Surface("tank", (188, 192, 196), roughness=0.35, metallic=0.25),
+    # A canopy is a thin painted slab, kept close to the wall colour so a
+    # porch reads as part of the building rather than an applied shelf.
+    "canopy": Surface("canopy", (198, 186, 166), roughness=0.7),
+    # A turret carries the wall up past the roof, so it takes the wall's
+    # stone rather than the deck's grey -- which read as plant housing.
+    "tower": Surface("tower", (208, 190, 156), roughness=0.9),
     # The plinth, in a darker stone than the walls it carries -- a base
     # reads as a base by being heavier than what stands on it.
     "plinth": Surface("plinth", (162, 150, 130), roughness=0.9),
