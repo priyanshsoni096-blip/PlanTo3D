@@ -371,6 +371,56 @@ its wall height *plus* the slab it stands on, so `_storey_base_ft` adds
 both. Buildings are now taller by one slab per storey, which is correct --
 floors have thickness.
 
+## The pipeline no longer depends on the drawing's resolution
+
+This was the deepest thing still fitted to one drawing, and it was
+invisible because CubiCasa happens to sit at the same resolution the
+constants were measured at.
+
+Every length in the extraction stages was an absolute pixel count, taken
+from sheets around 28-30 pixels per foot. Rendered at half size and double
+size, the same plan came back with 15 walls and 40:
+
+| Factor | Scale error before | After |
+| --- | --- | --- |
+| 0.50 | 16.9% | **8.1%** |
+| 1.00 | 8.2% | 16.1% |
+| 1.50 | 30.1% | **7.6%** |
+| 2.00 | **47.6%** | **8.6%** |
+
+They are multiples of the drawing's own wall thickness now -- the one
+length a floor plan always contains, always draws to scale, and can be
+measured before anything else is known. `extract.wall_gauge` measures it
+from the distance transform.
+
+**Two earlier attempts failed in opposite directions and are worth
+recording.** Reading the gauge off wall runs with a plain median let short
+specks of noise outvote the walls, reporting a thickness below any real
+one. Weighting those runs by length instead handed the answer to whichever
+blob was largest -- one plan claimed a 2048 pixel wall. The distance
+transform asks every wall pixel the same local question and weights
+nothing by length or area.
+
+### The scale was measuring the pipeline's own guess
+
+Envelope closing adds wall where segmentation lost it, drawn at the
+*assumed* scale. The wall-thickness estimate then averaged those in, so it
+kept returning exactly **32.0 px/ft** -- which is the assumed figure.
+
+CubiCasa's true scale is around 32, so on this corpus the mistake looked
+like accuracy. It would have been wrong on any drawing at another
+resolution, and it is the reason that estimate appeared to get *worse*
+when the bug was fixed. Only walls actually read off the sheet count now.
+
+The wall estimate also uses the gauge rather than the median extracted
+wall, which had been through orientation filtering and merging first --
+both erode. On one plan the drawn wall gauges at 20 pixels while the
+extracted median reports 10, so the drawing calibrated at half its size.
+That estimate improves from 34.6% median error to 17.7%.
+
+Doors remain the better reference and are tried first: 6.5% median error
+at a bias of -1.4%, against the wall estimate's 17.7%.
+
 ## Two detection faults worth knowing about
 
 Both were found by looking at the detection overlay against the drawing
