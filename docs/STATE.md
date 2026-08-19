@@ -129,16 +129,56 @@ page far wider than the gaps inside a drawing, measured as a fraction of the
 sheet so the rule holds at any resolution. It works on clean sheets and
 leaves single plans alone, which ten tests pin down.
 
-**It does not fire on CubiCasa's own exports.** Those images carry a
-transparency checkerboard baked into the colour channels, so no column is
-ever close to empty -- the minimum column ink on sample 9285 is 8%, and a
-gutter simply cannot look like one. Reading transparency properly was added
-for the same reason and helps files that carry a real alpha channel, but not
-these.
+**It does not fire on CubiCasa's own exports, and the reason is instructive.**
 
-So the split is real and useful for ordinary sheets, and CubiCasa's
-multi-plan exports still need splitting by hand. Detecting a checkerboard
-background and erasing it before the gutter search is the next step.
+The first guess was a transparency checkerboard flattened into the colour
+channels. That was wrong: sample 9285 is 40% pure white. Two fixes were built
+on that wrong premise -- flattening real alpha channels onto white, and
+detecting whatever light tone dominates a sheet rather than assuming paper is
+white. Both are defensible robustness improvements and both are kept, but
+neither addresses this.
+
+The actual obstacle is that **each plan on the sheet is enclosed in its own
+boundary box, and dimension lines run the full height**. Minimum column ink is
+8% because something crosses every single column. There is no empty gutter to
+find, and no threshold will conjure one.
+
+What would work is looking for the boundary boxes themselves -- long
+uninterrupted vertical rules, which is what actually separates the plans --
+rather than looking for emptiness between them. That is the next attempt, and
+it is a different algorithm rather than a tuning change.
+
+Until then the split handles ordinary sheets, and CubiCasa's multi-plan
+exports need splitting by hand.
+
+## The three things asked for next
+
+In priority order, with what is known about each so the work can start
+rather than re-derive it.
+
+**1. Good results on unseen plans.** The segmentation model already
+generalises -- 12 of 12 CubiCasa samples produced usable geometry. What does
+not transfer is everything tuned to one drawing set: the classical baseline
+finds nothing, and the colour-driven windows and planting rarely fire. The
+honest improvement is to stop relying on those two on unfamiliar sheets and
+lean on the model, which means giving `refine_windows` a way to tell a sheet
+that marks windows in colour from one that does not, rather than assuming.
+
+**2. Splitting a sheet that holds several storeys.** `ingest.split_sheet`
+does this by finding empty gutters and works on ordinary sheets. It cannot
+work on CubiCasa's, where boundary boxes and dimension lines cross every
+column. Detecting the long vertical rules that bound each plan is the
+approach that would, and it is a different algorithm rather than a threshold
+change.
+
+**3. The interface still shows a colourless model.** Diagnosed once as
+resolution -- room names drive the finishes, and a screenshot upload names
+nothing, which the app now warns about. Worth confirming that is the whole
+story before changing anything else: run the pipeline on the original PDF
+from the command line, open the `.glb` in Windows 3D Viewer, and compare with
+what the app shows for the same file. If the command-line model has colour
+and the app's does not, the fault is in the viewer or in what the app hands
+it, not in the materials.
 
 ## Known limitations
 
