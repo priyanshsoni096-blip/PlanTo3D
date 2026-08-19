@@ -8,10 +8,14 @@ venv/
 data/soni_residence/
 data/cubicasa5k/
 
-# Generated outputs
+# Generated outputs. The glob rather than a list of names: two output
+# directories were committed by accident because they were called
+# output_other and output_test rather than output, and they carried 22 MB
+# of rendered pages of the personal plans excluded above.
 *.glb
 *.obj
 output/
+output_*/
 
 # Trained checkpoints (~98 MB each)
 models/*.pt
