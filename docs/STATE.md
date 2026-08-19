@@ -19,7 +19,8 @@ The whole pipeline runs end to end: PDF, PNG or JPEG in, a materialled
 | Scale calibration | Dimensions, then doors, then walls, then a ratio |
 | Room labelling | From OCR, with the ink isolated from hatching |
 | 3D extrusion | Walls, slabs, roof, plinth, stairs, railings, frames |
-| Materials | Sixteen surfaces, including per-room floor finishes |
+| Vocabulary | 335 feature keywords, 139 floor-finish keywords |
+| Materials | Seventeen surfaces, including per-room floor finishes |
 | Views | Top, front, back, left, right, aerial |
 | Web app | Gradio, multi-file upload, live 3D viewer |
 | Photoreal guides | Depth, edge and shaded renders ready |
@@ -116,6 +117,50 @@ Recorded because each cost real time to find and would be easy to undo.
   exterior runs wherever a drawing is busy, and every window that would have
   bound to a missing wall was dropped with it. Gaps are filled only where a
   room lies just inside, since a terrace edge is legitimately open.
+- **A pale palette is useless in a web viewer.** Off-whites separated by a
+  few percent are architecturally tasteful and all wash to the same
+  pink-white under a viewer's bright lighting. Surfaces have to be spaced
+  far enough apart in tone to survive it.
+- **Low-resolution input looks like a colour bug.** Room names drive the
+  finishes, planting, paving, railings and stairs, so a screenshot upload
+  produces a plain grey model with nothing to explain why. The app now says
+  so; the silent failure was worse than the limitation.
+- **A verandah is not a balcony.** It is a covered space at ground level, and
+  railing it puts a balustrade across the front door. The same care is needed
+  for patio against deck, and courtyard against garden.
+
+## The vocabulary
+
+`planto3d/features.py` is where most of the project's domain knowledge lives.
+Room labels drive geometry, not merely colour: water sinks into the ground, a
+void removes the floor above it, an open edge is railed, stairs become a
+flight, and interior floors take a finish from what the room is for.
+
+It covers what a plan can actually carry rather than what one reference set
+happened to use -- every balcony and terrace variant, loggia, lanai,
+breezeway, portico; pools from lap to plunge to reflecting; gardens from zen
+to kitchen to sunken; lightwells, airwells and ventilation courts; the full
+staircase family down to half landings.
+
+South Asian and Middle Eastern terms are included -- otla, osari, baramda,
+chabutra, jharokha, chhat, baithak, majlis, diwan, deorhi, mumty, chajja --
+because these drawings use them and no published floor-plan glossary covers
+them. That gap is worth knowing about before trusting any external reference.
+
+Two rules hold the whole thing together, and breaking either causes failures
+that look like something else entirely:
+
+- **Matching is longest-first across the entire vocabulary**, not within each
+  rule. Ordering by rule cannot survive this many terms: "TERRACE GARDEN"
+  contains "TERRACE", "POOL DECK" contains "DECK", "MASTER BATHROOM" contains
+  "MASTER".
+- **Labels are normalised before matching**, since drafters and OCR both
+  mangle them. "W.C.", "DRESS/TOILET", "SIT-OUT" and the truncated "BAL" all
+  have to match, and keywords are tested with and without spaces.
+
+Short marks are matched as whole words only. "UP" is often the entire
+annotation on a flight of stairs, but as a substring it would take GROUP,
+CUP and DINING.
 
 ## Where to look
 
