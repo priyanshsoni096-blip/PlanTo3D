@@ -54,6 +54,10 @@ MIN_WINDOW_AREA = 60
 # the working resolution; separate windows sit feet apart, so this cannot
 # merge two of them.
 WINDOW_CLOSE = 13
+# How many coloured strips a sheet must show before its colour is trusted
+# over the model. A house has windows on every elevation, so a sheet using
+# the convention shows many; one or two are a stray mark, not a convention.
+MIN_STRIPS_TO_TRUST_COLOUR = 4
 # Planting is drawn as scattered symbols, closed into continuous beds.
 PLANTING_CLOSE = 35
 PLANTING_SIMPLIFY = 6.0
@@ -202,18 +206,29 @@ def window_mask(image: np.ndarray, min_area: int = MIN_WINDOW_AREA) -> np.ndarra
 
 
 def refine_windows(mask: np.ndarray, image: np.ndarray) -> np.ndarray:
-    """Replace the model's windows with ones read from the drawing's colour.
+    """Prefer windows read from the drawing's colour, where colour knows them.
 
-    Only when colour finds any. On a sheet that does not mark windows in
-    colour there is nothing to substitute, and the model's guess -- however
-    weak -- is better than none.
+    Colour is far more reliable than the model on sheets that mark glazing in
+    it -- the model scores 0.12 IoU on windows and finds roughly twice as many
+    blobs as there are windows. But most sheets do not mark glazing in colour
+    at all, and on those the model's weak guess is all there is.
+
+    A single stray coloured mark is not evidence that a sheet uses the
+    convention, so colour only takes over when it finds several strips. Below
+    that the two are merged rather than one replacing the other: a couple of
+    genuine coloured windows are worth keeping, but not at the cost of
+    discarding everything the model found.
     """
     strips = window_mask(image)
     if not strips.any():
         return mask
 
+    count = cv2.connectedComponentsWithStats(strips, 8)[0] - 1
     refined = mask.copy()
-    refined[refined == WINDOW] = BACKGROUND
+
+    if count >= MIN_STRIPS_TO_TRUST_COLOUR:
+        refined[refined == WINDOW] = BACKGROUND
+
     refined[strips == 1] = WINDOW
     return refined
 

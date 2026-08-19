@@ -66,14 +66,15 @@ class TestRefineWindows:
 
     def test_colour_replaces_the_model_s_windows(self):
         # The model scores 0.12 IoU on windows and finds roughly twice as
-        # many blobs as there are windows. Where the drawing marks them in
-        # colour, that is the better source.
+        # many blobs as there are windows. Where a drawing clearly marks them
+        # in colour, that is the better source.
         image = _sheet()
-        image[100:106, 150:260] = CYAN
+        for start in range(150, 400, 60):
+            image[100:106, start : start + 40] = CYAN
 
         refined = refine_windows(self._mask(), image)
 
-        assert refined[102, 200] == WINDOW  # found by colour
+        assert refined[102, 170] == WINDOW  # found by colour
         assert refined[102, 40] != WINDOW  # the model's guess dropped
 
     def test_doors_are_left_alone(self):
@@ -89,6 +90,27 @@ class TestRefineWindows:
         refined = refine_windows(self._mask(), _sheet())
 
         assert refined[102, 40] == WINDOW
+
+    def test_one_stray_coloured_mark_does_not_discard_the_model_s_windows(self):
+        # A sheet using the convention shows glazing on every elevation. One
+        # mark is not evidence of a convention, and treating it as such threw
+        # away everything the model found on plans that never used colour.
+        image = _sheet()
+        image[100:106, 150:230] = CYAN  # a single strip
+
+        refined = refine_windows(self._mask(), image)
+
+        assert refined[102, 40] == WINDOW  # the model's kept
+        assert refined[102, 190] == WINDOW  # and the coloured one added
+
+    def test_a_sheet_that_clearly_uses_colour_overrides_the_model(self):
+        image = _sheet()
+        for start in range(60, 380, 80):
+            image[100:106, start : start + 50] = CYAN
+
+        refined = refine_windows(self._mask(), image)
+
+        assert refined[102, 40] != WINDOW  # the model's guess dropped
 
     def test_walls_survive_refinement(self):
         image = _sheet()
