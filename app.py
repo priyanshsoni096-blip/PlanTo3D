@@ -154,7 +154,8 @@ def convert(uploads, wall_height_ft: float):
             f"{len(floor.plan.rooms)} | {names} |"
         )
 
-    return str(result.model_path), view_gallery, overlays, "\n".join(lines)
+    hero = str(views.get("aerial", result.model_path))
+    return hero, str(result.model_path), view_gallery, overlays, "\n".join(lines)
 
 
 def build_interface() -> gr.Blocks:
@@ -188,7 +189,20 @@ def build_interface() -> gr.Blocks:
                 convert_button = gr.Button("Convert to 3D", variant="primary")
 
             with gr.Column(scale=2):
-                model_output = gr.Model3D(label="3D model", clear_color=[0.1, 0.1, 0.12, 1.0])
+                # Two views of the same model, because they do different jobs.
+                # The interactive viewer lights a scene brightly enough that
+                # desaturated materials -- masonry, concrete -- saturate to
+                # white, and it offers no way to turn that down. It stays for
+                # orbiting the geometry; the rendered image beside it is what
+                # the building actually looks like.
+                render_output = gr.Image(
+                    label="Rendered view", type="filepath", height=340
+                )
+                model_output = gr.Model3D(
+                    label="Interactive model — drag to orbit",
+                    clear_color=[0.1, 0.1, 0.12, 1.0],
+                    height=300,
+                )
 
         summary_output = gr.Markdown()
         view_output = gr.Gallery(
@@ -205,7 +219,13 @@ def build_interface() -> gr.Blocks:
         convert_button.click(
             fn=convert,
             inputs=[pdf_input, height_input],
-            outputs=[model_output, view_output, overlay_output, summary_output],
+            outputs=[
+                render_output,
+                model_output,
+                view_output,
+                overlay_output,
+                summary_output,
+            ],
         )
 
     return demo
