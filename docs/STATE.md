@@ -4,7 +4,13 @@ A handoff note, so work can resume from a fresh session without the
 conversation that produced it. Read alongside the [README](../README.md),
 which covers what the project does and how to run it.
 
-Last updated after the session that built the envelope-closing stage.
+Last updated after the session that taught the segmenter to predict room
+types.
+
+**The one thing to do next: retrain.** `notebooks/train_on_colab.ipynb` now
+trains eleven classes instead of five, and until it has been run the room
+types are code with no weights behind them. Everything else works as it did
+in the meantime.
 
 ## Done and working
 
@@ -128,6 +134,72 @@ the classical baseline is a scaffold that only ever worked on clean CAD
 sheets, and the colour signals are one drafting office's convention rather
 than a general technique.
 
+## Room function no longer needs text
+
+This was the largest single obstacle to working on plans other than the one
+the project started with, and it is worth stating plainly because it was
+invisible for a long time.
+
+Everything that makes the finished model look like a house rather than a
+grey massing study -- floor finishes, planting, paving, railings, wet areas,
+stairs -- hung off knowing what each room was *for*. That knowledge came
+from OCR alone: read the word BATHROOM off the drawing, lay a tiled floor.
+
+**Most drawings have no room names on them.** Over sixty CubiCasa plans the
+pipeline read a room name on three. The rest print a disclaimer and a
+watermark and nothing else; a typical sheet's only text is "SUUNTAA-ANTAVA,
+EI MITTAKAAVASSA". Their rooms are identifiable, but from what is drawn
+inside them -- a hob, a toilet, a sauna bench -- not from anything written.
+
+So the great majority of plans were being reconstructed correctly and then
+finished as bare floors. No amount of vocabulary work could have fixed it.
+The 335-keyword vocabulary was matching against text that was not there, and
+every hour spent widening it was aimed at the wrong target.
+
+**The fix is to ask the model instead.** CubiCasa annotates a room type on
+every space, and the loader was discarding all of it -- forty types
+collapsed onto one ROOM class, on the reasoning that CubiCasa's Finnish
+residential categories had no equivalent for a Temple or a Verandah. True,
+but it threw away the bedroom, kitchen, bath and balcony along with them.
+
+The classes now kept, grouped by what they change downstream rather than by
+architectural category:
+
+| Class | Absorbs | Because |
+| --- | --- | --- |
+| `bedroom` | Bedroom | Boarded floor |
+| `kitchen` | Kitchen, Kitchenette, Scullery | Tiled, wet |
+| `bath` | Bath, Shower, Sauna, SwimmingPool | Floor built to get wet |
+| `storage` | Closet, Storage, Utility, Garage, TechnicalRoom | Hard floor, not lived in |
+| `circulation` | Entry, Lobby, Hall, DraughtLobby | Moved through, not stayed in |
+| `outdoor` | Balcony, Terrace, Porch, CoveredArea | **Earns a railing** |
+| `room` | LivingRoom, Dining, Office, Undefined, anything unrecognised | No particular requirement |
+
+A sauna is not a bathroom, but both want a floor built to get wet, and that
+is the only distinction the geometry makes use of. An unrecognised type
+becomes a generic room rather than background, so a vocabulary CubiCasa adds
+later degrades to a plain floor instead of a hole in one.
+
+Measured over sixty plans, these are not rare: kitchen on 55, outdoor on 48,
+circulation on 47, bedroom on 45, bath on 46. Against names read on three.
+
+**Where both exist, the printed name wins.** The segmenter is trained on
+Finnish apartments and calls a verandah an outdoor space, which would rail
+it like a balcony -- exactly the bug reported earlier. The drawing saying
+VERANDAH is the better authority, so `features.feature_for` checks the label
+first and falls back to the prediction.
+
+**This needs a retrain to take effect.** Indices 0-4 are unchanged, so the
+existing five-class checkpoint still loads and behaves exactly as it did: a
+batch of eight plans reconstructs identically, every room simply arrives
+uncategorised. `scripts/batch_evaluate.py` reports both routes side by side
+and says outright when a checkpoint predates the room types.
+
+One consequence worth knowing: room classes are traced separately rather
+than together, because an open kitchen has no wall between it and the
+dining area it opens onto. Tracing them as one class returned a single room
+where there are plainly two.
+
 ## One image is assumed to be one storey
 
 Found by running a random CubiCasa sample end to end rather than testing the
@@ -177,12 +249,31 @@ In priority order, with what is known about each so the work can start
 rather than re-derive it.
 
 **1. Good results on unseen plans.** The segmentation model already
-generalises -- 12 of 12 CubiCasa samples produced usable geometry. What does
-not transfer is everything tuned to one drawing set: the classical baseline
-finds nothing, and the colour-driven windows and planting rarely fire. The
-honest improvement is to stop relying on those two on unfamiliar sheets and
-lean on the model, which means giving `refine_windows` a way to tell a sheet
-that marks windows in colour from one that does not, rather than assuming.
+generalises -- 12 of 12 CubiCasa samples produced usable geometry, and a
+batch of 24 reconstructed 21. What does not transfer is everything tuned to
+one drawing set.
+
+The largest part of this has been dealt with: room function no longer needs
+text, which is its own section above. It was the dominant failure by a wide
+margin -- names read on 3 plans in 21 -- and it is the reason unfamiliar
+sheets came out as grey massing studies. **It needs a retrain to take
+effect.**
+
+What remains after that:
+
+- The **classical baseline** finds nothing on unfamiliar sheets: no walls at
+  all on 10 of 12. It is a scaffold for clean CAD drawings and should be
+  described as one rather than improved.
+- The **colour-driven windows and planting** rarely fire -- windows on 5 of
+  12, planting on 1. These are one drafting office's convention. The honest
+  improvement is to give `refine_windows` a way to tell a sheet that marks
+  windows in colour from one that does not, rather than assuming; the model
+  already finds the openings without help.
+- **Planting on greyscale plans** has no route at all, since it is colour
+  only. The `outdoor` class is the obvious source once a retrained model
+  supplies it.
+- **Around five windows per set** are still lost where the host wall was
+  never detected.
 
 **2. Splitting a sheet that holds several storeys.** `ingest.split_sheet`
 does this by finding empty gutters and works on ordinary sheets. It cannot
