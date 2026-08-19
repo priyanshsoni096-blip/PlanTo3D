@@ -4,13 +4,55 @@ A handoff note, so work can resume from a fresh session without the
 conversation that produced it. Read alongside the [README](../README.md),
 which covers what the project does and how to run it.
 
-Last updated after the session that taught the segmenter to predict room
-types.
+Last updated after the session that made the geometry independent of the
+drawing's resolution and added augmentation to the training.
 
-**The one thing to do next: retrain.** `notebooks/train_on_colab.ipynb` now
-trains eleven classes instead of five, and until it has been run the room
-types are code with no weights behind them. Everything else works as it did
-in the meantime.
+## Start here
+
+**Run `notebooks/train_on_colab.ipynb`.** Nothing else comes close in value,
+and most of what is weak about the output traces back to it.
+
+It trains eleven classes rather than five, and augments the data, and
+neither has been run yet -- so the room types are code with no weights
+behind them and the model has still only ever seen each plan once, drawn
+one way. Roughly 2.5 hours on a T4 at 24 epochs.
+
+Two things to actually do while it runs, rather than watch:
+
+- **Do not skip section 5.** It draws five augmented versions of a real
+  sample beside its mask. Check the mask turns *with* the image. A broken
+  transform is invisible in the loss curve -- it simply trains to a worse
+  number with nothing saying why.
+- **Read the per-class IoU, not the Dice.** The room types are the point of
+  the run, and a type sitting at zero is never being predicted, which the
+  overall figure hides completely. Section 8 names the weakest one.
+
+Afterwards, re-run these three and compare against the numbers below --
+they are all scored against ground truth, so the comparison is real:
+
+```bash
+python scripts/batch_evaluate.py <cubicasa> --checkpoint models/unet_cubicasa.pt --limit 30
+python scripts/scale_accuracy.py <cubicasa> --checkpoint models/unet_cubicasa.pt
+python scripts/random_plan.py
+```
+
+## Where the numbers stand before the retrain
+
+| | |
+| --- | --- |
+| Plans reconstructing | 28/30 |
+| Room function known, from names | 5/26 |
+| Room function known, from type | 0 (no weights yet) |
+| Scale from doors | 6.7% median error, +0.4% bias |
+| Scale from walls | 20.2% median error |
+| Sheet splitting, exact | 50/60 |
+| Tests | 658 |
+
+What to expect the retrain to move: room types from nothing to most rooms,
+which is the difference between a grey box and a house; door and window
+prediction, since the loss now weights them by class frequency; and
+possibly the wall-derived scale, which is biased low partly because the
+segmenter predicts thin classes narrow.
 
 ## Done and working
 
