@@ -305,7 +305,15 @@ def _boundary_cuts(ink: np.ndarray) -> list[int]:
         else:
             groups.append([rule])
 
-    return [(group[0][0] + group[-1][1]) // 2 for group in groups]
+    # A group of one is a single rule, and a single rule running the height
+    # of a sheet is a long wall as often as it is a plan's border -- it is
+    # what this produced every one of its false splits from. What the
+    # docstring describes, and what actually marks a division, is a *pair*:
+    # the right edge of one box against the left edge of the next, with the
+    # division in the gap between them.
+    return [
+        (group[0][0] + group[-1][1]) // 2 for group in groups if len(group) >= 2
+    ]
 
 
 def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
