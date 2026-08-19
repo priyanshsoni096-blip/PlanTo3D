@@ -62,6 +62,13 @@ MIN_SPLIT_WIDTH = 400
 PAPER_MIN_VALUE = 150
 PAPER_MIN_SHARE = 0.10
 PAPER_TOLERANCE = 6
+# Splitting by the rules that bound each plan, for sheets with no blank page
+# between them. A rule runs nearly the full height, which nothing inside a
+# drawing does; two standing close together mark where plans meet.
+RULE_INK_FRACTION = 0.85
+RULE_JOIN_GAP = 12
+RULE_PAIR_FRACTION = 0.12
+SHEET_MARGIN_FRACTION = 0.08
 
 Box = tuple[int, int, int, int]
 
@@ -228,6 +235,51 @@ def detect_drawing_region(images: list[np.ndarray]) -> Box:
     )
 
 
+def _boundary_cuts(ink: np.ndarray) -> list[int]:
+    """Where a sheet divides, found from the rules that bound each plan.
+
+    Looking for empty gutters fails whenever plans are drawn inside boundary
+    boxes: the box edges and the dimension lines running beside them mean
+    something crosses every column, and no part of the sheet is ever blank.
+
+    The boxes themselves are the better signal. A rule bounding a plan runs
+    almost the full height of the sheet, which nothing inside a drawing does.
+    Where two plans meet, two such rules stand close together -- the right
+    edge of one box and the left edge of the next -- and the division lies
+    between them.
+    """
+    height, width = ink.shape
+    column_ink = ink.sum(axis=0) / height
+
+    # Runs of columns that are nearly solid ink from top to bottom.
+    rules: list[tuple[int, int]] = []
+    start = previous = None
+    for column in np.where(column_ink >= RULE_INK_FRACTION)[0]:
+        if start is None:
+            start = column
+        elif column - previous > RULE_JOIN_GAP:
+            rules.append((start, previous))
+            start = column
+        previous = column
+    if start is not None:
+        rules.append((start, previous))
+
+    margin = width * SHEET_MARGIN_FRACTION
+    interior = [(a, b) for a, b in rules if a > margin and b < width - margin]
+    if not interior:
+        return []
+
+    # Group rules that stand close together; each group is one division.
+    groups: list[list[tuple[int, int]]] = [[interior[0]]]
+    for rule in interior[1:]:
+        if rule[0] - groups[-1][-1][1] <= width * RULE_PAIR_FRACTION:
+            groups[-1].append(rule)
+        else:
+            groups.append([rule])
+
+    return [(group[0][0] + group[-1][1]) // 2 for group in groups]
+
+
 def split_sheet(image: np.ndarray) -> list[np.ndarray]:
     """Split a sheet carrying several floor plans into one image per plan.
 
@@ -272,11 +324,18 @@ def split_sheet(image: np.ndarray) -> list[np.ndarray]:
         for a, b in gutters
         if b - a >= minimum_gutter and a > minimum_piece and b < width - minimum_piece
     ]
-    if not interior:
+
+    # Gutters first, since blank page between plans is unambiguous. Where a
+    # sheet draws each plan inside a boundary box there is no blank page to
+    # find, so fall back to the boxes themselves.
+    divisions = (
+        [(a + b) // 2 for a, b in interior] if interior else _boundary_cuts(ink)
+    )
+    divisions = [c for c in divisions if minimum_piece < c < width - minimum_piece]
+    if not divisions:
         return [image]
 
-    # Cut at each gutter's midpoint.
-    cuts = [0] + [(a + b) // 2 for a, b in interior] + [width]
+    cuts = [0] + divisions + [width]
     pieces = [
         image[:, left:right]
         for left, right in zip(cuts, cuts[1:])
