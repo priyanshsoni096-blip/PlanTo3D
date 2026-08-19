@@ -20,6 +20,8 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
+from planto3d.style import Lighting
+
 logger = logging.getLogger(__name__)
 
 # Viewing angles for a three-quarter aerial, matching how plans are presented.
@@ -38,27 +40,11 @@ FILL_LIGHT = np.array([-0.6, 0.35, -0.5])
 # bounces off the ground is warmer and much darker. A surface lit by one
 # scalar brightness can only ever look like grey card: the eye reads the
 # *shift* between a sunlit face and a shaded one, not the drop in level.
-SUN_COLOUR = np.array([1.0, 0.93, 0.82])
-SKY_COLOUR = np.array([0.58, 0.70, 0.88])
-GROUND_BOUNCE = np.array([0.40, 0.35, 0.29])
-FILL_COLOUR = np.array([0.70, 0.79, 0.94])
+#
+# The values live in ``style`` now rather than here, because time of day is
+# the caller's choice and not the renderer's. This is only the default.
+DEFAULT_LIGHTING = Lighting()
 
-# Ambient is a hemisphere rather than a constant: a face looking up sees
-# sky, one looking down sees the ground. That single gradient does most of
-# the work of making a massing read as solid, because it separates roofs
-# from walls from soffits before any direct light lands on them.
-# The colours above are already the levels wanted, so ambient is applied at
-# full strength: a face looking up sits at the sky's own 0.58-0.88, one
-# looking down at the ground bounce's 0.29-0.40. Scaling it down as well
-# put every shaded surface near a third of white, and the building came out
-# reading as wet slate whatever it was made of.
-AMBIENT_STRENGTH = 0.58
-KEY_STRENGTH = 0.78
-FILL_STRENGTH = 0.16
-
-# A highlight where a surface catches the sun square on. Driven by the
-# material's own roughness, so glass and metal flare and masonry does not.
-SPECULAR_STRENGTH = 0.28
 # Roughness below this is treated as a mirror finish for the exponent's
 # sake; at zero the power blows up.
 MIN_ROUGHNESS = 0.04
@@ -73,18 +59,11 @@ REFLECTIVE_MATERIALS = {"glass", "water"}
 
 BASE_COLOUR = np.array([214, 208, 198], dtype=float)
 
-# The sky behind the building: deeper overhead, paler at the horizon, with
-# the light gathering towards where the sun sits.
-SKY_TOP = np.array([96, 140, 190], dtype=float)
-SKY_BOTTOM = np.array([206, 220, 232], dtype=float)
-SKY_GLOW = np.array([255, 244, 226], dtype=float)
-# How far across the frame the glow sits, and how wide it spreads.
+# How far across the frame the sun's glow sits, and how wide it spreads.
 GLOW_CENTRE = np.array([0.72, 0.30])
 GLOW_RADIUS = 0.55
-GLOW_STRENGTH = 0.42
 
 SHADOW_DIRECTION = np.array([0.55, 0.35])
-SHADOW_STRENGTH = 0.38
 SHADOW_BLUR = 9
 
 # Rendering larger than asked for and averaging down. Every edge in a
@@ -105,6 +84,16 @@ OCCLUSION_RADIUS = 9
 # Depth difference, as a share of the model's depth range, at which a pixel
 # counts as fully occluded.
 OCCLUSION_DEPTH = 0.012
+
+
+def _light(colour: tuple[int, int, int]) -> np.ndarray:
+    """A lighting colour as 0-1, which is where the arithmetic happens.
+
+    Light colours are held as 0-255 in ``style`` so they can be typed into
+    a colour picker like any other, but they are not surface colours and do
+    not go through the sRGB curve -- they are already a linear multiplier.
+    """
+    return np.asarray(colour, dtype=float) / 255.0
 
 
 def _to_linear(srgb: np.ndarray) -> np.ndarray:
@@ -133,7 +122,7 @@ def _to_srgb(linear: np.ndarray) -> np.ndarray:
     return encoded * 255.0
 
 
-def _tonemap(linear: np.ndarray) -> np.ndarray:
+def _tonemap(linear: np.ndarray, lighting: Lighting | None = None) -> np.ndarray:
     """Roll highlights off instead of clipping them flat.
 
     A sunlit parapet against a bright sky goes past white long before
@@ -145,7 +134,7 @@ def _tonemap(linear: np.ndarray) -> np.ndarray:
     It is the difference between a render that looks computed and one that
     looks photographed, and it costs two multiplies.
     """
-    exposed = linear * EXPOSURE
+    exposed = linear * (lighting or DEFAULT_LIGHTING).exposure
     a, b, c, d, e = 2.51, 0.03, 2.43, 0.59, 0.14
     return np.clip(
         (exposed * (a * exposed + b)) / (exposed * (c * exposed + d) + e), 0.0, 1.0
@@ -175,7 +164,7 @@ def _shading(
     normals: np.ndarray,
     world_normals: np.ndarray | None = None,
     reflective: np.ndarray | None = None,
-    roughness: np.ndarray | None = None,
+    lighting: Lighting | None = None,
 ) -> np.ndarray:
     """Per-face RGB light: a warm sun, a cool sky, and bounce off the ground.
 
@@ -189,30 +178,38 @@ def _shading(
     hemisphere ambient has to know which way is up in the world while the
     key and fill are fixed to the camera.
     """
+    lighting = lighting or DEFAULT_LIGHTING
     key_direction = KEY_LIGHT / np.linalg.norm(KEY_LIGHT)
     fill_direction = FILL_LIGHT / np.linalg.norm(FILL_LIGHT)
+
+    sky = _light(lighting.sky)
 
     # Hemisphere ambient: sky above, ground bounce below.
     upness = 0.5 + 0.5 * (
         normals[:, 1] if world_normals is None else world_normals[:, 1]
     )
-    ambient = GROUND_BOUNCE + (SKY_COLOUR - GROUND_BOUNCE) * upness[:, None]
-    light = AMBIENT_STRENGTH * ambient
+    bounce = _light(lighting.bounce)
+    ambient = bounce + (sky - bounce) * upness[:, None]
+    light = lighting.ambient_strength * ambient
 
     key = np.clip(normals @ key_direction, 0, 1)
-    light = light + KEY_STRENGTH * key[:, None] * SUN_COLOUR
+    light = light + lighting.key_strength * key[:, None] * _light(lighting.sun)
 
     fill = np.clip(normals @ fill_direction, 0, 1)
-    light = light + FILL_STRENGTH * fill[:, None] * FILL_COLOUR
+    light = light + lighting.fill_strength * fill[:, None] * _light(lighting.fill)
 
     if reflective is not None:
-        floor = np.maximum(light, REFLECTIVE_FLOOR * SKY_COLOUR)
+        floor = np.maximum(light, REFLECTIVE_FLOOR * sky)
         light = np.where(reflective[:, None], floor, light)
 
     return light
 
 
-def _specular(normals: np.ndarray, roughness: np.ndarray | None) -> np.ndarray:
+def _specular(
+    normals: np.ndarray,
+    roughness: np.ndarray | None,
+    lighting: Lighting | None = None,
+) -> np.ndarray:
     """Highlight where a face catches the sun square on.
 
     Blinn-Phong against the same key light, with the exponent taken from
@@ -235,7 +232,7 @@ def _specular(normals: np.ndarray, roughness: np.ndarray | None) -> np.ndarray:
     exponent = 2.0 / sharpness**4
     # Narrow highlights are brighter for the same energy, which is what
     # stops a polished surface reading as merely pale.
-    strength = SPECULAR_STRENGTH * (1.0 - sharpness) ** 2
+    strength = (lighting or DEFAULT_LIGHTING).specular_strength * (1.0 - sharpness) ** 2
 
     return (strength * alignment**exponent)[:, None]
 
@@ -264,7 +261,9 @@ def _box_mean(image: np.ndarray, size: int) -> np.ndarray:
     return total / float(size * size)
 
 
-def _occlusion(depth_buffer: np.ndarray) -> np.ndarray:
+def _occlusion(
+    depth_buffer: np.ndarray, lighting: Lighting | None = None
+) -> np.ndarray:
     """Darkening per pixel where a surface sits behind its neighbourhood.
 
     A crude ambient occlusion, and the cheapest large improvement available
@@ -293,20 +292,25 @@ def _occlusion(depth_buffer: np.ndarray) -> np.ndarray:
 
     # Larger depth is nearer, so a pixel behind its neighbours is occluded.
     behind = np.clip((average - depth) / (spread * OCCLUSION_DEPTH), 0, 1)
-    return np.where(covered, 1.0 - OCCLUSION_STRENGTH * behind, 1.0)
+    strength = (lighting or DEFAULT_LIGHTING).occlusion_strength
+    return np.where(covered, 1.0 - strength * behind, 1.0)
 
 
-def _background(resolution: tuple[int, int]) -> np.ndarray:
+def _background(
+    resolution: tuple[int, int], lighting: Lighting | None = None
+) -> np.ndarray:
     """The sky: deeper overhead, paler at the horizon, warm where the sun is.
 
     The glow is not decoration. A flat gradient reads as a backdrop behind
     the building; a sky with a light source in it reads as the place the
     building's own highlights are coming from, and the two then agree.
     """
+    lighting = lighting or DEFAULT_LIGHTING
     width, height = resolution
 
     ramp = np.linspace(0, 1, height)[:, None]
-    top, bottom = _to_linear(SKY_TOP), _to_linear(SKY_BOTTOM)
+    top = _to_linear(np.array(lighting.sky_top, dtype=float))
+    bottom = _to_linear(np.array(lighting.sky_bottom, dtype=float))
     gradient = top[None, :] * (1 - ramp) + bottom[None, :] * ramp
     sky = np.repeat(gradient[:, None, :], width, axis=1)
 
@@ -320,8 +324,8 @@ def _background(resolution: tuple[int, int]) -> np.ndarray:
     )
 
     falloff = np.clip(1.0 - distance / GLOW_RADIUS, 0, 1) ** 2
-    glow = _to_linear(SKY_GLOW)
-    return sky + GLOW_STRENGTH * falloff[:, :, None] * (glow - sky)
+    glow = _to_linear(np.array(lighting.sky_glow, dtype=float))
+    return sky + lighting.glow_strength * falloff[:, :, None] * (glow - sky)
 
 
 def _ground_shadow(
@@ -331,6 +335,7 @@ def _ground_shadow(
     scale: float,
     offset: np.ndarray,
     height: int,
+    strength: float = DEFAULT_LIGHTING.shadow_strength,
 ) -> None:
     """Darken the ground beneath the building.
 
@@ -359,7 +364,7 @@ def _ground_shadow(
     softened = np.asarray(
         stencil.filter(ImageFilter.GaussianBlur(SHADOW_BLUR)), dtype=np.float32
     )
-    weight = (softened / 255.0 * SHADOW_STRENGTH)[:, :, None]
+    weight = (softened / 255.0 * strength)[:, :, None]
     canvas *= 1.0 - weight
 
 
@@ -411,6 +416,7 @@ def _draw(
     face_colours: np.ndarray | None,
     reflective: np.ndarray | None = None,
     roughness: np.ndarray | None = None,
+    lighting: Lighting | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Rasterize a view, returning the colour canvas and its depth buffer."""
     width, height = resolution
@@ -430,13 +436,16 @@ def _draw(
     projected[:, 1] = height - projected[:, 1]  # screen Y grows downward
     projected[:, 2] = vertices[:, 2]
 
-    light = _shading(normals, mesh.face_normals, reflective)
-    highlight = _specular(normals, roughness)
+    lighting = lighting or DEFAULT_LIGHTING
+    light = _shading(normals, mesh.face_normals, reflective, lighting)
+    highlight = _specular(normals, roughness, lighting)
     base = BASE_COLOUR if face_colours is None else face_colours
 
-    canvas = _background(resolution)
+    canvas = _background(resolution, lighting)
     # The shadow is a multiplier, so it works the same in linear.
-    _ground_shadow(canvas, mesh, rotation, scale, offset, height)
+    _ground_shadow(
+        canvas, mesh, rotation, scale, offset, height, lighting.shadow_strength
+    )
     depth_buffer = np.full((height, width), -np.inf)
 
     # Everything from here is linear light, not stored colour.
@@ -449,7 +458,7 @@ def _draw(
         colour = tone * light[index] + highlight[index]
         _rasterize(canvas, depth_buffer, projected[face], colour)
 
-    canvas *= _occlusion(depth_buffer)[:, :, None]
+    canvas *= _occlusion(depth_buffer, lighting)[:, :, None]
     return canvas, depth_buffer
 
 
@@ -462,6 +471,7 @@ def render(
     face_colours: np.ndarray | None = None,
     reflective: np.ndarray | None = None,
     roughness: np.ndarray | None = None,
+    lighting: Lighting | None = None,
     supersample: int = SUPERSAMPLE,
 ) -> Path:
     """Paint a shaded view of ``mesh`` to a PNG.
@@ -487,6 +497,7 @@ def render(
         face_colours,
         reflective,
         roughness,
+        lighting,
     )
 
     if factor > 1:
@@ -497,7 +508,7 @@ def render(
         # out darker than both surfaces meeting at it.
         canvas = canvas.reshape(height, factor, width, factor, 3).mean(axis=(1, 3))
 
-    canvas = _to_srgb(_tonemap(canvas))
+    canvas = _to_srgb(_tonemap(canvas, lighting))
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -630,6 +641,7 @@ def render_views(
     views: dict[str, tuple[float, float]] | None = None,
     resolution: tuple[int, int] = (1200, 900),
     prefix: str = "view",
+    lighting: Lighting | None = None,
 ) -> dict[str, Path]:
     """Render a model from every standard view.
 
@@ -650,6 +662,7 @@ def render_views(
             face_colours=colours,
             reflective=reflective,
             roughness=roughness,
+            lighting=lighting,
         )
 
     logger.info("rendered %d view(s) to %s", len(rendered), output_dir)

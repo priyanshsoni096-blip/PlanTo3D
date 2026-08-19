@@ -38,6 +38,8 @@ from planto3d.extract import (
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
 from planto3d.features import regions_from_labels
 from planto3d.materials import build_scene, export_scene
+from planto3d.design import Landscaping
+from planto3d.style import Palette
 from planto3d.geometry_types import FloorPlan, Wall
 from planto3d.ingest import (
     WORKING_DPI,
@@ -221,6 +223,8 @@ def run(
     segmenter: Segmenter = classical_mask,
     wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     crop: bool = True,
+    palette: Palette | None = None,
+    site: Landscaping | None = None,
 ) -> PipelineResult:
     """Convert a floor plan into a stacked 3D model.
 
@@ -315,6 +319,8 @@ def run(
             wall_height_ft=wall_height_ft,
             scale=scale,
             page_size=page_size,
+            palette=palette,
+            site=site,
         )
         model_path = export_scene(scene, output_dir / "house.glb")
 
