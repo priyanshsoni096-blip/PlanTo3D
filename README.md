@@ -103,6 +103,34 @@ heuristics around it do not. That is the honest reading, and it is why the
 segmentation model is the contribution rather than the pipeline that
 consumes it.
 
+Three more things are measured against ground truth rather than asserted.
+CubiCasa records each room's real size and each sheet's floor count inside
+the annotation, which makes both checkable on every plan in the dataset.
+
+**Scale** (`scripts/scale_accuracy.py`, 24 plans): median error 12.5%, 17
+within a fifth of true. The sign matters more than the median: doors run
+12.5% low and walls 7.2% low, both systematically, so houses come out about
+a tenth too big. Two independent methods biased the same way points at the
+segmenter predicting thin classes narrow rather than at either constant
+being wrong.
+
+**Sheet splitting** (`scripts/split_accuracy.py`, 60 sheets):
+
+| | Before | After |
+| --- | --- | --- |
+| Exact floor count | 40/60 | **50/60** |
+| Precision | 31% | **64%** |
+| Recall | 36% | **64%** |
+
+It had been failing in both directions at once. The false splits all came
+from the boundary-rule fallback firing on dimension lines; the misses came
+from looking only for side-by-side gutters when sheets stack plans top to
+bottom as well, and from demanding a gutter 5% of the sheet when a real one
+is 2-3%.
+
+**Room naming** (`scripts/batch_evaluate.py`, 21 plans): a room name was
+read on 3. That number is why the room type is predicted rather than read.
+
 ### Geometric accuracy
 
 On a three-storey reference set the model comes out 77 × 51 ft on plan and
@@ -195,11 +223,25 @@ Room labels drive geometry, not just colour:
 | open | balcony, terrace, deck | railed edge |
 | stairs | staircase, steps, and the bare "UP" mark | a flight climbing one storey |
 | wet | bathroom, toilet, wash, utility, scullery | tiled floor |
+| dome | dome, cupola, rotunda, shikhara, gumbad | half ellipsoid on a drum |
+| pitched | sloping, gable, hip, mansard roof | ridged roof, tiled |
+| glazed | glass roof, skylight, conservatory, orangery | slanting glazing |
+| tank | overhead tank, water tank | tank on legs, on the roof |
+| chimney | chimney, flue stack | brick stack |
+| tower | turret, minaret, belvedere, spire | capped tower |
+| canopy | portico, car canopy, awning, chajja | thin projecting cover |
+| ramp | ramp, vehicle ramp, wheelchair ramp | sloped slab at about 1:12 |
 
-335 keywords in all, covering what a plan can carry rather than what one
+Over 450 keywords in all, covering what a plan can carry rather than what one
 drawing set happened to use: loggia, lanai, breezeway and portico alongside
 balcony and terrace; lightwells, airwells and ventilation courts alongside
 double-height; motor courts and forecourts alongside driveways.
+
+The last eight categories are the building's own form rather than its
+floors. Domes, pitched roofs, glazing, tanks, chimneys and towers stand on
+the roof; **canopies and ramps belong to the storey they are drawn on** -- a
+porch over the front door is at first floor soffit level, and moving it to
+the roof would leave the door uncovered.
 
 South Asian and Middle Eastern terms are included — otla, osari, baramda,
 chabutra, jharokha, baithak, majlis, diwan, mumty, chajja — because these
@@ -210,10 +252,14 @@ tile where it is worked in, stone through circulation.
 
 ## Limitations
 
-- **One image is assumed to be one storey.** Sheets that lay several floor
-  plans side by side are reconstructed as a single flat floor, and nothing
-  detects this — the pipeline reports plausible numbers and produces a model
-  that is confidently wrong. Feed one storey per image.
+- **Sheets holding several plans are split, but only about two thirds of
+  the time.** Measured against CubiCasa's recorded floor counts the
+  splitter is right on 50 of 60 sheets, at 64% precision and 64% recall.
+  Feeding one storey per image remains the reliable route.
+- **Absolute size is inferred, and runs about a tenth large.** Where a plan
+  prints no dimensions the scale comes from door widths or wall thickness,
+  with a median error of 12.5% and a systematic bias low. Proportions are
+  sound; the absolute figure is an estimate.
 - Targets clean, digital floor plans. Photographs and heavily compressed
   scans produce poor results, because the segmentation is only as good as
   its input.

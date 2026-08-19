@@ -317,9 +317,11 @@ CubiCasa records. Over 60 sheets:
 
 | | |
 | --- | --- |
-| Exact floor count | 40/60 (67%) |
-| Precision | 5/16 (31%) |
-| Recall | 5/14 (36%) |
+| | Before | After |
+| --- | --- | --- |
+| Exact floor count | 40/60 (67%) | **50/60 (83%)** |
+| Precision | 5/16 (31%) | **9/14 (64%)** |
+| Recall | 5/14 (36%) | **9/14 (64%)** |
 
 It is wrong in **both** directions, which is worse than being merely shy: it
 splits single plans into two or three (11 sheets) and misses real
