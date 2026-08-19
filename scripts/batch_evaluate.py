@@ -50,6 +50,24 @@ def evaluate(plan: Path, segmenter) -> dict:
                     "rooms": result.room_count,
                     "openings": result.opening_count,
                     "named": sum(len(f.named_rooms) for f in result.floors),
+                    # Rooms the segmenter gave a function to. On a plan
+                    # printing no names this is the only thing that will
+                    # put a tiled floor in the bathroom or a railing on
+                    # the balcony, so it is worth tracking beside "named".
+                    "typed": sum(
+                        1
+                        for floor in result.floors
+                        for room in floor.plan.rooms
+                        if room.category
+                    ),
+                    "types": sorted(
+                        {
+                            room.category
+                            for floor in result.floors
+                            for room in floor.plan.rooms
+                            if room.category
+                        }
+                    ),
                     "scale": result.scale,
                     "scale_source": result.scale_source,
                     "exported": result.model_path is not None,
@@ -71,8 +89,11 @@ def main(plans_dir: Path, checkpoint: Path | None, limit: int | None) -> None:
         raise SystemExit(f"no plans found under {plans_dir}")
 
     print(f"evaluating {len(plans)} plan(s)\n")
-    print(f"{'plan':12}{'walls':>7}{'rooms':>7}{'open':>6}{'named':>7}  {'scale':>7}  source")
-    print("-" * 62)
+    print(
+        f"{'plan':12}{'walls':>7}{'rooms':>7}{'open':>6}{'named':>7}{'typed':>7}"
+        f"  {'scale':>7}  source"
+    )
+    print("-" * 69)
 
     rows = []
     for plan in plans:
@@ -84,12 +105,12 @@ def main(plans_dir: Path, checkpoint: Path | None, limit: int | None) -> None:
             scale = f"{row['scale']:.1f}" if row["scale"] else "-"
             print(
                 f"{row['plan']:12}{row['walls']:7d}{row['rooms']:7d}{row['openings']:6d}"
-                f"{row['named']:7d}  {scale:>7}  {row['scale_source']}"
+                f"{row['named']:7d}{row['typed']:7d}  {scale:>7}  {row['scale_source']}"
             )
 
     good = [r for r in rows if r["ok"]]
     failed = [r for r in rows if r["error"]]
-    print("-" * 62)
+    print("-" * 69)
     print(f"reconstructed:  {len(good)}/{len(rows)}")
     print(f"crashed:        {len(failed)}/{len(rows)}")
 
@@ -97,8 +118,26 @@ def main(plans_dir: Path, checkpoint: Path | None, limit: int | None) -> None:
         print(f"\nmedian walls {sorted(r['walls'] for r in good)[len(good) // 2]}, "
               f"rooms {sorted(r['rooms'] for r in good)[len(good) // 2]}, "
               f"openings {sorted(r['openings'] for r in good)[len(good) // 2]}")
+        # The two routes to knowing what a room is for, side by side.
+        # Names come from the drawing and are usually absent; types come
+        # from the model and need no text at all.
         named = sum(1 for r in good if r["named"] > 0)
-        print(f"room names read on {named}/{len(good)}")
+        typed = sum(1 for r in good if r["typed"] > 0)
+        print()
+        print("room function known on:")
+        print(f"   from printed names   {named:3d}/{len(good)}")
+        print(f"   from predicted type  {typed:3d}/{len(good)}")
+        if not typed:
+            print("   (this checkpoint predicts no room types -- it predates them)")
+        else:
+            seen: dict[str, int] = {}
+            for row in good:
+                for kind in row["types"]:
+                    seen[kind] = seen.get(kind, 0) + 1
+            print()
+            print("   types found, by plan count:")
+            for kind, count in sorted(seen.items(), key=lambda kv: -kv[1]):
+                print(f"      {kind:14} {count:3d}/{len(good)}")
         print("\nwhere the scale came from:")
         for source, count in Counter(r["scale_source"] for r in good).most_common():
             print(f"   {source:12} {count:3d}")
