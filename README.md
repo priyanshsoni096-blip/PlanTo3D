@@ -64,6 +64,25 @@ levels and nothing more. That gap is what makes real openings possible, so
 the trained model does not merely score better; it unlocks geometry the
 baseline cannot produce.
 
+### Does it generalise?
+
+The geometry layer's constants were measured from one drawing set, so
+`scripts/generalisation_test.py` runs the stages over CubiCasa samples
+drafted by other people in other conventions. Predictions were recorded
+before the run; all three held.
+
+| | Trained U-Net | Classical baseline | Colour signals |
+| --- | --- | --- | --- |
+| Usable geometry | **12 of 12** | — | — |
+| Mean wall pixels | 7.2% | **0.0%** | — |
+| Mean walls found | 31 | **1** | — |
+| Found anything | — | no walls at all on 10 of 12 | windows 5/12, planting 1/12 |
+
+Across sheets from 954×984 to 3536×1879. The trained model generalises; the
+heuristics around it do not. That is the honest reading, and it is why the
+segmentation model is the contribution rather than the pipeline that
+consumes it.
+
 ### Geometric accuracy
 
 On a three-storey reference set the model comes out 77 × 51 ft on plan and

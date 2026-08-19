@@ -66,6 +66,48 @@ Then upload `output_unet/guides/guide-depth.png` to the notebook. Section 5
 sweeps the conditioning strength so the trade-off between holding the
 geometry and enriching the image can be seen rather than guessed.
 
+## The biggest methodological weakness
+
+**The geometry layer is tuned against one building.** Wall fill 99, room fill
+200, the working resolution, the crop consensus, the envelope tolerances and
+the colour signals were all measured from the Soni Residence sheets. That is
+overfitting to a single sample, and it is the first thing a careful reader
+should challenge.
+
+The two layers stand differently, and the distinction is worth making
+explicitly rather than letting a reader assume the worse of both:
+
+- The **segmentation model** was trained on 5,000 CubiCasa plans and scored
+  on a held-out split it never saw. That is properly validated.
+- The **geometry and heuristics** around it were fitted to one drawing set.
+
+Some constants are derived rather than fitted -- a 2'6" door is a standard,
+not a measurement of this house -- and the scale fallback was validated
+against the reference rather than tuned to it: doors were predicted to work,
+then checked, giving 27.2 px/ft against a true 28.15. But the grey levels,
+the resolution and the crop consensus are genuinely fitted.
+
+**This has now been measured.** `scripts/generalisation_test.py` runs the
+stages over CubiCasa samples drafted by other people in other conventions.
+Predictions were recorded before the first run so they could not be
+rationalised afterwards, and all three held:
+
+| | U-Net | Classical baseline | Colour signals |
+| --- | --- | --- | --- |
+| Usable geometry | 12 of 12 samples | -- | -- |
+| Mean wall pixels | 7.2% | 0.0% | -- |
+| Mean walls found | 31 | 1 | -- |
+| Detected anything | -- | no walls at all on 10 of 12 | windows 5/12, planting 1/12 |
+
+Across sheets from 954x979 to 3536x1879. So the trained model generalises,
+and the heuristics around it do not -- which is now measured rather than
+asserted, and is the honest way to present the project.
+
+The reading to take from this: the segmentation model is the contribution,
+the classical baseline is a scaffold that only ever worked on clean CAD
+sheets, and the colour signals are one drafting office's convention rather
+than a general technique.
+
 ## Known limitations
 
 These are understood, not mysteries. Each is a deliberate boundary or a
