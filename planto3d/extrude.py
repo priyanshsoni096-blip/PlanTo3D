@@ -62,6 +62,33 @@ COPING_THICKNESS_FT = 0.3
 COPING_OVERHANG_FT = 0.35
 # The enclosure over a stairwell that reaches the roof.
 HEADROOM_HEIGHT_FT = 7.5
+
+# --- Roof forms other than flat ----------------------------------------------
+#
+# A flat slab with a parapet is the common case on these houses and was the
+# only thing built. Plenty of roofs are not that: a dome over a temple or a
+# stairhall, a slanting glazed ceiling over a conservatory, a pitched roof
+# over a wing. Each is raised over the room the drawing names, at roof level.
+#
+# The rises are proportions of the room's shorter span rather than fixed
+# heights, so a dome over a small shrine and one over a hall both look
+# right. A half rise is a true hemisphere, which is what "dome" means when
+# a drawing does not say otherwise.
+DOME_RISE_RATIO = 0.5
+# Enough segments that the silhouette reads as a curve rather than a cone.
+DOME_SEGMENTS = 4
+# A low drum lifts the dome clear of the roof slab, the way a real one sits
+# on a base rather than springing straight off the deck.
+DOME_DRUM_FT = 0.8
+
+# A pitched roof's ridge sits above the eaves by this share of the shorter
+# span, which is about 35 degrees -- the ordinary domestic pitch.
+PITCH_RISE_RATIO = 0.35
+# Slanting glazing is laid shallower than a tiled roof, both because glass
+# is usually a lean-to over a conservatory and because a steep glass plane
+# reads as a wall.
+GLAZED_RISE_RATIO = 0.22
+GLAZED_THICKNESS_FT = 0.25
 HEADROOM_WALL_FT = 0.6
 # A footprint needs this many vertices to enclose an area.
 MIN_FOOTPRINT_VERTICES = 3
@@ -658,6 +685,211 @@ def _stair_parts(
     return parts
 
 
+def _bounds(polygon: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    xs = [point[0] for point in polygon]
+    ys = [point[1] for point in polygon]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _to_metres(value: float, scale: float) -> float:
+    return value / scale * FEET_TO_METRES
+
+
+def _solid(vertices: list, faces: list) -> trimesh.Trimesh | None:
+    """A closed mesh from explicit vertices and faces, wound outward.
+
+    Written out rather than obtained from a convex hull or a plane slice,
+    both of which need SciPy. A roof form that fails to build because an
+    optional dependency is missing is worse than a few lines of index
+    arithmetic, and these shapes are simple enough to state directly.
+
+    Winding is checked rather than trusted: a mesh enclosing a negative
+    volume is inside out, which is cheap to detect and cheap to correct.
+    """
+    mesh = trimesh.Trimesh(
+        vertices=np.array(vertices, dtype=float), faces=np.array(faces)
+    )
+    if mesh.is_empty:
+        return None
+    if mesh.volume < 0:
+        mesh.invert()
+    return mesh
+
+
+def _dome(
+    polygon: list[tuple[float, float]], base_ft: float, scale: float
+) -> list[trimesh.Trimesh]:
+    """A raised cap over a room, sitting on a low drum.
+
+    Built from the room's bounding box rather than its outline. A dome is a
+    surface of revolution and does not follow a ragged segmented polygon;
+    forcing it to would give a lumpy shell rather than a dome.
+
+    Assembled directly in model axes -- X across the page, Y up, Z down the
+    page -- rather than built flat and rotated the way the slabs are, since
+    a dome has no flat face to extrude from.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    left, top, right, bottom = _bounds(polygon)
+    radius_x = _to_metres((right - left) / 2, scale)
+    radius_z = _to_metres((bottom - top) / 2, scale)
+    if radius_x <= 0 or radius_z <= 0:
+        return []
+
+    rise = min(radius_x, radius_z) * 2 * DOME_RISE_RATIO
+    drum_m = DOME_DRUM_FT * FEET_TO_METRES
+    base_m = base_ft * FEET_TO_METRES
+    centre_x = _to_metres((left + right) / 2, scale)
+    centre_z = _to_metres((top + bottom) / 2, scale)
+
+    segments = DOME_SEGMENTS * 8
+    rings = DOME_SEGMENTS * 2
+    springing = base_m + drum_m
+
+    # The drum: a closed elliptical cylinder from the roof up to the
+    # springing line, so the dome rests on a base rather than growing
+    # straight out of the deck.
+    vertices = []
+    for level in (base_m, springing):
+        for step in range(segments):
+            angle = 2 * np.pi * step / segments
+            vertices.append(
+                [
+                    centre_x + radius_x * np.cos(angle),
+                    level,
+                    centre_z + radius_z * np.sin(angle),
+                ]
+            )
+    vertices += [[centre_x, base_m, centre_z], [centre_x, springing, centre_z]]
+    bottom_centre, top_centre = 2 * segments, 2 * segments + 1
+
+    faces = []
+    for step in range(segments):
+        nxt = (step + 1) % segments
+        faces += [
+            [step, nxt, segments + nxt],
+            [step, segments + nxt, segments + step],
+            [bottom_centre, nxt, step],
+            [top_centre, segments + step, segments + nxt],
+        ]
+    drum = _solid(vertices, faces)
+
+    # The cap: a half ellipsoid in latitude rings, closed with a fan at the
+    # top and a disc underneath so it is a solid rather than a shell.
+    vertices = []
+    for ring in range(rings):
+        polar = (np.pi / 2) * ring / rings
+        for step in range(segments):
+            angle = 2 * np.pi * step / segments
+            vertices.append(
+                [
+                    centre_x + radius_x * np.cos(polar) * np.cos(angle),
+                    springing + rise * np.sin(polar),
+                    centre_z + radius_z * np.cos(polar) * np.sin(angle),
+                ]
+            )
+    vertices += [
+        [centre_x, springing + rise, centre_z],
+        [centre_x, springing, centre_z],
+    ]
+    apex, base_centre = rings * segments, rings * segments + 1
+
+    faces = []
+    for ring in range(rings - 1):
+        here, above = ring * segments, (ring + 1) * segments
+        for step in range(segments):
+            nxt = (step + 1) % segments
+            faces += [
+                [here + step, here + nxt, above + nxt],
+                [here + step, above + nxt, above + step],
+            ]
+    last = (rings - 1) * segments
+    for step in range(segments):
+        nxt = (step + 1) % segments
+        faces.append([last + step, last + nxt, apex])
+        faces.append([base_centre, nxt, step])
+    cap = _solid(vertices, faces)
+
+    return [part for part in (drum, cap) if part is not None]
+
+
+def _sloped_roof(
+    polygon: list[tuple[float, float]],
+    base_ft: float,
+    scale: float,
+    rise_ratio: float,
+    ridged: bool,
+    thickness_ft: float = 0.0,
+) -> list[trimesh.Trimesh]:
+    """A roof whose top is not level: a ridged gable, or a single slope.
+
+    A gable is a prism with its ridge along the room's longer side, since a
+    gable spanning the long way would need impossibly long rafters. A single
+    slope is a slab with its back edge lifted, given real thickness so a
+    glazed plane has an edge rather than coming to a knife point.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    left, top, right, bottom = _bounds(polygon)
+    width = _to_metres(right - left, scale)
+    depth = _to_metres(bottom - top, scale)
+    if width <= 0 or depth <= 0:
+        return []
+
+    rise = min(width, depth) * rise_ratio
+    base_m = base_ft * FEET_TO_METRES
+    x0, x1 = _to_metres(left, scale), _to_metres(right, scale)
+    z0, z1 = _to_metres(top, scale), _to_metres(bottom, scale)
+
+    if ridged:
+        if width >= depth:
+            middle = (z0 + z1) / 2
+            ridge = ([x0, base_m + rise, middle], [x1, base_m + rise, middle])
+        else:
+            middle = (x0 + x1) / 2
+            ridge = ([middle, base_m + rise, z0], [middle, base_m + rise, z1])
+
+        vertices = [
+            [x0, base_m, z0],
+            [x1, base_m, z0],
+            [x1, base_m, z1],
+            [x0, base_m, z1],
+            list(ridge[0]),
+            list(ridge[1]),
+        ]
+        faces = [
+            [0, 2, 1], [0, 3, 2],
+            [0, 1, 5], [0, 5, 4],
+            [2, 3, 4], [2, 4, 5],
+            [0, 4, 3], [1, 2, 5],
+        ]
+        solid = _solid(vertices, faces)
+        return [solid] if solid is not None else []
+
+    # A single slope falls forwards, so the back edge is the raised one.
+    drop = (thickness_ft or GLAZED_THICKNESS_FT) * FEET_TO_METRES
+    back, front = base_m + rise, base_m
+    vertices = [
+        [x0, back - drop, z0], [x1, back - drop, z0],
+        [x1, front - drop, z1], [x0, front - drop, z1],
+        [x0, back, z0], [x1, back, z0],
+        [x1, front, z1], [x0, front, z1],
+    ]
+    faces = [
+        [0, 2, 1], [0, 3, 2],
+        [4, 5, 6], [4, 6, 7],
+        [0, 1, 5], [0, 5, 4],
+        [2, 3, 7], [2, 7, 6],
+        [1, 2, 6], [1, 6, 5],
+        [3, 0, 4], [3, 4, 7],
+    ]
+    solid = _solid(vertices, faces)
+    return [solid] if solid is not None else []
+
+
 def _headroom_box(
     polygon: list[tuple[float, float]], base_ft: float, scale: float
 ) -> list[trimesh.Trimesh]:
@@ -1001,12 +1233,49 @@ def floors_to_parts(
         if coping is not None:
             parts.setdefault("coping", []).append(coping)
 
+    top_features = group_by_feature(top.rooms)
+
     # A flight reaching the top storey needs headroom above it, which on a
     # flat roof is a small enclosure -- the box that appears on every roofline
     # in the reference elevations.
-    for room in group_by_feature(top.rooms).get("stairs", []):
+    for room in top_features.get("stairs", []):
         parts.setdefault("roof", []).extend(
             _headroom_box(room.polygon, roof_base_ft + SLAB_THICKNESS_FT, scale)
+        )
+
+    # Roofs that are not flat. A flat slab with a parapet is the common case
+    # on these houses and was the only thing built, which left a drawing
+    # marked DOME or GLASS ROOF or SLOPING ROOF looking like every other.
+    #
+    # All three are raised over rooms named on the *top* storey, because
+    # that is the plan a roof feature is drawn on. A dome marked on a ground
+    # floor temple in a three storey house is not directly under the sky,
+    # and guessing which part of the roof it belongs beneath would be worse
+    # than leaving it off.
+    deck_ft = roof_base_ft + SLAB_THICKNESS_FT
+    for room in top_features.get("dome", []):
+        parts.setdefault("dome", []).extend(_dome(room.polygon, deck_ft, scale))
+
+    # Kept apart from the flat deck so it takes the tiled finish. Merged in
+    # with "roof" it was invisible -- a low slope, the same grey as the deck
+    # it stands on, half hidden behind the parapet.
+    for room in top_features.get("pitched", []):
+        parts.setdefault("pitched", []).extend(
+            _sloped_roof(room.polygon, deck_ft, scale, PITCH_RISE_RATIO, ridged=True)
+        )
+
+    # Glazing goes in with the windows so it picks up the same transparent
+    # material, rather than reading as a solid panel over the room.
+    for room in top_features.get("glazed", []):
+        parts.setdefault("glass", []).extend(
+            _sloped_roof(
+                room.polygon,
+                deck_ft,
+                scale,
+                GLAZED_RISE_RATIO,
+                ridged=False,
+                thickness_ft=GLAZED_THICKNESS_FT,
+            )
         )
 
     # Merged rather than assigned: the site block also produces lawn and
