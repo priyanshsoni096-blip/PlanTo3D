@@ -244,3 +244,48 @@ class TestRoomFunctionWithoutAName:
 
         assert len(grouped["wet"]) == 1
         assert len(grouped["open"]) == 2
+
+
+class TestTheLanguageTheTrainingDataIsDrawnIn:
+    """The segmenter is trained on a Finnish corpus.
+
+    Those are the drawings it reads best, and none of their words were
+    understood. A parveke -- a balcony -- was built as a sealed room,
+    walling in the windows that open onto it.
+    """
+
+    @pytest.mark.parametrize(
+        "label, category",
+        [
+            ("PARVEKE", "open"),
+            ("PARV", "open"),
+            ("TERASSI", "open"),
+            ("KATTOTERASSI", "open"),
+            ("BALKONG", "open"),
+            ("KYLPYHUONE", "wet"),
+            ("KPH", "wet"),
+            ("PESUHUONE", "wet"),
+            ("KODINHOITOHUONE", "wet"),
+            ("KHH", "wet"),
+            ("KEITTIO", "wet"),
+        ],
+    )
+    def test_finnish_and_swedish_room_names(self, label, category):
+        assert classify(label) == category
+
+    def test_short_marks_are_matched_whole(self):
+        # As substrings these would match half the English vocabulary.
+        assert classify("PARVIS") is None
+        assert classify("PARV") == "open"
+
+    def test_a_stray_single_letter_tiles_nothing(self):
+        # OCR litters a dense drawing with single letters, and one landing
+        # in a room would tile its floor. "K" for keittio is left out for
+        # that reason, at the cost of the plans that abbreviate that far.
+        assert classify("K") is None
+
+    def test_rooms_that_only_change_the_finish_imply_no_feature(self):
+        # A makuuhuone is a bedroom and an olohuone a living room. Neither
+        # builds anything a plain room would not.
+        for label in ("OH", "MH", "ET"):
+            assert classify(label) is None

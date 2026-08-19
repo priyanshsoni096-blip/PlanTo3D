@@ -323,6 +323,16 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "CHABUTRA",
             "JHAROKHA",
             "CHHAT",
+            # Finnish and Swedish. The segmenter is trained on a Finnish
+            # corpus, so these are the words on the drawings it reads best,
+            # and none of them were understood: a parveke was built as a
+            # sealed room, walling in the windows that open onto it.
+            "PARVEKE",
+            "TERASSI",
+            "KATTOTERASSI",
+            "KUISTI",
+            "BALKONG",
+            "TERRASS",
         ),
     ),
     (
@@ -567,6 +577,17 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "SAUNA",
             "SPA",
             "WC",
+            # Finnish. A kylpyhuone is a bathroom, a pesuhuone a wash room,
+            # a kodinhoitohuone a utility room, and all three are tiled.
+            "KYLPYHUONE",
+            "PESUHUONE",
+            "KODINHOITOHUONE",
+            "SAUNAOSASTO",
+            "LOYLYHUONE",
+            "BADRUM",
+            "TVATTSTUGA",
+            "KEITTIO",
+            "KEITTIOKOMERO",
         ),
     ),
 ]
@@ -591,6 +612,15 @@ _FEATURE_LOOKUP: list[tuple[str, str]] = sorted(
 EXACT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("stairs", ("UP", "DN", "DOWN")),
     ("void", ("OTS",)),
+    # Finnish plans label rooms with two and three letter abbreviations and
+    # little else -- PARV, KPH, OH, MH, ET. They are the only names on most
+    # of the drawings the segmenter was trained on, and as substrings they
+    # would match half the English vocabulary, so they are matched whole.
+    # A bare "K" is left out deliberately: OCR litters a dense drawing
+    # with stray single letters, and one of them landing in a room would
+    # tile its floor.
+    ("open", ("PARV", "TER")),
+    ("wet", ("KPH", "KHH", "PSH", "PH")),
 ]
 
 # What an interior room's floor is finished in. Separate from the feature
