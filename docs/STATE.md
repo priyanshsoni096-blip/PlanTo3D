@@ -200,6 +200,102 @@ than together, because an open kitchen has no wall between it and the
 dining area it opens onto. Tracing them as one class returned a single room
 where there are plainly two.
 
+## Roofs other than flat
+
+A flat slab with a parapet was the only roof there was. Three more forms are
+built now, raised over a room the drawing names on the **top** storey --
+that being the plan a roof feature is drawn on:
+
+| Word on the drawing | What is built |
+| --- | --- |
+| DOME, CUPOLA, ROTUNDA, SHIKHARA, GUMBAD, VIMANA | Half ellipsoid on a low drum, rising half its shorter span |
+| SLOPING / PITCHED / GABLE / HIP / MANSARD ROOF | Prism, ridge along the room's longer side |
+| GLASS ROOF, SKYLIGHT, CONSERVATORY, ORANGERY | Lean-to slope, laid shallower, in the window material |
+
+Three things that turned out to matter and would not be obvious:
+
+- **A pitched roof needs its own finish.** Rendered in the deck's grey it
+  was invisible: a low slope, the same colour as the thing it stood on, half
+  hidden behind the parapet. It is terracotta now.
+- **Glazing must join the windows, not the roof**, or it reads as a solid
+  panel laid over the room instead of glass.
+- **A dome is slightly polished.** At the roof's roughness it flattened into
+  a grey disc -- a curved surface only reads as curved if light moves across
+  it.
+
+SKYLIGHT used to classify as `void`, which cut the roof away and left the
+room open to the weather. It is glazed now.
+
+The shapes are written out as vertices and faces rather than taken from a
+convex hull or a plane slice. Both need SciPy, which is not installed here,
+and a roof form that fails to build for want of an optional dependency is
+worse than some index arithmetic. Winding is checked rather than trusted: a
+mesh enclosing a negative volume is inside out, cheap to detect and correct.
+
+## Scale can finally be scored
+
+CubiCasa states each room's real size inside the annotation, as a label
+marked `display: none` that never renders. It is on every plan tried, so
+`scripts/scale_accuracy.py` can score the inferred scale rather than
+assuming it. Nothing else in the project allowed this: only one drawing
+prints its dimensions, and it is the drawing everything was tuned on.
+
+First run over 24 plans, with the five-class checkpoint:
+
+| | |
+| --- | --- |
+| Median error | 12.5% |
+| Within a fifth of true | 17/24 |
+| Worst | 71% |
+| Doors, n=14 | median 12.5%, **bias -12.5%** |
+| Walls, n=10 | median 11.2%, **bias -7.2%** |
+
+The sign is the interesting part, not the median. Both methods run low, so
+houses come out about a tenth too big. Two independent methods biased the
+same way points at a common cause rather than at either constant being
+wrong, and the likeliest is the segmenter predicting thin classes narrow --
+door IoU is 0.65 and window IoU 0.12.
+
+**A prediction recorded before the retrain rather than after:** weighting
+the loss by class frequency should widen the predicted openings and shrink
+this bias. If it does not, the constants themselves are wrong for this
+population and should be re-measured rather than assumed from standards.
+
+No constant was re-tuned. A 2'6" door and a 9" wall are British and Indian
+standards, CubiCasa is Finnish, and fitting them to this dataset would trade
+one population's accuracy for another's.
+
+### A negative result worth keeping
+
+Room size was tried as a third estimator and is **worse than both**: 25.8%
+median error against 12.5% for doors and 16.4% for walls. It is not in the
+pipeline. Recorded so it is not tried again.
+
+What it did establish is a physical regularity that holds across drafting
+traditions. Over 649 rooms in 60 Finnish plans the median room's short side
+is 6.9 ft, with 80% of plans between 5.3 and 8.9. The Indian reference sheet
+sits at 7.4 ft. That agreement is worth knowing even though the estimator
+built on it was not good enough.
+
+## Splitting multi-storey sheets is measurably poor
+
+`scripts/split_accuracy.py` scores the splitter against the `Floor` groups
+CubiCasa records. Over 60 sheets:
+
+| | |
+| --- | --- |
+| Exact floor count | 40/60 (67%) |
+| Precision | 5/16 (31%) |
+| Recall | 5/14 (36%) |
+
+It is wrong in **both** directions, which is worse than being merely shy: it
+splits single plans into two or three (11 sheets) and misses real
+multi-storey sheets (9). The damage is not symmetrical. Splitting a single
+apartment into three stacks fragments of one plan into a tower, and the
+fragments are small enough to throw the scale badly off -- sample 11578 is
+split into 3 and lands at 8.8 px/ft against a true 30.6, a 71% error and the
+worst in the whole scale run.
+
 ## One image is assumed to be one storey
 
 Found by running a random CubiCasa sample end to end rather than testing the
