@@ -67,14 +67,14 @@ class Surface:
 # before it is accurate, and adjacent slabs that differ by a few percent read
 # as one object whatever renders them.
 SURFACES = {
-    "wall": Surface("wall", (214, 195, 160), roughness=0.92),
+    "wall": Surface("wall", (202, 184, 154), roughness=0.92),
     "floor": Surface("floor", (162, 154, 142), roughness=0.85),
-    "roof": Surface("roof", (118, 115, 110), roughness=0.88),
+    "roof": Surface("roof", (128, 122, 114), roughness=0.88),
     "glass": Surface("glass", (146, 190, 214), roughness=0.06, metallic=0.1, opacity=0.35),
-    "ground": Surface("ground", (118, 112, 102), roughness=0.97),
-    "lawn": Surface("lawn", (96, 142, 62), roughness=0.98),
-    "paving": Surface("paving", (150, 142, 130), roughness=0.9),
-    "boundary": Surface("boundary", (196, 180, 152), roughness=0.94),
+    "ground": Surface("ground", (122, 112, 98), roughness=0.97),
+    "lawn": Surface("lawn", (104, 126, 72), roughness=0.98),
+    "paving": Surface("paving", (152, 144, 132), roughness=0.9),
+    "boundary": Surface("boundary", (184, 170, 146), roughness=0.94),
     # Mid-grey metal rather than near-black. A rail is a slim element seen
     # against the sky, and at (72,70,68) it read as a solid black mass across
     # the facade instead of a balustrade.
@@ -86,14 +86,14 @@ SURFACES = {
     # a blue slab.
     "water": Surface("water", (58, 132, 168), roughness=0.04, opacity=0.72),
     # Tiled wet areas, lighter and glossier than the rooms around them.
-    "wet": Surface("wet", (214, 214, 210), roughness=0.28),
+    "wet": Surface("wet", (200, 202, 200), roughness=0.28),
     # Stairs, a shade lighter than the slabs so the flight reads against them.
-    "stairs": Surface("stairs", (188, 184, 178), roughness=0.8),
+    "stairs": Surface("stairs", (178, 173, 166), roughness=0.8),
     # A dome, in a paler and slightly polished stone than the roof deck it
     # stands on. Domes are finished rather than left as bare structure, and
     # a curved surface only reads as curved if the light moves across it --
     # at the roof's roughness of 0.88 it flattens into a grey disc.
-    "dome": Surface("dome", (206, 198, 182), roughness=0.55),
+    "dome": Surface("dome", (196, 188, 172), roughness=0.55),
     # A pitched roof is tiled or slated, never the concrete of a flat deck.
     # Sharing the deck's grey made it vanish: the slope sits low behind a
     # parapet, and without a change of colour there was nothing to see.
@@ -106,21 +106,21 @@ SURFACES = {
     "tank": Surface("tank", (188, 192, 196), roughness=0.35, metallic=0.25),
     # A canopy is a thin painted slab, kept close to the wall colour so a
     # porch reads as part of the building rather than an applied shelf.
-    "canopy": Surface("canopy", (198, 186, 166), roughness=0.7),
+    "canopy": Surface("canopy", (190, 178, 160), roughness=0.7),
     # A turret carries the wall up past the roof, so it takes the wall's
     # stone rather than the deck's grey -- which read as plant housing.
-    "tower": Surface("tower", (208, 190, 156), roughness=0.9),
+    "tower": Surface("tower", (196, 180, 150), roughness=0.9),
     # The plinth, in a darker stone than the walls it carries -- a base
     # reads as a base by being heavier than what stands on it.
     "plinth": Surface("plinth", (162, 150, 130), roughness=0.9),
     # Interior floor finishes, chosen from what each room is for. Warm where
     # a room is lived in, cool and harder where it is worked in.
     "timber": Surface("timber", (156, 104, 56), roughness=0.55),
-    "tile": Surface("tile", (196, 198, 196), roughness=0.32),
+    "tile": Surface("tile", (188, 190, 189), roughness=0.32),
     "stone": Surface("stone", (176, 166, 148), roughness=0.6),
     # Coping, a shade paler than the parapet it caps so the roofline reads
     # as a defined edge rather than a raw extrusion.
-    "coping": Surface("coping", (208, 202, 192), roughness=0.75),
+    "coping": Surface("coping", (186, 180, 170), roughness=0.75),
 }
 
 FALLBACK = Surface("default", (200, 200, 200), roughness=0.9)
