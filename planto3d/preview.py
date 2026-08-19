@@ -41,8 +41,15 @@ REFLECTIVE_FLOOR = 0.82
 REFLECTIVE_MATERIALS = {"glass", "water"}
 
 BASE_COLOUR = np.array([214, 208, 198], dtype=float)
-SKY_TOP = np.array([28, 32, 44], dtype=float)
-SKY_BOTTOM = np.array([16, 17, 22], dtype=float)
+# A pale sky rather than a dark one. Architectural renders are shot in
+# daylight, and a building on black reads as a specimen on a slab.
+SKY_TOP = np.array([150, 178, 206], dtype=float)
+SKY_BOTTOM = np.array([214, 224, 232], dtype=float)
+# The shadow the building casts, offset along the sun and softened. Without
+# one a model floats however solid its geometry.
+SHADOW_DIRECTION = np.array([0.55, 0.35])
+SHADOW_STRENGTH = 0.38
+SHADOW_BLUR = 9
 
 
 def _rotation(azimuth_deg: float, elevation_deg: float) -> np.ndarray:
@@ -88,6 +95,45 @@ def _background(resolution: tuple[int, int]) -> np.ndarray:
     ramp = np.linspace(0, 1, height)[:, None]
     gradient = SKY_TOP[None, :] * (1 - ramp) + SKY_BOTTOM[None, :] * ramp
     return np.repeat(gradient[:, None, :], width, axis=1)
+
+
+def _ground_shadow(
+    canvas: np.ndarray,
+    mesh: trimesh.Trimesh,
+    rotation: np.ndarray,
+    scale: float,
+    offset: np.ndarray,
+    height: int,
+) -> None:
+    """Darken the ground beneath the building.
+
+    Flat shading gives a model no relationship to what it stands on, so it
+    reads as floating however solid the geometry is. A shadow is the cheapest
+    cue that fixes that, and the sun direction is already known.
+    """
+    from PIL import Image, ImageDraw, ImageFilter
+
+    # Drop every vertex to the ground plane, offset along the light.
+    flattened = mesh.vertices.copy()
+    lift = flattened[:, 1] - mesh.bounds[0][1]
+    direction = SHADOW_DIRECTION
+    flattened[:, 0] += lift * direction[0]
+    flattened[:, 2] += lift * direction[1]
+    flattened[:, 1] = mesh.bounds[0][1]
+
+    projected = (rotation @ flattened.T).T[:, :2] * scale + offset
+    projected[:, 1] = height - projected[:, 1]
+
+    stencil = Image.new("L", canvas.shape[1::-1], 0)
+    painter = ImageDraw.Draw(stencil)
+    for face in mesh.faces:
+        painter.polygon([tuple(projected[v]) for v in face], fill=255)
+
+    softened = np.asarray(
+        stencil.filter(ImageFilter.GaussianBlur(SHADOW_BLUR)), dtype=np.float32
+    )
+    weight = (softened / 255.0 * SHADOW_STRENGTH)[:, :, None]
+    canvas *= 1.0 - weight
 
 
 def _rasterize(
@@ -160,6 +206,7 @@ def _draw(
     base = BASE_COLOUR if face_colours is None else face_colours
 
     canvas = _background(resolution)
+    _ground_shadow(canvas, mesh, rotation, scale, offset, height)
     depth_buffer = np.full((height, width), -np.inf)
 
     for index, face in enumerate(mesh.faces):
