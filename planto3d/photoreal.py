@@ -21,10 +21,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Where the guides are shot from. A three-quarter aerial reads as
-# architectural photography and shows massing, roof and site at once.
+# Where the guides are shot from. Architectural photography sits low enough
+# that the facade dominates and the roof is only glimpsed. Shooting from
+# higher gives a plan-like view where most of the frame is roof, and the
+# elevation -- which is what makes a house look like a house -- is lost.
 GUIDE_AZIMUTH = 38.0
-GUIDE_ELEVATION = 30.0
+GUIDE_ELEVATION = 26.0
 GUIDE_RESOLUTION = (1024, 768)
 
 # Canny thresholds. Deliberately loose: the render is flat-shaded, so its
@@ -34,16 +36,28 @@ CANNY_LOW = 40
 CANNY_HIGH = 130
 
 BASE_PROMPT = (
-    "professional architectural visualization, modern {storeys}-storey "
-    "residence, warm evening light at dusk, glowing interior lighting through "
-    "large windows, limestone and glass facade, flat roof with parapet, "
-    "landscaped garden, paved driveway, soft ambient sky, photorealistic, "
-    "high detail, architectural photography, 8k"
+    "professional architectural visualization of a modern {storeys}-storey "
+    "luxury residence at dusk, warm honey-toned limestone cladding with "
+    "visible stone coursing, floor-to-ceiling glazing in slim dark frames, "
+    "flat roof with a stone parapet, "
+    # Light is what separates an evening render from a daytime one, and it
+    # has to be described as fittings rather than as a mood.
+    "warm amber interior lighting glowing through every window, "
+    "recessed wall washers along the facade, landscape uplighting in the "
+    "planting beds, small warm lights lining the terrace, "
+    # Only what any house has. Planting, lawns and cars are added below,
+    # and only where the plan actually shows them -- a render claiming a
+    # garden the drawing does not have stops describing this building.
+    "mature trees beyond the plot, "
+    "deep blue twilight sky, long soft shadows, "
+    "photorealistic architectural photography, ultra detailed, 8k"
 )
 
 NEGATIVE_PROMPT = (
-    "cartoon, illustration, sketch, blurry, distorted perspective, "
-    "warped walls, floating geometry, watermark, text, people, oversaturated"
+    "cartoon, illustration, sketch, diagram, blurry, distorted perspective, "
+    "warped walls, floating geometry, watermark, text, signage, people, "
+    "oversaturated, flat lighting, daylight, overcast, bare concrete, "
+    "unfinished construction, empty plot, barren ground"
 )
 
 
@@ -57,12 +71,21 @@ def build_prompt(storeys: int, room_labels: list[str] | None = None) -> str:
     prompt = BASE_PROMPT.format(storeys=storeys)
 
     labels = {label.upper() for label in room_labels or []}
-    if any("PARKING" in label for label in labels):
-        prompt += ", cars parked in the driveway"
-    if any("GARDEN" in label or "LANDSCAPE" in label for label in labels):
-        prompt += ", lush green lawn"
+    if any("PARKING" in label or "GARAGE" in label for label in labels):
+        prompt += ", two parked cars on a block-paved driveway"
+    if any("GARDEN" in label or "LANDSCAPE" in label or "LAWN" in label for label in labels):
+        prompt += (
+            ", manicured lawn edged with clipped hedges and flowering shrubs, "
+            "landscape uplighting through the planting"
+        )
     if any("TERRACE" in label for label in labels):
-        prompt += ", roof terrace with planting"
+        prompt += ", roof terrace laid to lawn with planters around its edge"
+    if any("BALCONY" in label or "BAL" == label for label in labels):
+        prompt += ", balconies with slim metal railings"
+    if any("POOL" in label or "SWIMMING" in label for label in labels):
+        prompt += ", lit swimming pool"
+    if any("TEMPLE" in label or "POOJA" in label for label in labels):
+        prompt += ", warm timber detailing"
 
     return prompt
 

@@ -839,9 +839,17 @@ def floors_to_parts(
         # storey's floor. Slabbed over, the drawing's most dramatic space
         # becomes an ordinary ceiling.
         voids = [room.polygon for room in features.get("void", [])]
-        slab = slab_mesh(
-            floor.footprint, SLAB_THICKNESS_FT, base_ft, scale, holes=voids
-        )
+
+        # A slab is also the ceiling of the storey below, so it must reach at
+        # least as far as that storey did. Built from its own footprint alone
+        # it leaves rooms underneath open to the sky wherever the plan steps
+        # in -- 75 sq ft of the reference building, at every level.
+        outline = floor.footprint
+        if index > 0 and floors[index - 1].footprint:
+            outline = merge_regions([outline, floors[index - 1].footprint])
+            outline = max(outline, key=len) if outline else floor.footprint
+
+        slab = slab_mesh(outline, SLAB_THICKNESS_FT, base_ft, scale, holes=voids)
         if slab is not None:
             parts["floor"].append(slab)
 

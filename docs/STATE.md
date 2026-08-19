@@ -26,13 +26,35 @@ The whole pipeline runs end to end: PDF, PNG or JPEG in, a materialled
 
 384 tests. Around 4,500 lines.
 
-## The one thing not yet done
+## The photoreal pass has been run once
 
-**Run the photoreal pass.** [`notebooks/photoreal_on_colab.ipynb`](../notebooks/photoreal_on_colab.ipynb)
-is ready and needs a GPU, so it runs on Colab rather than locally.
+It worked. Depth conditioning held the massing: the twin roof terraces, the
+stepped form and the plinth all came through recognisably from the model.
+Conditioning at **0.5** gave the richest image; higher values held the
+geometry more tightly but looked increasingly like a shaded model.
 
-Regenerate the guides first, since the model has changed since they were
-last built:
+What the first run lacked, measured against the reference the project is
+aiming at, was almost entirely prompt and camera rather than geometry:
+
+| Wanted | First run gave |
+| --- | --- |
+| Warm limestone cladding | cool white concrete |
+| Amber interior and landscape lighting | cool blue-white |
+| Hedges, planters, uplit boundary | bare lawn |
+| Two cars | none |
+| Camera around 26 degrees, facade-led | 42 degrees, roof-led |
+
+Both have since been changed. The prompt now names lighting as fittings
+rather than as a mood -- wall washers, uplighting, amber interiors -- and
+describes stone coursing and slim dark frames. The guide camera dropped from
+30 to 26 degrees so the facade dominates rather than the roof.
+
+Site features stay conditional on what the plan actually shows. A render
+claiming a garden the drawing does not have has stopped describing the
+building, which a test enforces.
+
+**Next run:** regenerate the guides and try again, keeping conditioning near
+0.5.
 
 ```bash
 python scripts/run_pipeline.py "data/soni_residence/DOC-20260817-WA0027.PDF" output_unet --checkpoint models/unet_cubicasa.pt
@@ -87,6 +109,13 @@ Recorded because each cost real time to find and would be easy to undo.
   three down drew the terrace garden three times over.
 - **Under-capture was an OCR problem, not a geometry one.** Sweeping the
   planting closing kernel across a 6x range moved capture by four points.
+- **A slab is the ceiling of the storey below it.** Built from its own
+  footprint alone, it leaves rooms underneath open to the sky wherever the
+  plan steps in.
+- **Only two thirds of each perimeter had a wall on it.** Segmentation loses
+  exterior runs wherever a drawing is busy, and every window that would have
+  bound to a missing wall was dropped with it. Gaps are filled only where a
+  room lies just inside, since a terrace edge is legitimately open.
 
 ## Where to look
 
