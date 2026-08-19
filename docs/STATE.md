@@ -54,8 +54,28 @@ Site features stay conditional on what the plan actually shows. A render
 claiming a garden the drawing does not have has stopped describing the
 building, which a test enforces.
 
+**Which notebook to use.** There are two, and the simpler one is the reliable
+one:
+
+- `photoreal_on_colab.ipynb` -- upload a depth guide, generate, download.
+  This produced the good renders and is what to reach for.
+- `app_on_colab.ipynb` -- the whole app on a GPU with the photoreal pass
+  wired in and a public link. Better in principle, but it returned an HTML
+  error page through the share tunnel on first use, which is usually the
+  runtime being reclaimed or running out of memory rather than a code fault.
+  Worth returning to; not worth blocking on.
+
 **Next run:** regenerate the guides and try again, keeping conditioning near
 0.5.
+
+## The interface, for later
+
+Two things are known and neither is urgent:
+
+- The interactive viewer washes out masonry and cannot be told not to, so
+  the result leads with a rendered view instead. That is settled.
+- The desktop app cannot run the photoreal pass, because diffusion needs a
+  GPU. `app_on_colab.ipynb` is the answer if it can be made reliable.
 
 ```bash
 python scripts/run_pipeline.py "data/soni_residence/DOC-20260817-WA0027.PDF" output_unet --checkpoint models/unet_cubicasa.pt
