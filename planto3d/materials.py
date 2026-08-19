@@ -54,26 +54,27 @@ class Surface:
         )
 
 
-# Warm limestone and concrete, pitched well below what the eye expects on a
-# drawing so that it survives being displayed.
+# Warm limestone and concrete, tuned against the rendered view.
 #
-# Two paler palettes failed here before this one. Both were architecturally
-# faithful -- a limestone wall really is near-white -- and both rendered as
-# the same flat pink-white in a web viewer, because those viewers light a
-# model brightly and a surface already at 85% brightness has nowhere to go.
+# Three palettes were tried against the interactive viewer first, each darker
+# than the last, and none of them worked: that viewer lights a scene brightly
+# enough to saturate any desaturated material to white, and offers no way to
+# turn it down. Chasing it only made the rendered view muddy, so the rendered
+# view is what these are set for now -- it is what the result leads with, and
+# it shows them faithfully.
 #
-# A model has to be legible before it is accurate, so tones are set roughly a
-# third darker than the real material and spaced widely apart. The renderer's
-# own lighting then puts them back where they belong.
+# Surfaces are still spaced widely apart in tone. A model has to be legible
+# before it is accurate, and adjacent slabs that differ by a few percent read
+# as one object whatever renders them.
 SURFACES = {
-    "wall": Surface("wall", (198, 176, 138), roughness=0.92),
-    "floor": Surface("floor", (140, 132, 120), roughness=0.85),
-    "roof": Surface("roof", (96, 93, 88), roughness=0.88),
+    "wall": Surface("wall", (214, 195, 160), roughness=0.92),
+    "floor": Surface("floor", (162, 154, 142), roughness=0.85),
+    "roof": Surface("roof", (118, 115, 110), roughness=0.88),
     "glass": Surface("glass", (146, 190, 214), roughness=0.06, metallic=0.1, opacity=0.35),
-    "ground": Surface("ground", (92, 88, 80), roughness=0.97),
-    "lawn": Surface("lawn", (74, 120, 48), roughness=0.98),
-    "paving": Surface("paving", (124, 116, 104), roughness=0.9),
-    "boundary": Surface("boundary", (176, 160, 132), roughness=0.94),
+    "ground": Surface("ground", (118, 112, 102), roughness=0.97),
+    "lawn": Surface("lawn", (96, 142, 62), roughness=0.98),
+    "paving": Surface("paving", (150, 142, 130), roughness=0.9),
+    "boundary": Surface("boundary", (196, 180, 152), roughness=0.94),
     # Mid-grey metal rather than near-black. A rail is a slim element seen
     # against the sky, and at (72,70,68) it read as a solid black mass across
     # the facade instead of a balustrade.
@@ -90,12 +91,12 @@ SURFACES = {
     "stairs": Surface("stairs", (188, 184, 178), roughness=0.8),
     # The plinth, in a darker stone than the walls it carries -- a base
     # reads as a base by being heavier than what stands on it.
-    "plinth": Surface("plinth", (138, 126, 108), roughness=0.9),
+    "plinth": Surface("plinth", (162, 150, 130), roughness=0.9),
     # Interior floor finishes, chosen from what each room is for. Warm where
     # a room is lived in, cool and harder where it is worked in.
-    "timber": Surface("timber", (134, 84, 42), roughness=0.55),
-    "tile": Surface("tile", (176, 178, 176), roughness=0.32),
-    "stone": Surface("stone", (150, 140, 122), roughness=0.6),
+    "timber": Surface("timber", (156, 104, 56), roughness=0.55),
+    "tile": Surface("tile", (196, 198, 196), roughness=0.32),
+    "stone": Surface("stone", (176, 166, 148), roughness=0.6),
     # Coping, a shade paler than the parapet it caps so the roofline reads
     # as a defined edge rather than a raw extrusion.
     "coping": Surface("coping", (208, 202, 192), roughness=0.75),

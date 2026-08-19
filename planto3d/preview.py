@@ -28,9 +28,13 @@ DEFAULT_ELEVATION = 25.0
 
 KEY_LIGHT = np.array([0.45, 0.8, 0.4])
 FILL_LIGHT = np.array([-0.6, 0.35, -0.5])
-KEY_STRENGTH = 0.62
-FILL_STRENGTH = 0.22
-AMBIENT = 0.28
+# Weighted towards ambient rather than the key light. A architectural render
+# is lit softly and from many directions; a strong key with little ambient
+# drops every turned-away face to a third of its true colour, so limestone
+# reads as dark olive and the model looks muddy rather than sunlit.
+KEY_STRENGTH = 0.40
+FILL_STRENGTH = 0.18
+AMBIENT = 0.52
 # Glazing and water mirror the sky, so they never go as dark as masonry.
 REFLECTIVE_FLOOR = 0.82
 # Materials that reflect rather than scatter.
