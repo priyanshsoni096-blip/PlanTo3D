@@ -32,6 +32,7 @@ def test_to_dict_matches_the_documented_json_shape():
             {
                 "polygon": [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],
                 "label": "BEDROOM",
+                "category": "",
             }
         ],
         "openings": [{"wall_id": 0, "position": 5.0, "width": 3.0, "type": "door"}],

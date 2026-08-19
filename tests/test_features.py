@@ -1,8 +1,11 @@
 import pytest
 
 from planto3d.features import (
+    DEFAULT_FINISH,
     GROUND_COVERS,
     classify,
+    feature_for,
+    finish_for_room,
     group_by_feature,
     regions_from_labels,
 )
@@ -178,3 +181,66 @@ class TestRegionsFromLabels:
 
     def test_an_unusable_scale_produces_nothing(self):
         assert regions_from_labels([self._box("LANDSCAPE 49'0\"X13'2\"")], scale=0.0) == {}
+
+
+class TestRoomFunctionWithoutAName:
+    """Most plans print no room names, so the predicted type carries them.
+
+    Across sixty CubiCasa plans OCR read a name on three. Everything that
+    makes a model look like a house -- tiled wet floors, railed balconies,
+    boarded bedrooms -- hung off those names until the segmenter began
+    predicting the room type instead.
+    """
+
+    def _room(self, label="", category=""):
+        return Room(
+            polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+            label=label,
+            category=category,
+        )
+
+    def test_a_predicted_bath_is_wet_without_any_label(self):
+        assert feature_for(self._room(category="bath")) == "wet"
+
+    def test_a_predicted_outdoor_room_earns_a_railing(self):
+        assert feature_for(self._room(category="outdoor")) == "open"
+
+    def test_a_printed_name_beats_the_prediction(self):
+        # The verandah case: the segmenter is trained on Finnish apartments
+        # and calls it an outdoor space, which would rail it like a balcony.
+        # The drawing says VERANDAH, and the drawing is right.
+        room = self._room(label="VERANDAH", category="outdoor")
+
+        assert feature_for(room) == "paving"
+
+    def test_a_room_with_neither_implies_nothing(self):
+        assert feature_for(self._room()) is None
+
+    def test_a_plain_predicted_type_implies_no_feature(self):
+        # A bedroom builds nothing a nameless room would not; it only
+        # changes the floor finish.
+        assert feature_for(self._room(category="bedroom")) is None
+
+    def test_predicted_types_choose_the_floor_finish(self):
+        assert finish_for_room(self._room(category="kitchen")) == "tile"
+        assert finish_for_room(self._room(category="bath")) == "tile"
+        assert finish_for_room(self._room(category="bedroom")) == "timber"
+
+    def test_an_unknown_type_falls_back_to_the_default_finish(self):
+        assert finish_for_room(self._room(category="observatory")) == DEFAULT_FINISH
+
+    def test_a_named_room_keeps_its_own_finish(self):
+        assert finish_for_room(self._room(label="KITCHEN", category="bedroom")) == "tile"
+
+    def test_grouping_uses_predictions_where_names_are_missing(self):
+        grouped = group_by_feature(
+            [
+                self._room(category="bath"),
+                self._room(category="outdoor"),
+                self._room(label="BALCONY"),
+                self._room(category="bedroom"),
+            ]
+        )
+
+        assert len(grouped["wet"]) == 1
+        assert len(grouped["open"]) == 2

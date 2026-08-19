@@ -12,13 +12,28 @@ nothing to the gradient and get predicted away entirely.
 
 import argparse
 import logging
+import math
 from pathlib import Path
 
 import segmentation_models_pytorch as smp
 import torch
 from torch.utils.data import DataLoader
 
-from planto3d.classes import CLASS_NAMES, NUM_CLASSES
+from planto3d.classes import (
+    BACKGROUND,
+    BATH,
+    BEDROOM,
+    CIRCULATION,
+    CLASS_NAMES,
+    DOOR,
+    KITCHEN,
+    NUM_CLASSES,
+    OUTDOOR,
+    ROOM,
+    STORAGE,
+    WALL,
+    WINDOW,
+)
 from training.dataset import DEFAULT_SIZE, CubiCasaDataset
 from training.metrics import dice_score, iou_score, per_class_iou
 
@@ -37,8 +52,66 @@ def build_model(num_classes: int = NUM_CLASSES) -> torch.nn.Module:
     )
 
 
-def build_loss() -> callable:
-    cross_entropy = torch.nn.CrossEntropyLoss()
+# Share of pixels each class occupies, measured over sixty CubiCasa samples
+# with ``scripts/class_balance.py``. Re-measure rather than adjust by feel if
+# the class scheme changes.
+#
+# The spread is the problem: a window is 0.11% of a drawing and the
+# background 42%, four hundred times more. Unweighted, the cheapest way for
+# the model to cut its loss is to stop predicting windows at all -- it costs
+# almost nothing and the average barely moves.
+CLASS_FREQUENCY = {
+    BACKGROUND: 0.4244,
+    WALL: 0.0830,
+    ROOM: 0.1992,
+    DOOR: 0.0060,
+    WINDOW: 0.0011,
+    BEDROOM: 0.0774,
+    KITCHEN: 0.0583,
+    BATH: 0.0279,
+    STORAGE: 0.0310,
+    CIRCULATION: 0.0388,
+    OUTDOOR: 0.0530,
+}
+
+# Inverse square root rather than plain inverse frequency. Plain inverse
+# would weight a window 386 times a background pixel, and the gradient from
+# a handful of thin strips then swamps everything else -- the model chases
+# windows and loses the walls. The square root keeps the ordering while
+# compressing the range to something trainable, around twenty to one.
+#
+# The ceiling is a guard against a class that is nearly absent rather than
+# merely rare, where the reciprocal runs away. It is set clear of the
+# rarest real class: at ten it caught doors and windows together and gave
+# them equal weight, when a window is five times the rarer of the two and
+# needs the larger share of the attention.
+WEIGHT_CEILING = 25.0
+
+
+def class_weights(
+    frequency: dict[int, float] | None = None, ceiling: float = WEIGHT_CEILING
+) -> torch.Tensor:
+    """Loss weights per class, normalised to average one.
+
+    Averaging to one keeps the loss on the same scale as an unweighted run,
+    so learning rates carry over and the numbers stay comparable to earlier
+    training logs.
+    """
+    frequency = frequency or CLASS_FREQUENCY
+    raw = torch.tensor(
+        [1.0 / math.sqrt(max(frequency.get(i, 1.0), 1e-6)) for i in range(NUM_CLASSES)]
+    )
+    return (raw.clamp(max=ceiling) / raw.clamp(max=ceiling).mean()).float()
+
+
+def build_loss(weights: torch.Tensor | None = None) -> callable:
+    """Cross-entropy weighted against class imbalance, plus Dice.
+
+    Dice is already insensitive to class size, which is why it is here; the
+    weighting fixes the cross-entropy term beside it.
+    """
+    weights = class_weights() if weights is None else weights
+    cross_entropy = torch.nn.CrossEntropyLoss(weight=weights)
     dice = smp.losses.DiceLoss(mode="multiclass")
 
     def combined(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

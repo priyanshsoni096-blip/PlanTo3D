@@ -1,10 +1,15 @@
-"""Read CubiCasa5K's SVG annotations as five-class training masks.
+"""Read CubiCasa5K's SVG annotations as training masks.
 
-CubiCasa5K labels over 80 categories; this pipeline needs five. Each sample
-folder holds a floor plan image beside a ``model.svg`` whose groups carry a
-class attribute -- ``Wall``, ``Door``, ``Window``, and ``Space <RoomType>``
-for interiors. Collapsing on the attribute's first token maps every room type
-to one ROOM class and discards furniture and fixtures.
+Each sample folder holds a floor plan image beside a ``model.svg`` whose
+groups carry a class attribute -- ``Wall``, ``Door``, ``Window``, and
+``Space <RoomType>`` for interiors. Furniture and fixtures are discarded.
+
+The room type is kept rather than collapsed. CubiCasa distinguishes some
+forty types and this pipeline needs seven, so ``SPACE_MAP`` groups them by
+what they change in the model: a bath and a sauna both want a tiled, wet
+floor, so both arrive as BATH. A type absent from the map becomes the
+generic ROOM rather than background, because an unrecognised room is still
+a room and dropping it would punch a hole in the floor.
 
 Getting this mapping wrong degrades the model in a way that looks like a
 training problem rather than a labelling one, which is why it lives here with
@@ -22,7 +27,20 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from planto3d.classes import BACKGROUND, DOOR, NUM_CLASSES, ROOM, WALL, WINDOW
+from planto3d.classes import (
+    BACKGROUND,
+    BATH,
+    BEDROOM,
+    CIRCULATION,
+    DOOR,
+    KITCHEN,
+    NUM_CLASSES,
+    OUTDOOR,
+    ROOM,
+    STORAGE,
+    WALL,
+    WINDOW,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +55,72 @@ CLASS_MAP = {
     "Space": ROOM,
 }
 
-# Painted in this order so openings survive where they cross a wall.
-PAINT_ORDER = [ROOM, WALL, DOOR, WINDOW]
+# CubiCasa's room type -> our class, keyed on the first token of the class
+# attribute, which is always the primary type: "Outdoor Balcony Glazed" is
+# an Outdoor, "Bath Shower" a Bath, "Closet WalkIn" a Closet.
+#
+# Grouped by what the type changes downstream rather than by architectural
+# category. Rooms that take the same floor and the same fittings share a
+# class, however different they are to live in -- a study and a living room
+# are both ROOM. Where a type genuinely could go either way the habitable
+# reading wins, since an over-plain floor is a smaller error than a tiled
+# bedroom.
+SPACE_MAP = {
+    # Habitable rooms of no particular requirement.
+    "Undefined": ROOM,
+    "UserDefined": ROOM,
+    "Room": ROOM,
+    "LivingRoom": ROOM,
+    "Dining": ROOM,
+    "Den": ROOM,
+    "RecreationRoom": ROOM,
+    "Office": ROOM,
+    "Alcove": ROOM,
+    "Elevated": ROOM,
+    "Basement": ROOM,
+    # Sleeping.
+    "Bedroom": BEDROOM,
+    # Anything with a hob or a sink counts as a kitchen, kitchenettes and
+    # sculleries included -- they are tiled the same way.
+    "Kitchen": KITCHEN,
+    # Wet rooms. A sauna and a pool are not bathrooms, but they share the
+    # thing that matters here: a floor built to get wet.
+    "Bath": BATH,
+    "Sauna": BATH,
+    "SwimmingPool": BATH,
+    # Service space: unheated, hard-floored, not lived in.
+    "Closet": STORAGE,
+    "Storage": STORAGE,
+    "DressingRoom": STORAGE,
+    "Utility": STORAGE,
+    "TechnicalRoom": STORAGE,
+    "Garage": STORAGE,
+    "CarPort": STORAGE,
+    # Moving through rather than staying in.
+    "Entry": CIRCULATION,
+    "Hall": CIRCULATION,
+    "DraughtLobby": CIRCULATION,
+    # Outside the envelope: balconies, terraces, porches, covered areas.
+    # These drive railings and paving, so they matter more than their share
+    # of the drawing suggests.
+    "Outdoor": OUTDOOR,
+}
+
+# Painted in this order so openings survive where they cross a wall. Room
+# types go down first and in a fixed order, so that where two spaces overlap
+# the result is at least deterministic.
+PAINT_ORDER = [
+    ROOM,
+    BEDROOM,
+    KITCHEN,
+    BATH,
+    STORAGE,
+    CIRCULATION,
+    OUTDOOR,
+    WALL,
+    DOOR,
+    WINDOW,
+]
 
 _TRANSLATE = re.compile(r"translate\(\s*([-\d.]+)[\s,]+([-\d.]+)\s*\)")
 
@@ -48,8 +130,15 @@ def _group_class(element: ElementTree.Element) -> int | None:
     attribute = element.get("class")
     if not attribute:
         return None
-    # "Space Bedroom" and "Wall" alike are keyed on the first token.
-    return CLASS_MAP.get(attribute.split()[0])
+
+    tokens = attribute.split()
+    base = CLASS_MAP.get(tokens[0])
+    if base != ROOM:
+        return base
+
+    # A space: keep its type. An unrecognised one stays a generic room, so a
+    # vocabulary CubiCasa adds later degrades to plain rather than to a hole.
+    return SPACE_MAP.get(tokens[1], ROOM) if len(tokens) > 1 else ROOM
 
 
 def _translation(element: ElementTree.Element) -> tuple[float, float]:

@@ -18,7 +18,14 @@ import logging
 import cv2
 import numpy as np
 
-from planto3d.classes import DOOR, ROOM, WALL, WINDOW
+from planto3d.classes import (
+    CLASS_NAMES,
+    DOOR,
+    ROOM,
+    ROOM_CLASSES,
+    WALL,
+    WINDOW,
+)
 from planto3d.geometry_types import Opening, Room, Wall
 
 logger = logging.getLogger(__name__)
@@ -307,7 +314,7 @@ def close_envelope(
             encloses_room = (
                 0 <= row < height
                 and 0 <= column < width
-                and mask[row, column] in (ROOM, WALL)
+                and (mask[row, column] in ROOM_CLASSES or mask[row, column] == WALL)
             )
 
             needs_wall = not has_wall and encloses_room
@@ -350,7 +357,7 @@ def extract_footprint(
     contour of both classes traces its footprint. Returns an empty list when
     the mask holds no building.
     """
-    built = ((mask == WALL) | (mask == ROOM)).astype(np.uint8)
+    built = ((mask == WALL) | np.isin(mask, list(ROOM_CLASSES))).astype(np.uint8)
     if not built.any():
         return []
 
@@ -383,34 +390,52 @@ def extract_footprint(
 
 def extract_rooms(
     mask: np.ndarray,
-    room_class: int = ROOM,
+    room_class: int | None = None,
     min_area: int = MIN_ROOM_AREA,
     simplify_pixels: float = SIMPLIFY_PIXELS,
 ) -> list[Room]:
     """Recover room polygons from a class mask, in the mask's pixel coordinates.
 
+    Every room class is traced separately and each room carries the class it
+    came from as its ``category``. Tracing them together would merge a
+    kitchen into the living room it opens onto, since nothing but the class
+    separates them -- there is no wall between an open kitchen and its
+    dining area, which is the whole point of an open kitchen.
+
+    Pass ``room_class`` to restrict the search to a single class.
+
     Regions that cannot form a valid polygon are logged and skipped rather
     than raised, so one malformed room does not abort a floor.
     """
-    binary = (mask == room_class).astype(np.uint8)
-    if not binary.any():
-        return []
-
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    wanted = ROOM_CLASSES if room_class is None else {room_class}
 
     rooms: list[Room] = []
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < min_area:
+    for class_index in sorted(wanted):
+        binary = (mask == class_index).astype(np.uint8)
+        if not binary.any():
             continue
 
-        simplified = cv2.approxPolyDP(contour, simplify_pixels, closed=True)
-        polygon = [(float(p[0][0]), float(p[0][1])) for p in simplified]
+        # The generic ROOM class carries no information, so it is left
+        # uncategorised rather than labelled "room" -- downstream needs to
+        # tell "no opinion" apart from a positive identification.
+        category = "" if class_index == ROOM else CLASS_NAMES[class_index]
 
-        try:
-            rooms.append(Room(polygon=polygon))
-        except ValueError as error:
-            logger.warning("skipping region of area %.0f: %s", area, error)
+        contours, _ = cv2.findContours(
+            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area:
+                continue
 
-    logger.info("extracted %d room polygon(s)", len(rooms))
+            simplified = cv2.approxPolyDP(contour, simplify_pixels, closed=True)
+            polygon = [(float(p[0][0]), float(p[0][1])) for p in simplified]
+
+            try:
+                rooms.append(Room(polygon=polygon, category=category))
+            except ValueError as error:
+                logger.warning("skipping region of area %.0f: %s", area, error)
+
+    typed = sum(1 for room in rooms if room.category)
+    logger.info("extracted %d room polygon(s), %d typed", len(rooms), typed)
     return rooms
