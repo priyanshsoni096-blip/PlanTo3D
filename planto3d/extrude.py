@@ -89,6 +89,32 @@ PITCH_RISE_RATIO = 0.35
 # reads as a wall.
 GLAZED_RISE_RATIO = 0.22
 GLAZED_THICKNESS_FT = 0.25
+
+# Things that stand on the roof. Heights are absolute rather than
+# proportional: a chimney is about a storey above the deck whatever the
+# room beneath it measures, and scaling one to its flue would give a
+# cottage a factory stack.
+CHIMNEY_HEIGHT_FT = 5.0
+TOWER_HEIGHT_FT = 12.0
+# A tower is capped rather than left as a flat-topped box, which reads as
+# an unfinished lift overrun rather than a turret.
+TOWER_CAP_RISE_RATIO = 0.55
+
+# An overhead tank stands clear of the deck on short legs, which is how
+# every one of them is built -- resting directly on the roof it would read
+# as a packing case.
+TANK_HEIGHT_FT = 4.0
+TANK_STAND_FT = 1.5
+
+# A canopy is a thin projecting cover on brackets, set just below the
+# ceiling of the storey it is drawn on rather than at roof level.
+CANOPY_THICKNESS_FT = 0.6
+CANOPY_DROP_FT = 1.0
+
+# A ramp falls by this share of its length. About 1:12, the usual
+# accessible gradient, which also looks right for a car ramp.
+RAMP_FALL_RATIO = 0.085
+RAMP_THICKNESS_FT = 0.5
 HEADROOM_WALL_FT = 0.6
 # A footprint needs this many vertices to enclose an area.
 MIN_FOOTPRINT_VERTICES = 3
@@ -890,6 +916,106 @@ def _sloped_roof(
     return [solid] if solid is not None else []
 
 
+def _roof_structure(
+    polygon: list[tuple[float, float]],
+    base_ft: float,
+    scale: float,
+    height_ft: float,
+    capped: bool = False,
+) -> list[trimesh.Trimesh]:
+    """A mass standing on the roof: a chimney, a turret, a stair tower.
+
+    A prism over the room's own outline rather than its bounding box, since
+    these follow whatever shape is drawn -- a chimney breast is often not
+    rectangular. ``capped`` finishes it with a shallow pyramid, which is
+    what separates a turret from an unfinished lift overrun.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    parts = []
+    shaft = slab_mesh(polygon, height_ft, base_ft, scale)
+    if shaft is not None:
+        parts.append(shaft)
+
+    if capped:
+        parts += _sloped_roof(
+            polygon,
+            base_ft + height_ft,
+            scale,
+            TOWER_CAP_RISE_RATIO,
+            ridged=True,
+        )
+    return parts
+
+
+def _water_tank(
+    polygon: list[tuple[float, float]], base_ft: float, scale: float
+) -> list[trimesh.Trimesh]:
+    """An overhead tank on its stand.
+
+    Standing clear of the deck rather than resting on it, which is how they
+    are actually built and what stops it reading as a packing case left on
+    the roof.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    parts = []
+    # The legs are represented by a narrower block rather than four posts:
+    # at the size a tank occupies on an elevation the difference is not
+    # visible, and a shrunken outline cannot fail the way posts placed on a
+    # ragged polygon's corners can.
+    stand = slab_mesh(
+        _expand_outline(polygon, -TANK_STAND_FT * scale / 2), TANK_STAND_FT, base_ft, scale
+    )
+    if stand is not None:
+        parts.append(stand)
+
+    tank = slab_mesh(polygon, TANK_HEIGHT_FT, base_ft + TANK_STAND_FT, scale)
+    if tank is not None:
+        parts.append(tank)
+    return parts
+
+
+def _canopy(
+    polygon: list[tuple[float, float]], ceiling_ft: float, scale: float
+) -> list[trimesh.Trimesh]:
+    """A thin projecting cover, hung below the ceiling of its own storey.
+
+    Belongs to the storey it is drawn on, not to the roof: a porch over the
+    front door is at first floor soffit level, and putting it on the roof
+    would leave the door uncovered and a slab floating three storeys up.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    slab = slab_mesh(polygon, CANOPY_THICKNESS_FT, ceiling_ft - CANOPY_DROP_FT, scale)
+    return [slab] if slab is not None else []
+
+
+def _ramp(
+    polygon: list[tuple[float, float]], base_ft: float, scale: float
+) -> list[trimesh.Trimesh]:
+    """A sloped slab, falling along its longer direction.
+
+    The same solid as a lean-to roof, laid at floor level instead of above
+    it. Falling the long way because a ramp gains its gradient over length,
+    and sloping it across the short side would be a step rather than a ramp.
+    """
+    if len(polygon) < MIN_FOOTPRINT_VERTICES:
+        return []
+
+    return _sloped_roof(
+        polygon,
+        base_ft,
+        scale,
+        RAMP_FALL_RATIO,
+        ridged=False,
+        thickness_ft=RAMP_THICKNESS_FT,
+    )
+
+
 def _headroom_box(
     polygon: list[tuple[float, float]], base_ft: float, scale: float
 ) -> list[trimesh.Trimesh]:
@@ -1154,6 +1280,18 @@ def floors_to_parts(
         # Polygons come from segmented rooms where they exist, and from
         # dimension labels where they do not -- which is most outdoor areas,
         # since a lawn or a driveway is not a room the model can find.
+        # A canopy and a ramp belong to the storey they are drawn on rather
+        # than to the roof. A porch over the front door sits at first floor
+        # soffit level; moved to the roof it would leave the door uncovered
+        # and hang a slab three storeys up.
+        floor_ft = base_ft + SLAB_THICKNESS_FT
+        for room in features.get("canopy", []):
+            parts.setdefault("canopy", []).extend(
+                _canopy(room.polygon, floor_ft + wall_height_ft, scale)
+            )
+        for room in features.get("ramp", []):
+            parts.setdefault("stairs", []).extend(_ramp(room.polygon, floor_ft, scale))
+
         surface_ft = base_ft + SLAB_THICKNESS_FT if index else 0.0
         for category in GROUND_COVERS:
             polygons = [room.polygon for room in features.get(category, [])]
@@ -1255,6 +1393,23 @@ def floors_to_parts(
     deck_ft = roof_base_ft + SLAB_THICKNESS_FT
     for room in top_features.get("dome", []):
         parts.setdefault("dome", []).extend(_dome(room.polygon, deck_ft, scale))
+
+    # Masses standing on the roof. A tower is capped, which is what
+    # separates a turret from an unfinished lift overrun.
+    for room in top_features.get("chimney", []):
+        parts.setdefault("chimney", []).extend(
+            _roof_structure(room.polygon, deck_ft, scale, CHIMNEY_HEIGHT_FT)
+        )
+
+    # Kept out of "roof": a turret is masonry carried up from the building
+    # below, and in the deck's grey it read as plant housing.
+    for room in top_features.get("tower", []):
+        parts.setdefault("tower", []).extend(
+            _roof_structure(room.polygon, deck_ft, scale, TOWER_HEIGHT_FT, capped=True)
+        )
+
+    for room in top_features.get("tank", []):
+        parts.setdefault("tank", []).extend(_water_tank(room.polygon, deck_ft, scale))
 
     # Kept apart from the flat deck so it takes the tiled finish. Merged in
     # with "roof" it was invisible -- a low slope, the same grey as the deck

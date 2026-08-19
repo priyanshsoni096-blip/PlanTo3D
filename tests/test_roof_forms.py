@@ -20,8 +20,9 @@ from planto3d.extrude import (
     PITCH_RISE_RATIO,
     _dome,
     _sloped_roof,
+    _water_tank,
 )
-from planto3d.features import classify
+from planto3d.features import FEATURE_KEYWORDS, classify
 from planto3d.geometry_types import FloorPlan, Room, Wall
 from planto3d.materials import SURFACES, build_scene
 
@@ -197,3 +198,132 @@ class TestFromALabelledDrawing:
 
         assert "pitched" in scene.geometry
         assert SURFACES["pitched"].colour != SURFACES["roof"].colour
+
+
+class TestStructuresOnAndAroundTheBuilding:
+    """Tanks, chimneys, towers, canopies and ramps.
+
+    The first three stand on the roof. The last two belong to the storey
+    they are drawn on, which is the distinction that matters: a porch over
+    the front door is at first floor soffit level, and moving it to the roof
+    would leave the door uncovered and hang a slab three storeys up.
+    """
+
+    @pytest.mark.parametrize(
+        "label, category",
+        [
+            ("OVERHEAD TANK", "tank"),
+            ("WATER TANK", "tank"),
+            ("CHIMNEY", "chimney"),
+            ("TURRET", "tower"),
+            ("MINARET", "tower"),
+            ("BELVEDERE", "tower"),
+            ("PORTICO", "canopy"),
+            ("CANOPY", "canopy"),
+            ("CHAJJA", "canopy"),
+            ("RAMP", "ramp"),
+            ("WHEELCHAIR RAMP", "ramp"),
+            ("VEHICLE RAMP", "ramp"),
+        ],
+    )
+    def test_the_words_are_recognised(self, label, category):
+        assert classify(label) == category
+
+    def test_a_chajja_is_a_cover_rather_than_a_balcony(self):
+        # It used to classify as "open" and was railed, as though a
+        # projecting sunshade were something to stand on.
+        assert classify("CHAJJA") == "canopy"
+
+    def test_a_portico_is_not_railed_either(self):
+        assert classify("PORTICO") == "canopy"
+
+    def test_no_keyword_belongs_to_two_categories(self):
+        # Which one a duplicate lands in depends on the order the list
+        # happens to be written in, which is nobody's decision. Nine of
+        # these existed before the check did.
+        seen: dict[str, list[str]] = {}
+        for category, keywords in FEATURE_KEYWORDS:
+            for keyword in keywords:
+                seen.setdefault(keyword, []).append(category)
+
+        assert {k: v for k, v in seen.items() if len(v) > 1} == {}
+
+    def _house(self, *labels):
+        outline = [(0.0, 0.0), (600.0, 0.0), (600.0, 400.0), (0.0, 400.0)]
+        rooms = [
+            Room(
+                polygon=[
+                    (60.0 + 160 * i, 60.0),
+                    (200.0 + 160 * i, 60.0),
+                    (200.0 + 160 * i, 200.0),
+                    (60.0 + 160 * i, 200.0),
+                ],
+                label=label,
+            )
+            for i, label in enumerate(labels)
+        ]
+        return FloorPlan(
+            walls=[
+                Wall(start=outline[i], end=outline[(i + 1) % 4], thickness=12.0)
+                for i in range(4)
+            ],
+            footprint=list(outline),
+            rooms=rooms,
+        )
+
+    @pytest.mark.parametrize(
+        "label, part", [("OVERHEAD TANK", "tank"), ("CHIMNEY", "chimney"), ("TURRET", "tower")]
+    )
+    def test_roof_structures_reach_the_model(self, label, part):
+        scene = build_scene([self._house(label)], wall_height_ft=9.0, scale=SCALE)
+
+        assert part in scene.geometry
+
+    @pytest.mark.parametrize("label", ["OVERHEAD TANK", "CHIMNEY", "TURRET"])
+    def test_roof_structures_stand_on_the_deck(self, label):
+        scene = build_scene([self._house(label)], wall_height_ft=9.0, scale=SCALE)
+        deck = scene.geometry["roof"].bounds[0][1]
+
+        raised = [
+            geometry
+            for name, geometry in scene.geometry.items()
+            if name in {"tank", "chimney", "tower"}
+        ]
+        assert raised
+        assert all(part.bounds[0][1] >= deck for part in raised)
+
+    def test_a_tank_stands_clear_of_the_roof_on_a_stand(self):
+        # Two parts, not one. Resting straight on the deck it reads as a
+        # packing case left on the roof.
+        stand, tank = _water_tank(ROOM, 0.0, SCALE)
+
+        assert stand.bounds[1][1] <= tank.bounds[0][1] + 1e-6
+        # And the stand is set in from the tank it carries, being legs.
+        assert (stand.bounds[1][0] - stand.bounds[0][0]) < (
+            tank.bounds[1][0] - tank.bounds[0][0]
+        )
+
+    def test_a_tower_is_taller_than_a_chimney(self):
+        tower = build_scene([self._house("TURRET")], wall_height_ft=9.0, scale=SCALE)
+        chimney = build_scene([self._house("CHIMNEY")], wall_height_ft=9.0, scale=SCALE)
+
+        assert tower.geometry["tower"].bounds[1][1] > chimney.geometry["chimney"].bounds[1][1]
+
+    def test_a_canopy_hangs_at_its_own_storeys_ceiling(self):
+        # Not at roof level. On a two storey house the ground floor's porch
+        # must stay below the first floor.
+        scene = build_scene(
+            [self._house("PORTICO"), self._house()], wall_height_ft=9.0, scale=SCALE
+        )
+
+        assert scene.geometry["canopy"].bounds[1][1] < scene.geometry["roof"].bounds[0][1]
+
+    def test_a_ramp_slopes(self):
+        scene = build_scene([self._house("CAR RAMP")], wall_height_ft=9.0, scale=SCALE)
+        ramp = scene.geometry["stairs"]
+
+        low, high = ramp.bounds
+        assert high[1] - low[1] > 0
+
+    def test_a_tower_is_not_finished_in_the_roof_deck_grey(self):
+        assert SURFACES["tower"].colour != SURFACES["roof"].colour
