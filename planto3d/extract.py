@@ -57,6 +57,10 @@ REFERENCE_GAUGE = 24.0
 # sheets, which is the direction that was actually broken.
 MIN_WALL_LENGTH_RATIO = 0.5
 MIN_WALL_LENGTH_FLOOR = 12
+# How much longer than a wall is thick the severing kernel must be. Above
+# one it erases the perpendicular walls; comfortably above it also survives
+# the gauge reading a little high at junctions, which it does.
+SEVER_RATIO = 2.0
 # Smallest region that counts as a room, as a multiple of the gauge squared.
 MIN_ROOM_AREA_RATIO = 100 / REFERENCE_GAUGE**2
 # Contour simplification, in allowed deviation.
@@ -213,9 +217,28 @@ def wall_gauge(mask: np.ndarray, wall_class: int = WALL) -> float:
     return gauge
 
 
-def _segments_along(binary: np.ndarray, horizontal: bool, min_length: int) -> list[Wall]:
-    """Extract wall segments running in one direction."""
-    kernel_shape = (min_length, 1) if horizontal else (1, min_length)
+def _segments_along(
+    binary: np.ndarray,
+    horizontal: bool,
+    min_length: int,
+    sever: int | None = None,
+) -> list[Wall]:
+    """Extract wall segments running in one direction.
+
+    The opening has one job: erase the walls running the other way, so what
+    is left can be split into separate runs. For that its kernel has to be
+    longer than those walls are thick -- a horizontal kernel shorter than a
+    vertical wall's width slides along inside it and keeps it.
+
+    That is what ``sever`` sets, and it is separate from ``min_length``.
+    They were the same value, and at a wall thickness of 24 pixels against
+    a kernel of 12 nothing was severed at all: the perimeter came back as
+    one connected ring, reported as a single "wall" a thousand pixels
+    thick. Sized off the drawing's gauge, the same plan decomposes into the
+    walls it is drawn with.
+    """
+    sever = max(int(sever or min_length), 3)
+    kernel_shape = (sever, 1) if horizontal else (1, sever)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, kernel_shape)
     runs = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
 
@@ -379,8 +402,13 @@ def extract_walls(
             int(MIN_WALL_LENGTH_RATIO * gauge), MIN_WALL_LENGTH_FLOOR
         )
 
-    walls = _segments_along(binary, horizontal=True, min_length=min_wall_length)
-    walls += _segments_along(binary, horizontal=False, min_length=min_wall_length)
+    sever = int(SEVER_RATIO * gauge)
+    walls = _segments_along(
+        binary, horizontal=True, min_length=min_wall_length, sever=sever
+    )
+    walls += _segments_along(
+        binary, horizontal=False, min_length=min_wall_length, sever=sever
+    )
 
     # A wall is longer than it is thick. Each orientation pass sees the
     # other's walls end-on -- a band 40 across and 3 deep is reported by

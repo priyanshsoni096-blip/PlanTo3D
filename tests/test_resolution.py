@@ -127,3 +127,44 @@ class TestTheSameBuildingAtEverySize:
 
         widths = [s[0] for s in shares]
         assert max(widths) - min(widths) < 0.1, shares
+
+
+class TestSeveringTheOtherDirection:
+    """The opening has one job: erase the walls running the other way.
+
+    For that its kernel has to be longer than those walls are thick. A
+    horizontal kernel shorter than a vertical wall's width slides along
+    inside it and keeps it, so nothing is severed and the perimeter comes
+    back as one connected ring -- reported as a single "wall" a thousand
+    pixels thick, which then becomes a slab across the model.
+    """
+
+    def test_a_room_becomes_four_walls_not_one_ring(self):
+        for gauge in GAUGES:
+            walls = extract_walls(_plan(gauge), merge=False)
+
+            assert walls, gauge
+            fattest = max(wall.thickness for wall in walls)
+            assert fattest < gauge * 6, (
+                f"at gauge {gauge} the fattest run is {fattest:.0f}px, "
+                "which is a blob rather than a wall"
+            )
+
+    def test_walls_come_out_near_the_thickness_they_were_drawn(self):
+        for gauge in GAUGES:
+            walls = extract_walls(_plan(gauge), merge=False)
+            middle = sorted(wall.thickness for wall in walls)[len(walls) // 2]
+
+            assert middle == pytest.approx(gauge, rel=0.6), gauge
+
+    def test_both_orientations_are_recovered(self):
+        # If the severing fails, one pass swallows the other's walls and
+        # the building comes back with walls in one direction only.
+        for gauge in GAUGES:
+            walls = extract_walls(_plan(gauge), merge=False)
+            horizontal = [
+                w for w in walls if abs(w.end[0] - w.start[0]) > abs(w.end[1] - w.start[1])
+            ]
+            vertical = [w for w in walls if w not in horizontal]
+
+            assert horizontal and vertical, f"gauge {gauge}: {len(horizontal)}h {len(vertical)}v"
