@@ -155,6 +155,40 @@ Doors work because they are the most standardised element in a building: a
 house is mostly interior doors around 2'6", whatever the drafting conventions
 or the language on the sheet.
 
+## What you choose, and what the drawing decides
+
+The drawing fixes the geometry: where the walls are, how the rooms divide,
+where the doors and windows sit. None of that is a choice — the output is
+meant to be the plan, in three dimensions.
+
+What a drawing never says is what the building is made of, what hour it is
+seen at, or whether there is a garden. That is five choices:
+
+| | Options | What it changes |
+| --- | --- | --- |
+| Style | modern, luxury, traditional, minimalist | What the building is clad in |
+| Colour | light, dark, warm | How light and how warm that reading is |
+| Time | day, sunset, night | The light, the sky and the shadows |
+| Landscaping | none, basic, premium | Plot, planting, boundary wall |
+| Creativity | strict, balanced, creative | How far the photoreal pass may stray |
+
+Style and colour compose rather than enumerate: four characters times three
+tones would be twelve palettes to write and keep consistent, so the style
+says what the building is made of and the tone says how light and how warm
+to take it. The tone is applied in HLS, so a brick stays recognisably brick
+when it darkens instead of turning grey.
+
+An earlier version offered a colour picker per surface — ten of them. That
+is a spreadsheet rather than a choice: it asks someone to design a palette
+when what they wanted was a house that looks a particular way.
+
+```bash
+python scripts/run_pipeline.py plan.pdf output --checkpoint models/unet_cubicasa.pt
+```
+
+`notebooks/design_on_colab.ipynb` runs the whole thing on a Colab GPU with
+these as form fields, including the photoreal pass.
+
 ## Installation
 
 Needs Python 3.11+, plus [Poppler](https://poppler.freedesktop.org/) for PDF
