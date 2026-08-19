@@ -156,6 +156,78 @@ def _merge_collinear(walls: list[Wall], gap: float, offset: float) -> list[Wall]
     return merged
 
 
+# How many times the drawing's own median wall thickness a run may measure
+# before it is not a wall at all. Deliberately relative rather than a
+# figure in feet: wall extraction runs before the scale is known, and the
+# thicknesses on the drawing are the only reference available at that
+# point. It also means the rule needs no adjusting between a plan drawn at
+# 1:50 and one at 1:200.
+#
+# Real walls span a narrow range -- a 4 inch partition to an 18 inch
+# external wall, occasionally a 2 foot column -- so four times the median
+# clears every wall a building actually has. What it catches is boundary
+# hatching, dimension bands and title-block rules, which the segmenter
+# reports as enormously thick walls: on the reference sheet the median run
+# is 10 inches and the fattest is nearly ten feet.
+MAX_THICKNESS_RATIO = 4.0
+
+# Below this many walls the median is not worth trusting, so nothing is
+# thrown away. A handful of runs on a sparse drawing could easily be
+# mostly hatching, and taking their median would then discard the walls
+# and keep the hatching.
+MIN_WALLS_TO_JUDGE = 6
+
+# The most of a drawing this may remove. Beyond it the reference was
+# measuring the wrong thing, and the drawing is better served by its
+# original runs than by a fraction of them. Set tight: on a plan where
+# short noise fragments outnumbered the walls, allowing half to go took
+# the real walls with them and left a median wall thickness of two
+# pixels, which put the building at a thirtieth of its size.
+MAX_DROPPED_FRACTION = 0.15
+
+
+def _typical_thickness(walls: list[Wall]) -> float:
+    """The drawing's own wall thickness, weighted by how long each run is.
+
+    A plain median counts a six pixel speck of noise the same as a wall
+    running the width of the building, and a drawing with more specks than
+    walls then reports a thickness far below any real one. Weighting by
+    length says what most of the *drawn wall* measures rather than what
+    most of the *runs* measure, which is the question worth asking.
+    """
+    ordered = sorted(walls, key=lambda wall: wall.thickness)
+    lengths = np.array([max(wall.length(), 1.0) for wall in ordered])
+    running = np.cumsum(lengths)
+    middle = int(np.searchsorted(running, running[-1] / 2.0))
+    return float(ordered[min(middle, len(ordered) - 1)].thickness)
+
+
+def _drop_impossibly_thick(walls: list[Wall]) -> list[Wall]:
+    """Remove runs far thicker than the drawing's own walls.
+
+    A ten foot thick wall is not a wall. Left in, it becomes a solid slab
+    across the plan -- and worse, it drags the wall-thickness scale
+    estimate with it, so the whole building comes out the wrong size.
+    """
+    if len(walls) < MIN_WALLS_TO_JUDGE:
+        return walls
+
+    limit = _typical_thickness(walls) * MAX_THICKNESS_RATIO
+    kept = [wall for wall in walls if wall.thickness <= limit]
+
+    dropped = len(walls) - len(kept)
+    if not dropped:
+        return walls
+    if dropped > len(walls) * MAX_DROPPED_FRACTION:
+        logger.info(
+            "not dropping %d of %d run(s): too many to be hatching", dropped, len(walls)
+        )
+        return walls
+
+    logger.info("dropped %d run(s) thicker than %.0f px; not walls", dropped, limit)
+    return kept
+
+
 def extract_walls(
     mask: np.ndarray,
     wall_class: int = WALL,
@@ -176,6 +248,7 @@ def extract_walls(
 
     walls = _segments_along(binary, horizontal=True, min_length=min_wall_length)
     walls += _segments_along(binary, horizontal=False, min_length=min_wall_length)
+    walls = _drop_impossibly_thick(walls)
 
     if merge and walls:
         before = len(walls)
