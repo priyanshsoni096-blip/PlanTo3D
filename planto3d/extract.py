@@ -30,40 +30,187 @@ from planto3d.geometry_types import Opening, Room, Wall
 
 logger = logging.getLogger(__name__)
 
-# Shortest run of pixels that counts as a wall rather than speckle.
-MIN_WALL_LENGTH = 12
-# Smallest region that counts as a room.
-MIN_ROOM_AREA = 100
-# Contour simplification, in pixels of allowed deviation.
+# --- how big things are, relative to the drawing itself ----------------------
 #
-# Deliberately absolute rather than a fraction of perimeter. A relative
-# tolerance scales with the outline's size, so the building footprint -- by
-# far the longest contour -- gets the coarsest treatment exactly where
-# precision matters most: at 2% of perimeter it cut diagonal shortcuts across
-# whole corners, turning a rectilinear building into a jagged wedge.
-SIMPLIFY_PIXELS = 4.0
+# These were absolute pixel counts, measured on drawings around 28-30 pixels
+# per foot. That is a resolution, not a property of any building, and it made
+# the pipeline quietly dependent on one: the same CubiCasa plan reconstructed
+# with 15 walls at half size and 40 at double, and its inferred scale went
+# from 8% out to 48% out. A plan is the same building whatever size it is
+# rendered at, and it now reconstructs that way.
+#
+# Everything is a multiple of the drawing's own wall thickness -- the one
+# length a floor plan always contains, is drawn to scale, and can be
+# measured from before anything else is known. A doorway is about three and
+# a half wall thicknesses wide whatever the drawing's resolution.
+#
+# The ratios are the old constants divided by the gauge they were measured
+# at, so behaviour at that resolution is unchanged.
+REFERENCE_GAUGE = 24.0
+
+# Shortest run that counts as a wall rather than speckle. This one also
+# sizes the morphological kernel that separates horizontal runs from
+# vertical ones, so it cannot simply shrink with the drawing: below about
+# a dozen pixels the opening stops decomposing a corner at all and a
+# four-sided room comes back as one ring-shaped "wall". The floor is what
+# that stage needs to work; the ratio is what carries it up to larger
+# sheets, which is the direction that was actually broken.
+MIN_WALL_LENGTH_RATIO = 0.5
+MIN_WALL_LENGTH_FLOOR = 12
+# Smallest region that counts as a room, as a multiple of the gauge squared.
+MIN_ROOM_AREA_RATIO = 100 / REFERENCE_GAUGE**2
+# Contour simplification, in allowed deviation.
+#
+# Deliberately not a fraction of perimeter. A relative tolerance scales with
+# the outline's size, so the building footprint -- by far the longest
+# contour -- gets the coarsest treatment exactly where precision matters
+# most: at 2% of perimeter it cut diagonal shortcuts across whole corners,
+# turning a rectilinear building into a jagged wedge. Against the wall
+# thickness it stays fixed relative to the building's own detail.
+SIMPLIFY_RATIO = 4.0 / REFERENCE_GAUGE
 # Smallest door or window blob worth trusting.
-MIN_OPENING_AREA = 40
+MIN_OPENING_AREA_RATIO = 40 / REFERENCE_GAUGE**2
 # An opening further than this from any wall is dropped rather than bound to
 # a distant one -- a misplaced opening cuts a hole through solid geometry.
-MAX_OPENING_DISTANCE = 40.0
-# Closing the building envelope. The perimeter is walked at this interval,
-# a wall counts as present within this distance, and the mask is probed this
-# far inside to ask whether a room lies behind the gap.
+MAX_OPENING_DISTANCE_RATIO = 40.0 / REFERENCE_GAUGE
+# Footprint cleanup: bridge doorways, then erase spurs narrower than this.
+CLOSE_SPAN_RATIO = 9 / REFERENCE_GAUGE
+OPEN_SPAN_RATIO = 25 / REFERENCE_GAUGE
+# Collinear runs closer than this along their line are one wall. Sized to
+# span a doorway, which is what usually splits a wall in two.
+MERGE_GAP_RATIO = 90.0 / REFERENCE_GAUGE
+# Runs whose shared coordinate differs by less than this are on one line.
+MERGE_OFFSET_RATIO = 12.0 / REFERENCE_GAUGE
+
+# The values at the reference gauge, for callers that have no mask to
+# measure and for the tests that pinned the old behaviour.
+MIN_WALL_LENGTH = int(MIN_WALL_LENGTH_RATIO * REFERENCE_GAUGE)
+MIN_ROOM_AREA = int(MIN_ROOM_AREA_RATIO * REFERENCE_GAUGE**2)
+SIMPLIFY_PIXELS = SIMPLIFY_RATIO * REFERENCE_GAUGE
+MIN_OPENING_AREA = int(MIN_OPENING_AREA_RATIO * REFERENCE_GAUGE**2)
+MAX_OPENING_DISTANCE = MAX_OPENING_DISTANCE_RATIO * REFERENCE_GAUGE
+CLOSE_SPAN = int(CLOSE_SPAN_RATIO * REFERENCE_GAUGE)
+OPEN_SPAN = int(OPEN_SPAN_RATIO * REFERENCE_GAUGE)
+MERGE_GAP = MERGE_GAP_RATIO * REFERENCE_GAUGE
+MERGE_OFFSET = MERGE_OFFSET_RATIO * REFERENCE_GAUGE
+
+# Closing the building envelope. These are in feet rather than pixels
+# because this stage runs after calibration and knows the scale, which is
+# the better reference wherever it is available -- a doorway is 2'6" on
+# every drawing ever made.
 ENVELOPE_SAMPLE_FT = 1.0
 ENVELOPE_NEAR_FT = 2.0
 ENVELOPE_PROBE_FT = 2.5
 # Shorter gaps than this are doorways and reveals, not missing wall.
 ENVELOPE_MIN_GAP_FT = 3.0
 ENVELOPE_WALL_FT = 0.75
-# Footprint cleanup: bridge doorways, then erase spurs narrower than this.
-CLOSE_SPAN = 9
-OPEN_SPAN = 25
-# Collinear runs closer than this along their line are one wall. Sized to
-# span a doorway, which is what usually splits a wall in two.
-MERGE_GAP = 90.0
-# Runs whose shared coordinate differs by less than this are on one line.
-MERGE_OFFSET = 12.0
+
+# A drawing whose walls measure outside this range of the reference is
+# treated as unmeasurable and given the reference gauge instead. Both ends
+# are far outside anything a real plan produces; the guard is against a
+# mask so poor that the measurement means nothing.
+GAUGE_LIMITS = (4.0, 240.0)
+
+
+# Below this many walls the median is not worth trusting, so nothing is
+# thrown away. A handful of runs on a sparse drawing could easily be
+# mostly hatching, and taking their median would then discard the walls
+# and keep the hatching.
+MIN_WALLS_TO_JUDGE = 6
+
+# The most of a drawing this may remove. Beyond it the reference was
+# measuring the wrong thing, and the drawing is better served by its
+# original runs than by a fraction of them. Set tight: on a plan where
+# short noise fragments outnumbered the walls, allowing half to go took
+# the real walls with them and left a median wall thickness of two
+# pixels, which put the building at a thirtieth of its size.
+MAX_DROPPED_FRACTION = 0.15
+
+
+# A wall is longer than it is thick. Anything squarer than this is a blob
+# -- a hatched panel, a stair core, the whole building caught by one
+# orientation pass -- and however much of the drawing it covers it says
+# nothing about how thick a wall is.
+MIN_WALL_ASPECT = 1.5
+
+
+def _typical_thickness(walls: list[Wall]) -> float:
+    """The drawing's own wall thickness.
+
+    Two things have to be kept out and they pull in opposite directions.
+
+    Short specks of noise outnumber real walls on a poor mask, so a plain
+    median reports a thickness below any real one. Weighting by length
+    fixes that -- it says what most of the *drawn wall* measures rather
+    than what most of the *runs* measure.
+
+    But weighting by length alone hands the answer to a single enormous
+    blob, which is long as well as thick: on one CubiCasa plan the whole
+    building was caught as one run and reported a wall thickness of 2048
+    pixels. So blobs are excluded first, on the one thing that separates a
+    wall from a panel -- a wall is much longer than it is thick.
+    """
+    slender = [
+        wall
+        for wall in walls
+        if wall.thickness > 0 and wall.length() >= wall.thickness * MIN_WALL_ASPECT
+    ]
+    # If nothing is slender the drawing is all blobs, and its own runs are
+    # a better answer than none.
+    ordered = sorted(slender or walls, key=lambda wall: wall.thickness)
+
+    lengths = np.array([max(wall.length(), 1.0) for wall in ordered])
+    running = np.cumsum(lengths)
+    middle = int(np.searchsorted(running, running[-1] / 2.0))
+    return float(ordered[min(middle, len(ordered) - 1)].thickness)
+
+
+# Least wall a drawing must carry before its gauge is worth measuring, as
+# a share of the page. Below it the mask is mostly background and the
+# measurement says more about noise than about the building.
+MIN_WALL_SHARE = 0.002
+
+
+def wall_gauge(mask: np.ndarray, wall_class: int = WALL) -> float:
+    """The drawing's own wall thickness in pixels.
+
+    The one length a floor plan always contains, always draws to scale, and
+    can be measured before anything else is known -- there is no room list
+    yet, no calibration, and nothing saying what the sheet's resolution
+    means. Every other size in this module is expressed against it, so the
+    same building reconstructs the same way whatever size it is rendered
+    at.
+
+    Measured from the distance transform rather than from wall runs.
+    Distance-to-background across a wall of thickness ``t`` is spread
+    evenly over ``0`` to ``t/2``, so the median sits at ``t/4``. It is the
+    right tool because it asks every wall pixel the same local question and
+    weights nothing by length or area, which is what defeated the earlier
+    attempts: measuring runs, a drawing with more specks than walls
+    reported a thickness below any real one, and weighting those runs by
+    length instead handed the answer to whichever blob was biggest -- one
+    plan came back with a 2048 pixel wall.
+
+    Falls back to the reference gauge where the mask holds too little wall
+    to measure, or the answer is outside anything a real drawing produces.
+    A wrong gauge is worse than the reference: it rescales every threshold
+    at once.
+    """
+    binary = (mask == wall_class).astype(np.uint8)
+    if binary.mean() < MIN_WALL_SHARE:
+        logger.info("too little wall to measure a gauge; using the reference")
+        return REFERENCE_GAUGE
+
+    distances = cv2.distanceTransform(binary, cv2.DIST_L2, 5)[binary > 0]
+    gauge = 4.0 * float(np.median(distances))
+
+    low, high = GAUGE_LIMITS
+    if not low <= gauge <= high:
+        logger.info("wall gauge %.1f px is implausible; using the reference", gauge)
+        return REFERENCE_GAUGE
+
+    logger.info("wall gauge %.1f px (reference %.0f)", gauge, REFERENCE_GAUGE)
+    return gauge
 
 
 def _segments_along(binary: np.ndarray, horizontal: bool, min_length: int) -> list[Wall]:
@@ -122,12 +269,22 @@ def _merge_collinear(walls: list[Wall], gap: float, offset: float) -> list[Wall]
         ]
 
         # Group by the shared coordinate, so only walls on one line combine.
-        lanes: dict[int, list[Wall]] = {}
-        for wall in candidates:
-            key = int(round(wall.start[axis] / max(offset, 1e-6)))
-            lanes.setdefault(key, []).append(wall)
+        #
+        # Grouped by how far apart they actually are rather than by rounding
+        # each into a fixed bucket. Bucketing made the answer depend on
+        # where the building happened to sit on the page: two runs six
+        # pixels apart merged at one position and not at another, purely
+        # because they straddled a boundary. A wall meeting a thicker wall
+        # always offsets by half their difference, so this is the ordinary
+        # case rather than an edge one.
+        lanes: list[list[Wall]] = []
+        for wall in sorted(candidates, key=lambda w: w.start[axis]):
+            if lanes and wall.start[axis] - lanes[-1][-1].start[axis] <= offset:
+                lanes[-1].append(wall)
+            else:
+                lanes.append([wall])
 
-        for lane in lanes.values():
+        for lane in lanes:
             lane.sort(key=lambda w: min(w.start[along], w.end[along]))
 
             current = lane[0]
@@ -171,37 +328,6 @@ def _merge_collinear(walls: list[Wall], gap: float, offset: float) -> list[Wall]
 # is 10 inches and the fattest is nearly ten feet.
 MAX_THICKNESS_RATIO = 4.0
 
-# Below this many walls the median is not worth trusting, so nothing is
-# thrown away. A handful of runs on a sparse drawing could easily be
-# mostly hatching, and taking their median would then discard the walls
-# and keep the hatching.
-MIN_WALLS_TO_JUDGE = 6
-
-# The most of a drawing this may remove. Beyond it the reference was
-# measuring the wrong thing, and the drawing is better served by its
-# original runs than by a fraction of them. Set tight: on a plan where
-# short noise fragments outnumbered the walls, allowing half to go took
-# the real walls with them and left a median wall thickness of two
-# pixels, which put the building at a thirtieth of its size.
-MAX_DROPPED_FRACTION = 0.15
-
-
-def _typical_thickness(walls: list[Wall]) -> float:
-    """The drawing's own wall thickness, weighted by how long each run is.
-
-    A plain median counts a six pixel speck of noise the same as a wall
-    running the width of the building, and a drawing with more specks than
-    walls then reports a thickness far below any real one. Weighting by
-    length says what most of the *drawn wall* measures rather than what
-    most of the *runs* measure, which is the question worth asking.
-    """
-    ordered = sorted(walls, key=lambda wall: wall.thickness)
-    lengths = np.array([max(wall.length(), 1.0) for wall in ordered])
-    running = np.cumsum(lengths)
-    middle = int(np.searchsorted(running, running[-1] / 2.0))
-    return float(ordered[min(middle, len(ordered) - 1)].thickness)
-
-
 def _drop_impossibly_thick(walls: list[Wall]) -> list[Wall]:
     """Remove runs far thicker than the drawing's own walls.
 
@@ -231,8 +357,9 @@ def _drop_impossibly_thick(walls: list[Wall]) -> list[Wall]:
 def extract_walls(
     mask: np.ndarray,
     wall_class: int = WALL,
-    min_wall_length: int = MIN_WALL_LENGTH,
+    min_wall_length: int | None = None,
     merge: bool = True,
+    gauge: float | None = None,
 ) -> list[Wall]:
     """Recover wall segments from a class mask, in the mask's pixel coordinates.
 
@@ -246,13 +373,33 @@ def extract_walls(
     if not binary.any():
         return []
 
+    gauge = wall_gauge(mask, wall_class) if gauge is None else gauge
+    if min_wall_length is None:
+        min_wall_length = max(
+            int(MIN_WALL_LENGTH_RATIO * gauge), MIN_WALL_LENGTH_FLOOR
+        )
+
     walls = _segments_along(binary, horizontal=True, min_length=min_wall_length)
     walls += _segments_along(binary, horizontal=False, min_length=min_wall_length)
+
+    # A wall is longer than it is thick. Each orientation pass sees the
+    # other's walls end-on -- a band 40 across and 3 deep is reported by
+    # the vertical pass as a wall 40 thick and 3 long -- and those stubs
+    # are the same run counted twice, at right angles.
+    walls = [
+        wall
+        for wall in walls
+        if wall.thickness <= 0 or wall.length() >= wall.thickness * MIN_WALL_ASPECT
+    ] or walls
     walls = _drop_impossibly_thick(walls)
 
     if merge and walls:
         before = len(walls)
-        walls = _merge_collinear(walls, gap=MERGE_GAP, offset=MERGE_OFFSET)
+        walls = _merge_collinear(
+            walls,
+            gap=MERGE_GAP_RATIO * gauge,
+            offset=MERGE_OFFSET_RATIO * gauge,
+        )
         logger.info("merged %d wall run(s) into %d", before, len(walls))
     else:
         logger.info("extracted %d wall segment(s)", len(walls))
@@ -278,17 +425,28 @@ def _project_onto_wall(point: tuple[float, float], wall: Wall) -> tuple[float, f
 def extract_openings(
     mask: np.ndarray,
     walls: list[Wall],
-    min_area: int = MIN_OPENING_AREA,
-    max_distance: float = MAX_OPENING_DISTANCE,
+    min_area: int | None = None,
+    max_distance: float | None = None,
+    gauge: float | None = None,
 ) -> list[Opening]:
     """Find doors and windows and bind each to the wall it interrupts.
 
     An opening is only meaningful relative to its wall, so a component that
     sits too far from any wall is discarded rather than attached to a distant
     one -- a misplaced opening cuts a hole through solid geometry.
+
+    Sizes come from the drawing's own wall thickness, so a plan rendered
+    at twice the resolution is read the same way rather than losing every
+    opening to a threshold set for a smaller sheet.
     """
     if not walls:
         return []
+
+    gauge = wall_gauge(mask) if gauge is None else gauge
+    if min_area is None:
+        min_area = max(int(MIN_OPENING_AREA_RATIO * gauge**2), 4)
+    if max_distance is None:
+        max_distance = MAX_OPENING_DISTANCE_RATIO * gauge
 
     openings: list[Opening] = []
 
@@ -422,7 +580,8 @@ def close_envelope(
 
 def extract_footprint(
     mask: np.ndarray,
-    simplify_pixels: float = SIMPLIFY_PIXELS,
+    simplify_pixels: float | None = None,
+    gauge: float | None = None,
 ) -> list[tuple[float, float]]:
     """Outline of the built area, for generating floor slabs and a roof.
 
@@ -434,14 +593,23 @@ def extract_footprint(
     if not built.any():
         return []
 
+    # Sized against the drawing's own walls: a doorway is about the same
+    # multiple of a wall thickness whatever the sheet's resolution, and a
+    # spur worth erasing is thinner than a wall.
+    gauge = wall_gauge(mask) if gauge is None else gauge
+    if simplify_pixels is None:
+        simplify_pixels = SIMPLIFY_RATIO * gauge
+    close_span = max(int(CLOSE_SPAN_RATIO * gauge), 3)
+    open_span = max(int(OPEN_SPAN_RATIO * gauge), 3)
+
     # Bridge doorways and joints so the storey reads as one region.
-    closed = cv2.morphologyEx(built, cv2.MORPH_CLOSE, np.ones((CLOSE_SPAN, CLOSE_SPAN), np.uint8))
+    closed = cv2.morphologyEx(built, cv2.MORPH_CLOSE, np.ones((close_span, close_span), np.uint8))
 
     # Erode away thin spurs, then restore the body. Segmentation bleeds into
     # landscaping and paving around the building, and those tendrils otherwise
     # end up in the outline -- producing slabs with jagged fingers reaching
     # out over open ground.
-    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, np.ones((OPEN_SPAN, OPEN_SPAN), np.uint8))
+    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, np.ones((open_span, open_span), np.uint8))
     if not opened.any():
         opened = closed
 
@@ -464,8 +632,9 @@ def extract_footprint(
 def extract_rooms(
     mask: np.ndarray,
     room_class: int | None = None,
-    min_area: int = MIN_ROOM_AREA,
-    simplify_pixels: float = SIMPLIFY_PIXELS,
+    min_area: int | None = None,
+    simplify_pixels: float | None = None,
+    gauge: float | None = None,
 ) -> list[Room]:
     """Recover room polygons from a class mask, in the mask's pixel coordinates.
 
@@ -479,7 +648,16 @@ def extract_rooms(
 
     Regions that cannot form a valid polygon are logged and skipped rather
     than raised, so one malformed room does not abort a floor.
+
+    Sizes come from the drawing's own wall thickness, so the same plan is
+    read the same way whatever size it is rendered at.
     """
+    gauge = wall_gauge(mask) if gauge is None else gauge
+    if min_area is None:
+        min_area = max(int(MIN_ROOM_AREA_RATIO * gauge**2), 16)
+    if simplify_pixels is None:
+        simplify_pixels = SIMPLIFY_RATIO * gauge
+
     wanted = ROOM_CLASSES if room_class is None else {room_class}
 
     rooms: list[Room] = []

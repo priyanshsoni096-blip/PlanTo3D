@@ -11,6 +11,7 @@ eight.
 """
 
 import logging
+from statistics import median
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -25,11 +26,13 @@ from planto3d.calibrate import (
     estimate_scale,
     read_text_boxes,
     scale_from_doors,
+    scale_from_gauge,
     scale_from_walls,
 )
 from planto3d.classical import classical_mask, refine_windows, vegetation_regions
 from planto3d.extract import (
     close_envelope,
+    wall_gauge,
     extract_footprint,
     extract_openings,
     extract_rooms,
@@ -74,6 +77,21 @@ class FloorResult:
     image_path: Path
     plan: FloorPlan
     text_boxes: list[TextBox] = field(default_factory=list)
+    # How many of ``plan.walls`` were read off the drawing. The rest were
+    # invented by envelope closing at the assumed scale, so measuring them
+    # to find the scale just returns the assumption.
+    drawn_wall_count: int | None = None
+    # The drawing's own wall thickness, measured off the mask. A truer
+    # figure than the extracted walls give: those have been through
+    # orientation filtering and merging first, and both erode.
+    wall_gauge_px: float | None = None
+
+    @property
+    def drawn_walls(self) -> list:
+        """The walls the drawing actually shows."""
+        if self.drawn_wall_count is None:
+            return self.plan.walls
+        return self.plan.walls[: self.drawn_wall_count]
 
     @property
     def named_rooms(self) -> list[str]:
@@ -149,9 +167,18 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
         raise FileNotFoundError(f"could not read page image: {image_path}")
 
     mask = refine_windows(segmenter(image), image)
-    walls = extract_walls(mask, min_wall_length=MIN_WALL_LENGTH)
-    rooms = extract_rooms(mask, min_area=MIN_ROOM_AREA)
-    footprint = extract_footprint(mask)
+    # Measured once and shared, so every stage sizes itself against the same
+    # figure -- and so it can be reported later, since the wall thickness is
+    # also the weakest of the scale references.
+    #
+    # Nothing is passed explicitly here. Doing so pinned each stage to sizes
+    # measured on one drawing at one resolution, which is what made the same
+    # plan reconstruct differently depending only on how large it had been
+    # rendered.
+    gauge = wall_gauge(mask)
+    walls = extract_walls(mask, gauge=gauge)
+    rooms = extract_rooms(mask, gauge=gauge)
+    footprint = extract_footprint(mask, gauge=gauge)
 
     # Segmentation loses stretches of exterior wall wherever the drawing is
     # busy, leaving holes in the facade -- and every window that would have
@@ -161,11 +188,18 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     # nominal one implied by the rasterization resolution is used here. Its
     # job is only to size tolerances -- how long a gap must be to count, how
     # far to probe inward -- and those survive being a few percent out.
+    #
+    # How many walls were read off the drawing is recorded before the
+    # invented ones are added. They are not evidence of anything: drawn at
+    # the assumed scale, measuring them to find the scale simply returns
+    # the assumption, and with enough of them the estimate collapsed onto
+    # exactly 32.0 px/ft -- the assumed figure -- plan after plan.
+    drawn_wall_count = len(walls)
     walls += close_envelope(
         mask, walls, footprint, scale=assumed_scale(WORKING_DPI)
     )
 
-    openings = extract_openings(mask, walls)
+    openings = extract_openings(mask, walls, gauge=gauge)
     planting = vegetation_regions(image)
     text_boxes = read_text_boxes(image)
 
@@ -180,6 +214,8 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     return FloorResult(
         index=index,
         image_path=image_path,
+        drawn_wall_count=drawn_wall_count,
+        wall_gauge_px=gauge,
         plan=FloorPlan(
             walls=walls,
             rooms=rooms,
@@ -270,7 +306,14 @@ def run(
         )
         scale_source = "doors"
     if scale is None:
-        scale = scale_from_walls([wall for floor in floors for wall in floor.plan.walls])
+        gauges = [floor.wall_gauge_px for floor in floors if floor.wall_gauge_px]
+        scale = (
+            scale_from_gauge(float(median(gauges)))
+            if gauges
+            else scale_from_walls(
+                [wall for floor in floors for wall in floor.drawn_walls]
+            )
+        )
         scale_source = "walls"
     if scale is None:
         scale = assumed_scale(WORKING_DPI)

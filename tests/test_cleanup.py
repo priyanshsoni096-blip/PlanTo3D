@@ -14,11 +14,18 @@ def _bounds(polygon):
 
 
 class TestFootprintCleanup:
+    # Walls at the gauge the cleanup spans are expressed against, so a
+    # "thin spur" below is thinner than a wall and reads as the tendril it
+    # is meant to be. Drawn at 8 pixels, the same 10 pixel spur was wider
+    # than the building's own walls -- the cleanup is sized by the drawing
+    # now, and rightly kept it.
+    WALL_PX = 24
+
     def _building(self, size=400):
         mask = np.full((size, size), BACKGROUND, dtype=np.int64)
         mask[100:300, 100:300] = ROOM
-        mask[96:104, 100:300] = WALL
-        mask[296:304, 100:300] = WALL
+        mask[100 - self.WALL_PX : 100, 100:300] = WALL
+        mask[300 : 300 + self.WALL_PX, 100:300] = WALL
         return mask
 
     def test_a_thin_spur_does_not_reach_into_the_outline(self):
@@ -34,19 +41,24 @@ class TestFootprintCleanup:
 
     def test_a_detached_patch_cannot_drag_the_outline_across_the_site(self):
         mask = self._building()
-        mask[330:370, 330:370] = ROOM  # separate paved area
+        # Clear of the building, including its walls.
+        patch = 300 + self.WALL_PX + 30
+        mask[patch : patch + 40, patch : patch + 40] = ROOM
 
         _, _, right, bottom = _bounds(extract_footprint(mask))
 
-        assert right < 320
-        assert bottom < 320
+        assert right < patch
+        assert bottom < patch
 
     def test_the_building_itself_survives_the_cleanup(self):
+        # Stated against the fixture rather than as fixed numbers, so
+        # redrawing it at another wall thickness cannot silently make this
+        # test about something else.
         left, top, right, bottom = _bounds(extract_footprint(self._building()))
 
-        assert left == pytest.approx(96, abs=15)
-        assert right == pytest.approx(304, abs=15)
-        assert bottom - top == pytest.approx(208, abs=25)
+        assert left == pytest.approx(100, abs=15)
+        assert right == pytest.approx(300, abs=15)
+        assert bottom - top == pytest.approx(200 + 2 * self.WALL_PX, abs=25)
 
     def test_an_empty_mask_yields_no_footprint(self):
         assert extract_footprint(np.full((100, 100), BACKGROUND, dtype=np.int64)) == []
