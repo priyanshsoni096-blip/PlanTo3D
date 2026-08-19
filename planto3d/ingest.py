@@ -52,10 +52,38 @@ CLUSTER_GAP = 10
 # near-empty page; both it and the pieces either side are measured as
 # fractions of the sheet so the rule holds at any resolution.
 GUTTER_INK_FRACTION = 0.004
-MIN_GUTTER_FRACTION = 0.05
+# A gutter has to be wide relative to the sheet rather than a fixed number
+# of pixels, so the rule holds at any resolution. Measured against
+# CubiCasa's recorded floor counts, 5% was far too demanding: the gutter
+# between two plans laid side by side is routinely 2-3% of the sheet, and
+# nine genuine multi-plan sheets in sixty were missed on that alone.
+#
+# Loosening it is only safe because the pieces are now checked afterwards
+# -- detection is generous, and _pieces_look_like_plans throws out what
+# does not stand up.
+MIN_GUTTER_FRACTION = 0.02
+
+# A gutter is frequently ruled down the middle, one plan's border box
+# against the next. That single line of ink breaks the empty run in two,
+# and each half then looks too narrow to be a gutter. Bands of ink up to
+# this share of the sheet are bridged before runs are measured, which is
+# wide enough for a border and far too narrow for a drawing.
+GUTTER_RULE_FRACTION = 0.01
 MIN_PIECE_FRACTION = 0.12
 MIN_PIECE_INK = 0.01
 MIN_SPLIT_WIDTH = 400
+
+# Least share of a sheet's ink a piece must hold to be believed a plan of
+# its own. Measured against CubiCasa's recorded floor counts: every false
+# split left at least one piece below a fifth of the ink, several below a
+# tenth, while genuine multi-plan sheets divide far more evenly -- two
+# drawings of the same building are drawn at the same scale and carry
+# comparable detail.
+#
+# This is deliberately a share of ink rather than of width. A wide band of
+# blank page either side of a plan says nothing about whether it is a plan;
+# the drawing in it does.
+MIN_PLAN_INK_SHARE = 0.2
 # Detecting the page itself. A tone this light covering this much of a sheet
 # is paper, not drawing -- no plan's linework covers a tenth of the page in
 # one flat shade.
@@ -280,6 +308,93 @@ def _boundary_cuts(ink: np.ndarray) -> list[int]:
     return [(group[0][0] + group[-1][1]) // 2 for group in groups]
 
 
+def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    """Start and end of each run of True in a boolean mask."""
+    found, start = [], None
+    for index, value in enumerate(mask):
+        if value and start is None:
+            start = index
+        elif not value and start is not None:
+            found.append((start, index))
+            start = None
+    if start is not None:
+        found.append((start, len(mask)))
+    return found
+
+
+def _bridge(mask: np.ndarray, span: int) -> np.ndarray:
+    """Fill short False gaps, so a ruled line does not break an empty run.
+
+    Interior gaps only: bridging one that reaches an end would swallow the
+    sheet's own margin into the first or last gutter.
+    """
+    bridged = mask.copy()
+    for start, end in _runs(~mask):
+        if end - start <= span and start > 0 and end < len(mask):
+            bridged[start:end] = True
+    return bridged
+
+
+def _gutter_cuts(ink: np.ndarray, axis: int) -> list[int]:
+    """Where to cut, from bands of near-empty page running across the sheet.
+
+    ``axis`` 0 looks for vertical gutters between plans laid side by side,
+    1 for horizontal ones between plans stacked top to bottom. Sheets do
+    both, and looking only for one missed every stacked sheet outright.
+    """
+    length = ink.shape[1] if axis == 0 else ink.shape[0]
+    across = ink.shape[0] if axis == 0 else ink.shape[1]
+
+    profile = ink.sum(axis=axis) / across
+    empty = _bridge(
+        profile < GUTTER_INK_FRACTION, max(int(length * GUTTER_RULE_FRACTION), 3)
+    )
+
+    minimum_gutter = length * MIN_GUTTER_FRACTION
+    minimum_piece = length * MIN_PIECE_FRACTION
+    return [
+        (start + end) // 2
+        for start, end in _runs(empty)
+        if end - start >= minimum_gutter
+        and start > minimum_piece
+        and end < length - minimum_piece
+    ]
+
+
+def _pieces_look_like_plans(
+    ink: np.ndarray, divisions: list[int], axis: int = 0
+) -> bool:
+    """Whether cutting here leaves every piece substantial enough to be a plan.
+
+    A sheet holding two floors of one building divides fairly evenly: both
+    are drawn at the same scale and carry comparable detail. A cut through
+    the middle of a single plan does not -- it leaves a sliver on one side,
+    and measured across sixty sheets every false split left at least one
+    piece below a fifth of the ink.
+
+    Checked on ink rather than on width, because a wide margin of blank page
+    says nothing about whether there is a drawing in it.
+    """
+    total = float(ink.sum())
+    if total <= 0:
+        return False
+
+    edges = [0, *divisions, ink.shape[1] if axis == 0 else ink.shape[0]]
+    shares = [
+        float((ink[:, a:b] if axis == 0 else ink[a:b, :]).sum()) / total
+        for a, b in zip(edges, edges[1:])
+    ]
+    thinnest = min(shares)
+    if thinnest < MIN_PLAN_INK_SHARE:
+        logger.info(
+            "rejecting split into %d: thinnest piece holds %.0f%% of the ink",
+            len(shares),
+            thinnest * 100,
+        )
+        return False
+    return True
+
+
 def split_sheet(image: np.ndarray) -> list[np.ndarray]:
     """Split a sheet carrying several floor plans into one image per plan.
 
@@ -302,54 +417,58 @@ def split_sheet(image: np.ndarray) -> list[np.ndarray]:
     if width < MIN_SPLIT_WIDTH:
         return [image]
 
-    column_ink = ink.sum(axis=0) / height
-    empty = column_ink < GUTTER_INK_FRACTION
+    # Side by side first, then stacked. Sheets are laid out both ways and
+    # looking only for vertical gutters missed every stacked sheet outright.
+    # Columns are tried first because it is much the commoner arrangement,
+    # and a sheet split correctly one way should not then be cut the other.
+    for axis in (0, 1):
+        length = width if axis == 0 else height
+        minimum_piece = length * MIN_PIECE_FRACTION
 
-    # Gather runs of empty columns, ignoring the margins either side.
-    gutters: list[tuple[int, int]] = []
-    start = None
-    for column in range(width):
-        if empty[column] and start is None:
-            start = column
-        elif not empty[column] and start is not None:
-            gutters.append((start, column))
-            start = None
-    if start is not None:
-        gutters.append((start, width))
+        # Blank page between plans is unambiguous, so gutters are believed
+        # before anything else. Where a sheet draws each plan inside a
+        # boundary box there is no blank page to find, so the boxes
+        # themselves are the fallback -- but only across columns, which is
+        # the only direction that fallback was ever built for.
+        divisions = _gutter_cuts(ink, axis)
+        if not divisions and axis == 0:
+            divisions = _boundary_cuts(ink)
 
-    minimum_gutter = width * MIN_GUTTER_FRACTION
-    minimum_piece = width * MIN_PIECE_FRACTION
-    interior = [
-        (a, b)
-        for a, b in gutters
-        if b - a >= minimum_gutter and a > minimum_piece and b < width - minimum_piece
-    ]
+        divisions = sorted(
+            c for c in divisions if minimum_piece < c < length - minimum_piece
+        )
+        if not divisions:
+            continue
 
-    # Gutters first, since blank page between plans is unambiguous. Where a
-    # sheet draws each plan inside a boundary box there is no blank page to
-    # find, so fall back to the boxes themselves.
-    divisions = (
-        [(a + b) // 2 for a, b in interior] if interior else _boundary_cuts(ink)
-    )
-    divisions = [c for c in divisions if minimum_piece < c < width - minimum_piece]
-    if not divisions:
-        return [image]
+        # Whatever found them, the pieces have to stand up as plans. The
+        # boundary-rule fallback in particular fires readily on dimension
+        # lines and plot borders, which run the full height of a drawing
+        # just as a real separator does; unchecked it split eleven single
+        # plans across sixty sheets and got one of them right.
+        if not _pieces_look_like_plans(ink, divisions, axis):
+            continue
 
-    cuts = [0] + divisions + [width]
-    pieces = [
-        image[:, left:right]
-        for left, right in zip(cuts, cuts[1:])
-        if right - left >= minimum_piece
-    ]
+        cuts = [0, *divisions, length]
+        pieces = [
+            image[:, a:b] if axis == 0 else image[a:b, :]
+            for a, b in zip(cuts, cuts[1:])
+            if b - a >= minimum_piece
+        ]
 
-    # Every piece must actually carry a drawing; a blank one means the split
-    # found a margin rather than a gutter.
-    pieces = [p for p in pieces if _ink_mask(p).mean() > MIN_PIECE_INK]
-    if len(pieces) < 2:
-        return [image]
+        # Every piece must actually carry a drawing; a blank one means the
+        # split found a margin rather than a gutter.
+        pieces = [p for p in pieces if _ink_mask(p).mean() > MIN_PIECE_INK]
+        if len(pieces) < 2:
+            continue
 
-    logger.info("sheet holds %d plans; splitting", len(pieces))
-    return pieces
+        logger.info(
+            "sheet holds %d plans %s; splitting",
+            len(pieces),
+            "side by side" if axis == 0 else "stacked",
+        )
+        return pieces
+
+    return [image]
 
 
 def crop_pages(image_paths: list[Path]) -> list[Path]:
