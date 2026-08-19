@@ -1011,3 +1011,28 @@ def finish_for_room(room) -> str:
         if finish != DEFAULT_FINISH:
             return finish
     return CATEGORY_FINISHES.get(getattr(room, "category", ""), DEFAULT_FINISH)
+
+
+# Categories that are open to the sky. One named concept rather than a list
+# repeated wherever it is needed, because the rule is general and the cost
+# of it drifting apart between two call sites is a roof over a swimming
+# pool at one and not the other.
+#
+# Anything here means the same three things: nothing is roofed over it, the
+# walls bounding it are its edge rather than its enclosure and are built as
+# parapets, and it sits on the floor of the storey it was drawn on.
+#
+# A "void" is deliberately not here. It is a hole through a floor, which is
+# a different thing from a space with sky above it, and a double-height
+# living room is very much roofed.
+OPEN_TO_SKY = GROUND_COVERS | {"open"}
+
+
+def is_open_to_sky(room) -> bool:
+    """Whether a room has sky above it rather than a roof.
+
+    Reads a printed name where there is one and the segmenter's predicted
+    type otherwise, so this works on the great majority of plans that name
+    nothing at all.
+    """
+    return feature_for(room) in OPEN_TO_SKY
