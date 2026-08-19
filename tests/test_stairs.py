@@ -127,7 +127,10 @@ class TestStairsInTheModel:
             scale=SCALE,
         )
 
-        # Measured from the plinth the building stands on, not from the site.
-        expected = PLINTH_HEIGHT_FT + 9.0 + SLAB_THICKNESS_FT
+        # Measured from the plinth the building stands on, not from the
+        # site. A storey occupies its wall height plus the slab it stands
+        # on, so the upper floor's own slab sits two slabs up: its own, and
+        # the one the storey below stands on.
+        expected = PLINTH_HEIGHT_FT + 9.0 + 2 * SLAB_THICKNESS_FT
         lowest = min(s.bounds[0][1] for s in parts["stairs"])
         assert lowest == pytest.approx(expected * FEET_TO_METRES, abs=0.1)
