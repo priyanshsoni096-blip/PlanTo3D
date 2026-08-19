@@ -236,3 +236,115 @@ def class_distribution(mask: np.ndarray) -> dict[int, float]:
     return {
         index: float((mask == index).sum()) / total for index in range(NUM_CLASSES)
     }
+
+
+# --- Ground truth for scale ---------------------------------------------------
+#
+# CubiCasa records each space's real size inside the annotation, as a hidden
+# label reading like ``12'4" x 9'6"``. It is marked ``display: none`` so it
+# never renders, which means it is not a shortcut the pipeline could take on
+# a real drawing -- but it does let the inferred scale be scored rather than
+# assumed correct, which nothing else here allows.
+#
+# Every plan carries it, so scale accuracy can be measured across the whole
+# dataset instead of against the one drawing that prints its dimensions.
+
+# "12'4\"" or "12'" or "12' 4\"". The inches are optional and drafters are
+# inconsistent about the space between the two parts.
+_FEET_INCHES = re.compile(r"(\d+)\s*'\s*(?:(\d+)\s*\")?")
+
+# A room's stated size is two measurements with a separator between them.
+_DIMENSION_PAIR = re.compile(
+    r"(\d+\s*'[^x×]*?)\s*[x×]\s*(\d+\s*'.*)", re.IGNORECASE
+)
+
+# Ratios this far apart mean the two sides disagree, and the room is not
+# usable evidence -- usually an L-shaped space whose bounding box is much
+# bigger than the room, or a label belonging to something else.
+SCALE_AGREEMENT = 0.12
+
+# Rooms smaller than this in either direction are too small to measure
+# reliably: a foot of rounding on a 3 ft cupboard is a third of the answer.
+MIN_MEASURABLE_FEET = 4.0
+
+
+def parse_feet(text: str) -> float | None:
+    """Feet as a decimal from a drafting measurement like ``12'4"``."""
+    match = _FEET_INCHES.search(text)
+    if not match:
+        return None
+    feet = float(match.group(1))
+    return feet + float(match.group(2)) / 12.0 if match.group(2) else feet
+
+
+def _space_measurements(root: ElementTree.Element) -> list[tuple[np.ndarray, float, float]]:
+    """Each space's polygon beside the two lengths its label states."""
+    found = []
+
+    for group in root.iter():
+        attribute = group.get("class", "")
+        if not attribute.startswith("Space"):
+            continue
+
+        polygon = next(
+            (
+                points
+                for element in group.iter(f"{SVG_NAMESPACE}polygon")
+                if (points := _points(element)) is not None
+            ),
+            None,
+        )
+        if polygon is None:
+            continue
+
+        # The measurement is nested a few levels down, inside the space's
+        # own Dimension group.
+        for label in group.iter():
+            if "DimensionMeasureLabel" not in label.get("class", ""):
+                continue
+
+            text = "".join(label.itertext())
+            pair = _DIMENSION_PAIR.search(text)
+            if not pair:
+                continue
+
+            first, second = parse_feet(pair.group(1)), parse_feet(pair.group(2))
+            if first and second:
+                found.append((polygon, first, second))
+            break
+
+    return found
+
+
+def ground_truth_scale(svg_path: Path) -> float | None:
+    """Pixels per foot, read from the sizes CubiCasa recorded for each room.
+
+    Returns the median over every room that measures consistently, or None
+    where the annotation states no sizes. The median rather than the mean
+    because one L-shaped room whose bounding box overstates it would drag an
+    average well off.
+    """
+    root = ElementTree.parse(str(svg_path)).getroot()
+
+    estimates = []
+    for polygon, first, second in _space_measurements(root):
+        if min(first, second) < MIN_MEASURABLE_FEET:
+            continue
+
+        width = float(polygon[:, 0].max() - polygon[:, 0].min())
+        height = float(polygon[:, 1].max() - polygon[:, 1].min())
+        if not (width and height):
+            continue
+
+        # The label does not say which measurement is which way round, so
+        # both pairings are tried and the consistent one is believed. A room
+        # that agrees on neither is not a rectangle and is left out.
+        for across, down in ((first, second), (second, first)):
+            horizontal, vertical = width / across, height / down
+            if abs(horizontal - vertical) / max(horizontal, vertical) < SCALE_AGREEMENT:
+                estimates.append((horizontal + vertical) / 2)
+                break
+
+    if not estimates:
+        return None
+    return float(np.median(estimates))
