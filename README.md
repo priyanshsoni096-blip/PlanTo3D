@@ -155,7 +155,16 @@ Room labels drive geometry, not just colour:
 | paving | parking, car porch, courtyard, verandah | hard landscaping |
 | open | balcony, terrace, deck | railed edge |
 | stairs | staircase, steps, and the bare "UP" mark | a flight climbing one storey |
-| wet | bathroom, toilet, wash, utility | tiled floor |
+| wet | bathroom, toilet, wash, utility, scullery | tiled floor |
+
+335 keywords in all, covering what a plan can carry rather than what one
+drawing set happened to use: loggia, lanai, breezeway and portico alongside
+balcony and terrace; lightwells, airwells and ventilation courts alongside
+double-height; motor courts and forecourts alongside driveways.
+
+South Asian and Middle Eastern terms are included — otla, osari, baramda,
+chabutra, jharokha, baithak, majlis, diwan, mumty, chajja — because these
+drawings use them and no published floor-plan glossary covers them.
 
 Interior floors are finished by purpose — timber where a house is lived in,
 tile where it is worked in, stone through circulation.
