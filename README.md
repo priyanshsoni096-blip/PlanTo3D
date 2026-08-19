@@ -190,6 +190,10 @@ tile where it is worked in, stone through circulation.
 
 ## Limitations
 
+- **One image is assumed to be one storey.** Sheets that lay several floor
+  plans side by side are reconstructed as a single flat floor, and nothing
+  detects this — the pipeline reports plausible numbers and produces a model
+  that is confidently wrong. Feed one storey per image.
 - Targets clean, digital floor plans. Photographs and heavily compressed
   scans produce poor results, because the segmentation is only as good as
   its input.

@@ -108,6 +108,26 @@ the classical baseline is a scaffold that only ever worked on clean CAD
 sheets, and the colour signals are one drafting office's convention rather
 than a general technique.
 
+## One image is assumed to be one storey
+
+Found by running a random CubiCasa sample end to end rather than testing the
+stages in isolation, which is why it had not surfaced before.
+
+Many sheets lay several floor plans **side by side on a single image** --
+basement, ground and first floor in a row. The pipeline treats each image as
+one storey, so it reconstructs all three plans as a single flat floor: on
+sample 9285 that produced 135 walls in a long thin strip that is three
+buildings wide and one storey tall.
+
+Nothing detects this. The pipeline is quite happy, reports plausible numbers,
+and produces a model that is confidently wrong -- which is worse than
+failing. The reference drawings hid it because they put one floor per sheet,
+as an architectural drawing set does.
+
+Fixing it means detecting that a sheet holds several plans and splitting
+them, probably by looking for wide vertical bands of empty page between
+dense regions. Until then, feed one storey per image.
+
 ## Known limitations
 
 These are understood, not mysteries. Each is a deliberate boundary or a
