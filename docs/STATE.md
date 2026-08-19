@@ -371,6 +371,60 @@ its wall height *plus* the slab it stands on, so `_storey_base_ft` adds
 both. Buildings are now taller by one slab per storey, which is correct --
 floors have thickness.
 
+## Two detection faults worth knowing about
+
+Both were found by looking at the detection overlay against the drawing
+rather than at the finished model, which is the more useful place to look.
+
+**Runs far too thick to be walls.** The segmenter reports boundary
+hatching, dimension bands and title-block rules as walls. On the reference
+sheet the median wall measures 10 inches and the fattest measured nearly
+ten feet. That is a slab across the plan, and it also drags the
+wall-thickness scale estimate with it, so the building comes out the wrong
+size. `extract._drop_impossibly_thick` caps it at four times the drawing's
+own thickness -- relative, because extraction runs before the scale is
+known.
+
+Two details make it safe rather than harmful:
+
+- The reference is **weighted by run length**. A plain median counts a six
+  pixel speck the same as a wall spanning the building, and on a plan with
+  more specks than walls it reported a thickness below any real one and
+  then dropped the real walls. Sample 12094 came out at 3.3 px/ft against a
+  true 33.3 that way.
+- It **gives up past 15%** of the runs, because a reference condemning that
+  much of a drawing is measuring the wrong thing.
+
+Wall-derived scale over 24 plans improved from 11.7% median error to 8.2%.
+
+**Anything open to the sky.** The terrace garden sat at the bottom of a
+three-metre well of masonry with a parapet on top, so it read a full floor
+below where the plan put it. Its height was right; everything built around
+it was wrong. Three separate causes -- storey-height walls where a parapet
+belonged, a roof cut back only to the planting found by *colour* (48% of
+the storey against the 73% the label covers), and a parapet and coping run
+round the whole storey rather than round the roof.
+
+`features.OPEN_TO_SKY` is the fix, and it is one named set rather than a
+list repeated at each site: a balcony, roof deck, courtyard, rooftop pool,
+parking bay and sit-out are all the same case. A void is deliberately not
+in it -- a hole through a floor is a different thing from sky above, and a
+double-height living room is very much roofed.
+
+## What still needs the retrain
+
+The overlay shows what remains, and it is one thing wearing several hats:
+the model does not know what a space is *for*.
+
+- Large open areas -- the reference sheet's central aisle, its parking and
+  its landscape strip -- are not returned as rooms at all.
+- Windows are found on about half the walls that have them; window IoU is
+  0.12 on the current checkpoint.
+- Every room arrives uncategorised, so finishes and features come only from
+  OCR, which reads a name on three plans in twenty-one.
+
+All three are the same checkpoint. Retraining is what moves them.
+
 ## What a random test found
 
 Picking a CubiCasa plan at random rather than reaching for the familiar one
