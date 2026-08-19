@@ -49,6 +49,16 @@ SEGMENTER_NAME = (
 
 def convert(uploads, wall_height_ft: float):
     """Run the pipeline and return the model, views, overlays and a summary."""
+    return convert_with_details(uploads, wall_height_ft)[:5]
+
+
+def convert_with_details(uploads, wall_height_ft: float):
+    """As ``convert``, plus what the drawing turned out to contain.
+
+    The extra detail is what a photoreal pass needs to describe this house
+    rather than a generic one -- how many storeys, and which rooms were
+    named. Kept separate so the desktop app's outputs stay as they are.
+    """
     if not uploads:
         raise gr.Error("Upload a floor plan first — a PDF, PNG or JPEG.")
 
@@ -155,7 +165,18 @@ def convert(uploads, wall_height_ft: float):
         )
 
     hero = str(views.get("aerial", result.model_path))
-    return hero, str(result.model_path), view_gallery, overlays, "\n".join(lines)
+    details = {
+        "storeys": len(result.floors),
+        "labels": [label for floor in result.floors for label in floor.named_rooms],
+    }
+    return (
+        hero,
+        str(result.model_path),
+        view_gallery,
+        overlays,
+        "\n".join(lines),
+        details,
+    )
 
 
 def build_interface() -> gr.Blocks:
