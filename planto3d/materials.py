@@ -89,6 +89,15 @@ SURFACES = {
     "wet": Surface("wet", (214, 214, 210), roughness=0.28),
     # Stairs, a shade lighter than the slabs so the flight reads against them.
     "stairs": Surface("stairs", (188, 184, 178), roughness=0.8),
+    # A dome, in a paler and slightly polished stone than the roof deck it
+    # stands on. Domes are finished rather than left as bare structure, and
+    # a curved surface only reads as curved if the light moves across it --
+    # at the roof's roughness of 0.88 it flattens into a grey disc.
+    "dome": Surface("dome", (206, 198, 182), roughness=0.55),
+    # A pitched roof is tiled or slated, never the concrete of a flat deck.
+    # Sharing the deck's grey made it vanish: the slope sits low behind a
+    # parapet, and without a change of colour there was nothing to see.
+    "pitched": Surface("pitched", (142, 78, 58), roughness=0.82),
     # The plinth, in a darker stone than the walls it carries -- a base
     # reads as a base by being heavier than what stands on it.
     "plinth": Surface("plinth", (162, 150, 130), roughness=0.9),
