@@ -48,6 +48,14 @@ BORDER_INSET = 2
 LINE_TOLERANCE = 2
 # Lines within this many pixels belong to the same physical border.
 CLUSTER_GAP = 10
+# Splitting a sheet that carries several plans. A gutter is a band of
+# near-empty page; both it and the pieces either side are measured as
+# fractions of the sheet so the rule holds at any resolution.
+GUTTER_INK_FRACTION = 0.004
+MIN_GUTTER_FRACTION = 0.05
+MIN_PIECE_FRACTION = 0.12
+MIN_PIECE_INK = 0.01
+MIN_SPLIT_WIDTH = 400
 
 Box = tuple[int, int, int, int]
 
@@ -62,6 +70,33 @@ def rasterize_pdf(pdf_path: Path, output_dir: Path, dpi: int = WORKING_DPI) -> l
         page.save(out_path)
         output_paths.append(out_path)
     return output_paths
+
+
+def read_image(path: Path) -> np.ndarray | None:
+    """Read an image, flattening any transparency onto white.
+
+    Plans are frequently exported with a transparent background, and reading
+    one with the alpha channel discarded leaves whatever happened to sit in
+    the colour channels there -- often a checkerboard, which registers as ink
+    across the entire sheet. On CubiCasa samples that put the minimum column
+    ink at 8%, so nothing could ever look like empty page: gutters between
+    plans vanished, and every measurement of blankness was wrong.
+
+    Compositing onto white restores what the drawing actually looks like.
+    """
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        return None
+
+    if image.ndim == 3 and image.shape[2] == 4:
+        colour = image[:, :, :3].astype(np.float32)
+        alpha = (image[:, :, 3:4].astype(np.float32)) / 255.0
+        flattened = colour * alpha + 255.0 * (1.0 - alpha)
+        return flattened.astype(np.uint8)
+
+    if image.ndim == 2:
+        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    return image
 
 
 def _ink_mask(image: np.ndarray) -> np.ndarray:
@@ -157,6 +192,71 @@ def detect_drawing_region(images: list[np.ndarray]) -> Box:
         left + draw_right - BORDER_INSET,
         top + draw_bottom - BORDER_INSET,
     )
+
+
+def split_sheet(image: np.ndarray) -> list[np.ndarray]:
+    """Split a sheet carrying several floor plans into one image per plan.
+
+    Sheets frequently lay basement, ground and first floor in a row, and
+    reading such a sheet as a single storey reconstructs three buildings as
+    one flat floor -- confidently, with plausible numbers, which is worse
+    than failing.
+
+    Plans are separated by gutters: bands of near-empty page far wider than
+    the gaps inside a drawing. A gutter must be wide relative to the sheet
+    rather than a fixed number of pixels, so the rule holds at any
+    resolution, and the pieces either side must each be substantial enough
+    to be a plan rather than a stray annotation.
+
+    Returns the original image unchanged when no such split is found, which
+    is the common case for a proper drawing set.
+    """
+    ink = _ink_mask(image)
+    height, width = ink.shape
+    if width < MIN_SPLIT_WIDTH:
+        return [image]
+
+    column_ink = ink.sum(axis=0) / height
+    empty = column_ink < GUTTER_INK_FRACTION
+
+    # Gather runs of empty columns, ignoring the margins either side.
+    gutters: list[tuple[int, int]] = []
+    start = None
+    for column in range(width):
+        if empty[column] and start is None:
+            start = column
+        elif not empty[column] and start is not None:
+            gutters.append((start, column))
+            start = None
+    if start is not None:
+        gutters.append((start, width))
+
+    minimum_gutter = width * MIN_GUTTER_FRACTION
+    minimum_piece = width * MIN_PIECE_FRACTION
+    interior = [
+        (a, b)
+        for a, b in gutters
+        if b - a >= minimum_gutter and a > minimum_piece and b < width - minimum_piece
+    ]
+    if not interior:
+        return [image]
+
+    # Cut at each gutter's midpoint.
+    cuts = [0] + [(a + b) // 2 for a, b in interior] + [width]
+    pieces = [
+        image[:, left:right]
+        for left, right in zip(cuts, cuts[1:])
+        if right - left >= minimum_piece
+    ]
+
+    # Every piece must actually carry a drawing; a blank one means the split
+    # found a margin rather than a gutter.
+    pieces = [p for p in pieces if _ink_mask(p).mean() > MIN_PIECE_INK]
+    if len(pieces) < 2:
+        return [image]
+
+    logger.info("sheet holds %d plans; splitting", len(pieces))
+    return pieces
 
 
 def crop_pages(image_paths: list[Path]) -> list[Path]:
