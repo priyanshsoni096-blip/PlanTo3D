@@ -430,6 +430,16 @@ def merge_regions(
     ]
 
 
+# A storey occupies its wall height *plus* the slab it stands on. Stacking
+# them at the wall height alone buried each slab in the top of the walls
+# below, leaving the slab's upper face and the wall's upper face on exactly
+# the same plane -- which renders as a field of speckle across every roof,
+# two surfaces at identical depth with nothing to separate them.
+def _storey_base_ft(index: int, wall_height_ft: float, plinth_ft: float = 0.0) -> float:
+    """Height of a storey's slab underside, in feet above the ground."""
+    return plinth_ft + index * (wall_height_ft + SLAB_THICKNESS_FT)
+
+
 def slab_mesh(
     footprint: list[tuple[float, float]],
     thickness_ft: float,
@@ -1118,7 +1128,7 @@ def floors_to_mesh(
     meshes: list[trimesh.Trimesh] = []
 
     for index, floor in enumerate(floors):
-        base_ft = index * wall_height_ft
+        base_ft = _storey_base_ft(index, wall_height_ft)
 
         slab = slab_mesh(floor.footprint, SLAB_THICKNESS_FT, base_ft, scale)
         if slab is not None:
@@ -1140,7 +1150,7 @@ def floors_to_mesh(
             logger.warning("floor %d has no walls", index)
 
     # Cap the building: a roof slab over the top storey, with a parapet.
-    roof_base_ft = len(floors) * wall_height_ft
+    roof_base_ft = _storey_base_ft(len(floors), wall_height_ft)
     top = floors[-1]
     roof = slab_mesh(top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale)
     if roof is not None:
@@ -1188,7 +1198,7 @@ def floors_to_parts(
     # The building stands on a plinth rather than flush with the ground.
     # Standing it directly on the site makes it look sunk into the earth.
     for index, floor in enumerate(floors):
-        base_ft = PLINTH_HEIGHT_FT + index * wall_height_ft
+        base_ft = _storey_base_ft(index, wall_height_ft, PLINTH_HEIGHT_FT)
         wall_base_m = (base_ft + SLAB_THICKNESS_FT) * FEET_TO_METRES
 
         features = group_by_feature(floor.rooms)
@@ -1331,7 +1341,7 @@ def floors_to_parts(
                     _entrance_steps(wall, opening, PLINTH_HEIGHT_FT, scale)
                 )
 
-    roof_base_ft = PLINTH_HEIGHT_FT + len(floors) * wall_height_ft
+    roof_base_ft = _storey_base_ft(len(floors), wall_height_ft, PLINTH_HEIGHT_FT)
     top = floors[-1]
 
     # A planted terrace is open to the sky. Roofing over it hides the garden

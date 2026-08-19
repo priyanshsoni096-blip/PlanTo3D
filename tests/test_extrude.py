@@ -7,6 +7,7 @@ from planto3d.extrude import (
     SLAB_THICKNESS_FT,
     export_glb,
     floors_to_mesh,
+    floors_to_parts,
     walls_to_mesh,
 )
 from planto3d.geometry_types import FloorPlan, Wall
@@ -81,9 +82,24 @@ class TestFloorStacking:
     def test_each_floor_sits_above_the_one_below(self):
         mesh = floors_to_mesh([_floor(), _floor(), _floor()], wall_height_ft=9.0, scale=SCALE)
 
-        # Three storeys plus the roof slab and its parapet on top.
-        expected = (3 * 9.0 + SLAB_THICKNESS_FT + PARAPET_HEIGHT_FT) * FEET_TO_METRES
+        # A storey is its wall height *plus* the slab it stands on. Stacked
+        # at the wall height alone, each slab was buried in the top of the
+        # walls below and their upper faces landed on the same plane, which
+        # renders as speckle across every roof -- two surfaces at identical
+        # depth with nothing to tell them apart.
+        storey = 9.0 + SLAB_THICKNESS_FT
+        expected = (3 * storey + SLAB_THICKNESS_FT + PARAPET_HEIGHT_FT) * FEET_TO_METRES
         assert _height(mesh) == pytest.approx(expected, abs=0.1)
+
+    def test_a_slab_is_not_buried_in_the_walls_it_rests_on(self):
+        # The failure this guards: a slab's top face and the wall top below
+        # it at exactly the same height, z-fighting across the whole roof.
+        parts = floors_to_parts([_floor(), _floor()], wall_height_ft=9.0, scale=SCALE)
+
+        wall_top = max(part.bounds[1][1] for part in parts["wall"])
+        roof_top = max(part.bounds[1][1] for part in parts["roof"])
+
+        assert roof_top > wall_top + 1e-3
 
     def test_floors_share_one_horizontal_frame(self):
         # Floors are cropped to a common box upstream, so identical geometry
