@@ -331,6 +331,46 @@ fragments are small enough to throw the scale badly off -- sample 11578 is
 split into 3 and lands at 8.8 px/ft against a true 30.6, a 71% error and the
 worst in the whole scale run.
 
+## The renderer
+
+The rendered view is what the result actually looks like -- the interactive
+viewer over-lights everything and cannot be told not to -- so it is worth
+being good. It was a flat-shaded rasterizer returning one brightness number
+per face, which is the ceiling on how good a render can get: every surface
+comes out the same hue at a different level, which is what grey card looks
+like. What the eye reads as sunlight is the *shift* towards warm on the lit
+face and towards blue in the shade, not the drop in level.
+
+What it does now:
+
+| | Why |
+| --- | --- |
+| Coloured light: warm sun, cool sky, warm dark ground bounce | The shift, not the level, is what reads as daylight |
+| Hemisphere ambient rather than a constant | Separates roofs from walls from soffits before any direct light lands |
+| Highlight driven by material roughness | The `.glb` carried roughness all along and the renderer discarded it |
+| Linear light throughout, sRGB only at the end | Light adds and multiplies linearly; the arithmetic had been wrong in the mid tones |
+| Fitted ACES curve | A sunlit parapet clipped to a hard blank band; now it rolls off |
+| 2x supersampling, averaged in linear | Edges were staircases. Averaging encoded bytes darkens every antialiased edge |
+| Ambient occlusion from the depth buffer | Every junction was a clean seam; the building floated instead of sitting on the ground |
+
+The palette was rebalanced afterwards, because it had been chosen against a
+flat ambient that never let anything reach full brightness. Lit properly,
+several surfaces sat too high -- render and precast reflect about half the
+light falling on them, not three quarters -- and the lawn, at the green of a
+snooker table, was the loudest thing in every render.
+
+### A geometry bug the lighting exposed
+
+Every storey's slab was buried in the top of the walls below it, leaving the
+slab's upper face and the wall's upper face on **exactly the same plane**.
+That renders as a field of speckle across every roof: two surfaces at
+identical depth with nothing to tell them apart.
+
+The cause was stacking storeys at the wall height alone. A storey occupies
+its wall height *plus* the slab it stands on, so `_storey_base_ft` adds
+both. Buildings are now taller by one slab per storey, which is correct --
+floors have thickness.
+
 ## What a random test found
 
 Picking a CubiCasa plan at random rather than reaching for the familiar one
