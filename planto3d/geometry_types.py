@@ -50,10 +50,22 @@ class Wall:
 
 @dataclass
 class Room:
-    """A closed region. ``label`` is empty until OCR supplies a name."""
+    """A closed region.
+
+    ``label`` is the name printed on the drawing and is empty until OCR
+    supplies one, which on most plans it never does -- the great majority
+    print no room names at all.
+
+    ``category`` is what the segmenter thinks the room is for: "bedroom",
+    "kitchen", "bath", "storage", "circulation", "outdoor", or empty when
+    the model has no opinion. It needs no text, so it is the only route to
+    room function on an unlabelled plan. Where both are present the printed
+    label wins, being what the architect actually wrote.
+    """
 
     polygon: list[Point]
     label: str = ""
+    category: str = ""
 
     def __post_init__(self) -> None:
         if len(self.polygon) < MIN_POLYGON_VERTICES:
@@ -84,6 +96,7 @@ class Room:
         return {
             "polygon": [[float(x), float(y)] for x, y in self.polygon],
             "label": self.label,
+            "category": self.category,
         }
 
     @staticmethod
@@ -91,6 +104,8 @@ class Room:
         return Room(
             polygon=[(float(x), float(y)) for x, y in d["polygon"]],
             label=d["label"],
+            # Absent from plans written before the segmenter predicted types.
+            category=d.get("category", ""),
         )
 
 

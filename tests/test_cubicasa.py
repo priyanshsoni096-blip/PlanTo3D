@@ -1,7 +1,17 @@
 import numpy as np
 import pytest
 
-from planto3d.classes import BACKGROUND, DOOR, ROOM, WALL, WINDOW
+from planto3d.classes import (
+    BACKGROUND,
+    BATH,
+    BEDROOM,
+    DOOR,
+    KITCHEN,
+    OUTDOOR,
+    ROOM,
+    WALL,
+    WINDOW,
+)
 from planto3d.cubicasa import class_distribution, sample_paths, svg_to_mask
 
 SVG_HEADER = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
@@ -32,23 +42,51 @@ class TestSvgToMask:
         assert mask[10, 10] == WALL
         assert mask[10, 40] == DOOR
         assert mask[10, 70] == WINDOW
-        assert mask[50, 10] == ROOM
+        assert mask[50, 10] == BEDROOM
 
-    def test_every_space_subtype_collapses_to_one_room_class(self, tmp_path):
-        # CubiCasa is Finnish residential data with no Temple or Verandah;
-        # room *type* is never taken from the model, only room extent.
+    def test_room_types_are_kept_apart(self, tmp_path):
+        # Room type is the only route to room function on a plan that prints
+        # no names, which is most of them. Collapsing these to one class --
+        # as this did before -- costs every finish and every railing.
         svg = _write_svg(
             tmp_path,
             f'<g class="Space Bedroom">{_rect(0, 0, 20, 20)}</g>'
             f'<g class="Space Kitchen">{_rect(30, 0, 50, 20)}</g>'
-            f'<g class="Space LivingRoom">{_rect(60, 0, 80, 20)}</g>',
+            f'<g class="Space Bath Shower">{_rect(60, 0, 80, 20)}</g>'
+            f'<g class="Space Outdoor Balcony">{_rect(0, 30, 20, 50)}</g>',
         )
 
         mask = svg_to_mask(svg, (100, 100))
 
-        assert mask[10, 10] == ROOM
-        assert mask[10, 40] == ROOM
-        assert mask[10, 70] == ROOM
+        assert mask[10, 10] == BEDROOM
+        assert mask[10, 40] == KITCHEN
+        assert mask[10, 70] == BATH
+        assert mask[40, 10] == OUTDOOR
+
+    def test_types_grouped_by_what_they_change_share_a_class(self, tmp_path):
+        # A sauna is not a bathroom, but both want a floor built to get wet,
+        # and that is the only distinction the model makes use of.
+        svg = _write_svg(
+            tmp_path,
+            f'<g class="Space Sauna">{_rect(0, 0, 20, 20)}</g>'
+            f'<g class="Space Bath">{_rect(30, 0, 50, 20)}</g>'
+            f'<g class="Space Kitchen Kitchenette">{_rect(60, 0, 80, 20)}</g>',
+        )
+
+        mask = svg_to_mask(svg, (100, 100))
+
+        assert mask[10, 10] == BATH
+        assert mask[10, 40] == BATH
+        assert mask[10, 70] == KITCHEN
+
+    def test_an_unknown_room_type_stays_a_room(self, tmp_path):
+        # Dropping a type CubiCasa adds later would punch a hole in the
+        # floor. Losing its finish is the smaller failure.
+        svg = _write_svg(
+            tmp_path, f'<g class="Space SomeTypeAddedLater">{_rect(0, 0, 20, 20)}</g>'
+        )
+
+        assert svg_to_mask(svg, (100, 100))[10, 10] == ROOM
 
     def test_unmapped_categories_become_background(self, tmp_path):
         # Furniture and fixtures must not be mistaken for structure.

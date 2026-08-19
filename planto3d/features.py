@@ -786,13 +786,70 @@ def group_by_feature(rooms: list) -> dict[str, list]:
     """Group rooms by the feature each label implies."""
     grouped: dict[str, list] = {}
     for room in rooms:
-        category = classify(room.label)
+        category = feature_for(room)
         if category:
             grouped.setdefault(category, []).append(room)
 
     if grouped:
         logger.info(
-            "features from labels: %s",
+            "features from names and predicted types: %s",
             {name: len(rooms) for name, rooms in grouped.items()},
         )
     return grouped
+
+
+# --- Room function without a printed name ------------------------------------
+#
+# Everything above reads the drawing's text. Most drawings have none: across
+# a batch of sixty CubiCasa plans, OCR found a room name on three. The rest
+# print a disclaimer and a watermark, and their rooms are identifiable only
+# from what is drawn inside them -- a hob, a toilet, a sauna bench.
+#
+# The segmenter is trained to name that function, so a room arrives carrying
+# a predicted ``category`` even when nothing was written on it. These tables
+# say what a prediction implies, in the same vocabulary the label keywords
+# produce, so the rest of the pipeline cannot tell the two apart.
+
+# Predicted room type -> feature category. Only types that change the model
+# appear: a predicted bedroom builds nothing a plain room would not.
+CATEGORY_FEATURES = {
+    "kitchen": "wet",
+    "bath": "wet",
+    # Balconies, terraces and porches. They earn a railing, which is the
+    # single most visible thing a room type buys on an unlabelled plan.
+    "outdoor": "open",
+}
+
+# Predicted room type -> floor finish.
+CATEGORY_FINISHES = {
+    "kitchen": "tile",
+    "bath": "tile",
+    "outdoor": "stone",
+    "storage": "stone",
+    "circulation": "stone",
+    "bedroom": "timber",
+}
+
+
+def feature_for(room) -> str | None:
+    """The feature category a room implies, from its name or its type.
+
+    The printed name wins where there is one: it is what the architect
+    actually wrote, and it distinguishes a verandah from a balcony in a way
+    no segmenter trained on Finnish apartments can. The predicted type is
+    the fallback, and on most drawings it is the only thing available.
+    """
+    from_label = classify(getattr(room, "label", ""))
+    if from_label:
+        return from_label
+    return CATEGORY_FEATURES.get(getattr(room, "category", ""))
+
+
+def finish_for_room(room) -> str:
+    """The floor finish a room implies, from its name or its type."""
+    label = getattr(room, "label", "")
+    if label:
+        finish = finish_for(label)
+        if finish != DEFAULT_FINISH:
+            return finish
+    return CATEGORY_FINISHES.get(getattr(room, "category", ""), DEFAULT_FINISH)

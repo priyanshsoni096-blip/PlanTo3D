@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from planto3d.classes import BACKGROUND, ROOM, WALL
+from planto3d.classes import BACKGROUND, BEDROOM, KITCHEN, OUTDOOR, ROOM, WALL
 from planto3d.extract import extract_rooms, extract_walls
 
 
@@ -107,3 +107,51 @@ def test_extract_rooms_ignores_regions_below_the_area_floor():
 
 def test_extract_rooms_returns_nothing_for_a_mask_with_no_rooms():
     assert extract_rooms(_blank()) == []
+
+
+class TestRoomTypesComeThroughExtraction:
+    def _mask(self):
+        mask = np.zeros((200, 200), dtype=np.int64)
+        mask[10:90, 10:90] = ROOM
+        mask[10:90, 110:190] = BEDROOM
+        mask[110:190, 10:90] = KITCHEN
+        mask[110:190, 110:190] = OUTDOOR
+        return mask
+
+    def test_each_room_carries_the_class_it_came_from(self):
+        rooms = extract_rooms(self._mask())
+
+        assert sorted(room.category for room in rooms) == [
+            "",
+            "bedroom",
+            "kitchen",
+            "outdoor",
+        ]
+
+    def test_the_generic_class_stays_uncategorised(self):
+        # "room" as a category would be indistinguishable from a positive
+        # identification, and the pipeline needs to know the model had no
+        # opinion so a printed name can supply one.
+        mask = np.zeros((100, 100), dtype=np.int64)
+        mask[10:90, 10:90] = ROOM
+
+        assert extract_rooms(mask)[0].category == ""
+
+    def test_adjoining_rooms_of_different_types_stay_separate(self):
+        # An open kitchen has no wall between it and the dining area it
+        # opens onto. Tracing both classes together would return one room
+        # and one floor finish for what are plainly two spaces.
+        mask = np.zeros((100, 200), dtype=np.int64)
+        mask[10:90, 10:100] = ROOM
+        mask[10:90, 100:190] = KITCHEN
+
+        rooms = extract_rooms(mask)
+
+        assert len(rooms) == 2
+        assert {room.category for room in rooms} == {"", "kitchen"}
+
+    def test_a_single_class_can_still_be_asked_for(self):
+        rooms = extract_rooms(self._mask(), room_class=KITCHEN)
+
+        assert len(rooms) == 1
+        assert rooms[0].category == "kitchen"

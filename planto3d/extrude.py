@@ -22,8 +22,8 @@ from trimesh.creation import extrude_polygon
 from planto3d.geometry_types import FloorPlan, Opening, Wall
 from planto3d.features import (
     GROUND_COVERS,
-    classify,
-    finish_for,
+    feature_for,
+    finish_for_room,
     group_by_feature,
 )
 from planto3d.site import (
@@ -888,9 +888,14 @@ def floors_to_parts(
         # rather than replacing it, so a missing label costs a finish rather
         # than the floor itself.
         for room in floor.rooms:
-            if classify(room.label) in GROUND_COVERS or classify(room.label) == "void":
+            # Resolved once: the printed name where there is one, the
+            # segmenter's predicted type otherwise. On a plan with no text
+            # the prediction is the only thing distinguishing a tiled
+            # bathroom from a boarded bedroom.
+            category = feature_for(room)
+            if category in GROUND_COVERS or category == "void":
                 continue
-            finish = "wet" if classify(room.label) == "wet" else finish_for(room.label)
+            finish = "wet" if category == "wet" else finish_for_room(room)
             patch = slab_mesh(
                 room.polygon,
                 FINISH_THICKNESS_FT,
