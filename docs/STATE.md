@@ -232,6 +232,39 @@ and a roof form that fails to build for want of an optional dependency is
 worse than some index arithmetic. Winding is checked rather than trusted: a
 mesh enclosing a negative volume is inside out, cheap to detect and correct.
 
+## Structures on and around the building
+
+Beyond the roof forms, five categories that each change the geometry:
+
+| Word on the drawing | What is built | Where |
+| --- | --- | --- |
+| OVERHEAD TANK, WATER TANK | Tank on legs, standing clear of the deck | Roof |
+| CHIMNEY, FLUE STACK | Brick stack | Roof |
+| TURRET, MINARET, BELVEDERE, SPIRE | Capped tower | Roof |
+| PORTICO, CANOPY, CHAJJA, CAR CANOPY | Thin projecting cover | **Its own storey** |
+| RAMP, VEHICLE RAMP, WHEELCHAIR RAMP | Sloped slab at about 1:12 | **Its own storey** |
+
+An overhead tank is nearly universal on South Asian roofs and almost never
+absent from the drawing, usually as a bare abbreviation.
+
+**Canopies and ramps belong to the storey they are drawn on**, not the roof.
+A porch over the front door is at first floor soffit level; moved to the
+roof it would leave the door uncovered and hang a slab three storeys up.
+This is worth stating because everything else added recently goes on the
+roof, and the difference is easy to lose.
+
+### Two things this corrected
+
+- **CHAJJA and PORTICO were being railed.** Both classified as `open`, so a
+  projecting sunshade and a carriage porch were built as balconies with
+  balustrades round them. Both are canopies now.
+- **Nine keywords belonged to two categories at once**, so which one won
+  depended on the order the list happened to be written in rather than on
+  any decision. BELVEDERE was both a railed deck and a tower, ROOFLIGHT both
+  a hole and glazing, VEHICLE RAMP both paving and a ramp. A test now keeps
+  the list free of them, and it is worth keeping: the vocabulary is over 450
+  keywords across 15 categories and collisions are not visible by reading.
+
 ## Scale can finally be scored
 
 CubiCasa states each room's real size inside the annotation, as a label
