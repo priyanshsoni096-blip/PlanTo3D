@@ -16,7 +16,13 @@ from planto3d.classes import (
     ROOM,
     WINDOW,
 )
-from training.train import CLASS_FREQUENCY, WEIGHT_CEILING, class_weights
+from training.train import (
+    CLASS_FREQUENCY,
+    WEIGHT_CEILING,
+    _match_device,
+    build_loss,
+    class_weights,
+)
 
 
 def test_there_is_a_weight_for_every_class():
@@ -65,3 +71,64 @@ def test_the_ceiling_clears_every_real_class_but_the_rarest():
     clamped = [index for index, value in raw.items() if value > WEIGHT_CEILING]
 
     assert clamped == [WINDOW]
+
+
+class TestTheWeightsFollowTheModel:
+    """Cross-entropy refuses to mix devices, and its weight vector is the
+    one tensor in a training step that nothing else moves.
+
+    The model, the images and the masks are all sent to the GPU explicitly.
+    A weight vector built beside them on the CPU is easy to miss, and it is
+    missed on the first batch rather than at setup -- so a run that looked
+    fine through every CPU test died the moment it touched a T4:
+
+        Expected all tensors to be on the same device, but got weight is on
+        cpu, different from other tensors on cuda:0
+
+    These tests use a stand-in for a second device, because the machine
+    this is developed on has one. That is the whole reason the bug got out.
+    """
+
+    class Elsewhere:
+        """A tensor that reports living on another device."""
+
+        def __init__(self, name="cuda:0"):
+            self.device = name
+            self.moved_to = None
+
+        def to(self, target):
+            self.moved_to = target
+            return self
+
+    def test_a_weight_already_in_the_right_place_is_left_alone(self):
+        weight = torch.ones(3)
+
+        assert _match_device(weight, torch.zeros(2)) is weight
+
+    def test_a_weight_on_another_device_is_moved_to_match(self):
+        weight = self.Elsewhere("cpu")
+        logits = self.Elsewhere("cuda:0")
+
+        _match_device(weight, logits)
+
+        assert weight.moved_to == "cuda:0"
+
+    def test_no_weights_is_not_an_error(self):
+        # An unweighted loss is a legitimate configuration.
+        assert _match_device(None, torch.zeros(2)) is None
+
+    def test_the_loss_survives_weights_left_on_the_wrong_device(self):
+        # The end-to-end version: build the loss without saying where the
+        # model is, then use it. It has to work rather than raise.
+        loss = build_loss()
+        logits = torch.randn(2, NUM_CLASSES, 8, 8)
+        target = torch.randint(0, NUM_CLASSES, (2, 8, 8))
+
+        assert torch.isfinite(loss(logits, target))
+
+    def test_asking_for_a_device_puts_them_there(self):
+        loss = build_loss(device="cpu")
+        logits = torch.randn(2, NUM_CLASSES, 8, 8)
+        target = torch.randint(0, NUM_CLASSES, (2, 8, 8))
+
+        assert torch.isfinite(loss(logits, target))

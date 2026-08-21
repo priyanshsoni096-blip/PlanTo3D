@@ -104,17 +104,48 @@ def class_weights(
     return (raw.clamp(max=ceiling) / raw.clamp(max=ceiling).mean()).float()
 
 
-def build_loss(weights: torch.Tensor | None = None) -> callable:
+def _match_device(
+    weight: torch.Tensor | None, reference: torch.Tensor
+) -> torch.Tensor | None:
+    """Put ``weight`` on whatever device ``reference`` is on.
+
+    Cross-entropy refuses to mix devices, and its weight vector is the one
+    tensor in a training step that nothing else moves: the model, the
+    images and the masks are all sent to the GPU explicitly, and a weight
+    built beside them on the CPU is easy to miss until the first batch.
+    """
+    if weight is None or weight.device == reference.device:
+        return weight
+    return weight.to(reference.device)
+
+
+def build_loss(
+    weights: torch.Tensor | None = None, device: torch.device | str | None = None
+) -> callable:
     """Cross-entropy weighted against class imbalance, plus Dice.
 
     Dice is already insensitive to class size, which is why it is here; the
     weighting fixes the cross-entropy term beside it.
+
+    ``device`` has to be given wherever the model is not on the CPU. The
+    weights are a tensor like any other and cross-entropy refuses to mix
+    devices, so a CPU weight vector against logits on a GPU stops the run
+    on the first batch -- which is exactly where it stopped, having passed
+    every CPU test beforehand.
     """
     weights = class_weights() if weights is None else weights
+    if device is not None:
+        weights = weights.to(device)
     cross_entropy = torch.nn.CrossEntropyLoss(weight=weights)
     dice = smp.losses.DiceLoss(mode="multiclass")
 
     def combined(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Belt and braces: the weights follow the logits wherever they are,
+        # so passing the wrong device -- or forgetting to pass one -- costs
+        # a single tensor copy rather than the whole run. The first version
+        # relied on the caller alone and died on the first batch of a GPU
+        # run, having passed every test on a machine that has no GPU.
+        cross_entropy.weight = _match_device(cross_entropy.weight, logits)
         return cross_entropy(logits, target) + dice(logits, target)
 
     return combined
@@ -178,7 +209,7 @@ def train(
     val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=num_workers)
 
     model = build_model().to(device)
-    loss_fn = build_loss()
+    loss_fn = build_loss(device=device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
