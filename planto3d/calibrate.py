@@ -55,6 +55,19 @@ TYPICAL_DOOR_FT = 2.5
 TYPICAL_WALL_FT = 0.75  # 9 inches
 # Too few of either and the median means nothing.
 MIN_DOORS_FOR_SCALE = 3
+
+# How wide a door is, in multiples of the drawing's own wall thickness.
+# A 2'6" door against a 9" wall is three and a third; a 2'0" door against
+# a 12" wall is two; a double door against a thin partition is six or
+# seven. The bounds are set outside all of that, because their job is to
+# throw out fragments rather than to judge doors.
+#
+# The lower bound is the one that matters. A segmenter predicting doors
+# eagerly returns slivers a fifth of a door wide, and enough of them drag
+# the median below any real door -- which calibrates the whole building
+# at a fraction of its size.
+MIN_DOOR_GAUGES = 1.5
+MAX_DOOR_GAUGES = 8.0
 MIN_WALLS_FOR_SCALE = 8
 # Words separated by more than this multiple of their height belong to
 # different labels. Tesseract assigns one "line" to text at the same
@@ -210,7 +223,11 @@ def estimate_scale(rooms: list[Room], text_boxes: list[TextBox]) -> float | None
     return scale
 
 
-def scale_from_doors(openings: list, typical_width_ft: float = TYPICAL_DOOR_FT) -> float | None:
+def scale_from_doors(
+    openings: list,
+    typical_width_ft: float = TYPICAL_DOOR_FT,
+    gauge: float | None = None,
+) -> float | None:
     """Estimate scale from door widths.
 
     Doors are the most standardised element in a building: a house is mostly
@@ -222,9 +239,33 @@ def scale_from_doors(openings: list, typical_width_ft: float = TYPICAL_DOOR_FT) 
     28.15 px/ft: 23 detected doors have a median width of 68 px, which at
     2'6" gives 27.2 px/ft -- within 4%.
 
-    The median resists the wide main door and any misdetected opening.
+    The median resists the wide main door and any misdetected opening --
+    but only up to a point, which is what ``gauge`` is for. Given the
+    drawing's wall thickness, anything far narrower than a wall is not a
+    door, and slivers like that come through in numbers: on one plan the
+    detected widths were 14, 21, 21 and 64 pixels, where a door measures
+    about 76. The median landed on 21 and calibrated the building at a
+    quarter of its size.
     """
     widths = [o.width for o in openings if o.type == "door" and o.width > 0]
+    if gauge:
+        plausible = [
+            width
+            for width in widths
+            if gauge * MIN_DOOR_GAUGES <= width <= gauge * MAX_DOOR_GAUGES
+        ]
+        if len(plausible) < len(widths):
+            logger.info(
+                "ignoring %d opening(s) too narrow or too wide to be doors",
+                len(widths) - len(plausible),
+            )
+        # Filtered unconditionally. Falling back to the unfiltered widths
+        # when too few survive keeps precisely the measurements already
+        # judged impossible, and a drawing calibrated from those comes out
+        # at a fraction of its size. Better to have no door estimate and
+        # fall through to wall thickness.
+        widths = plausible
+
     if len(widths) < MIN_DOORS_FOR_SCALE:
         return None
 

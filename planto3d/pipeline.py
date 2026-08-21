@@ -301,8 +301,10 @@ def run(
     # settle before rooms can be filtered by real-world size.
     scale_source = "dimensions"
     if scale is None:
+        gauges = [floor.wall_gauge_px for floor in floors if floor.wall_gauge_px]
         scale = scale_from_doors(
-            [opening for floor in floors for opening in floor.plan.openings]
+            [opening for floor in floors for opening in floor.plan.openings],
+            gauge=float(median(gauges)) if gauges else None,
         )
         scale_source = "doors"
     if scale is None:
