@@ -4,7 +4,14 @@ from PIL import Image
 
 from planto3d.geometry_types import FloorPlan, Opening, Wall
 from planto3d.materials import build_scene, export_scene
-from planto3d.photoreal import build_guides, build_prompt, edge_guide
+from planto3d.photoreal import (
+    MAX_PROMPT_TOKENS,
+    NEGATIVE_PROMPT,
+    _tokens,
+    build_guides,
+    build_prompt,
+    edge_guide,
+)
 
 FOOTPRINT = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)]
 
@@ -109,3 +116,58 @@ class TestGuides:
     def test_a_missing_render_fails_clearly(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             edge_guide(tmp_path / "absent.png", tmp_path / "edges.png")
+
+
+class TestThePromptFitsWhatTheEncoderReads:
+    """CLIP reads 77 tokens and silently discards the rest.
+
+    The prompt ran to about 144, so half went -- and being the tail, the
+    half that went was everything derived from the drawing: the cars, the
+    lawn, the terrace, the balconies. The generic opening survived and the
+    specific ending did not, which is exactly backwards.
+    """
+
+    RICH = ["PARKING", "TERRACE GARDEN", "LANDSCAPE", "BALCONY", "SWIMMING POOL", "TEMPLE"]
+
+    def test_it_fits(self):
+        assert _tokens(build_prompt(3, self.RICH)) <= MAX_PROMPT_TOKENS
+
+    def test_it_fits_with_nothing_to_say(self):
+        assert _tokens(build_prompt(1, [])) <= MAX_PROMPT_TOKENS
+
+    def test_the_negative_prompt_fits_too(self):
+        assert _tokens(NEGATIVE_PROMPT) <= MAX_PROMPT_TOKENS
+
+    @pytest.mark.parametrize(
+        "label, phrase",
+        [
+            ("PARKING", "cars"),
+            ("LANDSCAPE", "lawn"),
+            ("TERRACE GARDEN", "terrace"),
+            ("BALCONY", "balcon"),
+            ("SWIMMING POOL", "pool"),
+        ],
+    )
+    def test_what_the_drawing_shows_survives_the_budget(self, label, phrase):
+        # The whole point. These are the only phrases the drawing justifies,
+        # so they must outrank the generic ones rather than being cut for
+        # them.
+        assert phrase in build_prompt(3, self.RICH).lower(), phrase
+
+    def test_the_subject_and_its_light_are_never_dropped(self):
+        # A building of the wrong material is wrong in every frame, and a
+        # dusk render without described lighting is just a dark one.
+        prompt = build_prompt(3, self.RICH).lower()
+
+        assert "residence" in prompt
+        assert "limestone" in prompt
+        assert "amber" in prompt
+
+    def test_nothing_is_claimed_that_the_drawing_does_not_show(self):
+        plain = build_prompt(2, ["BEDROOM", "KITCHEN"]).lower()
+
+        for absent in ("pool", "cars", "balcon", "terrace"):
+            assert absent not in plain, absent
+
+    def test_the_storey_count_comes_through(self):
+        assert "4-storey" in build_prompt(4, [])

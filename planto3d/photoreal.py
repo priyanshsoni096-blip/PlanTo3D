@@ -35,29 +35,67 @@ GUIDE_RESOLUTION = (1024, 768)
 CANNY_LOW = 40
 CANNY_HIGH = 130
 
+# CLIP reads 77 tokens and silently discards the rest. The prompt ran to
+# about 144, so half of it was thrown away -- and being the tail, the half
+# thrown away was everything derived from the drawing itself: the cars,
+# the lawn, the terrace, the balconies. The generic opening survived and
+# the specific ending did not, which is exactly backwards.
+#
+# So the prompt is now assembled to a budget, most important first, and
+# stops when it is full.
+MAX_PROMPT_TOKENS = 77
+
+# CLIP splits on more than whitespace -- hyphenated and unusual words cost
+# several tokens each -- so words are counted at this rate and the budget
+# kept short of the limit. Overshooting costs the tail again.
+TOKENS_PER_WORD = 1.35
+PROMPT_SAFETY = 4
+
+# The subject, and nothing that could be dropped without changing what the
+# picture is of.
+# Never dropped: the subject, what it is made of, and the light. A
+# building of the wrong material is wrong in every frame, and a dusk
+# render without described lighting is just a dark one -- so these come
+# out of the budget before anything competes for it.
 BASE_PROMPT = (
-    "professional architectural visualization of a modern {storeys}-storey "
-    "luxury residence at dusk, warm honey-toned limestone cladding with "
-    "visible stone coursing, floor-to-ceiling glazing in slim dark frames, "
-    "flat roof with a stone parapet, "
-    # Light is what separates an evening render from a daytime one, and it
-    # has to be described as fittings rather than as a mood.
-    "warm amber interior lighting glowing through every window, "
-    "recessed wall washers along the facade, landscape uplighting in the "
-    "planting beds, small warm lights lining the terrace, "
-    # Only what any house has. Planting, lawns and cars are added below,
-    # and only where the plan actually shows them -- a render claiming a
-    # garden the drawing does not have stops describing this building.
-    "mature trees beyond the plot, "
-    "deep blue twilight sky, long soft shadows, "
-    "photorealistic architectural photography, ultra detailed, 8k"
+    "professional architectural visualization of a {storeys}-storey "
+    "modern luxury residence at dusk, warm honey-toned limestone cladding, "
+    "warm amber interior lighting in every window"
 )
 
+# Everything else, in the order it earns its place. Each is added whole or
+# not at all: half a clause describes nothing.
+#
+# Materials come before light because a building of the wrong material is
+# wrong in every frame, while poor light is merely dull. Site features come
+# after both, but before the quality words, which are the least specific
+# thing in the prompt and the right thing to lose first.
+STYLE_PHRASES = (
+    "floor-to-ceiling glazing in slim dark frames",
+    "landscape uplighting",
+    "deep blue twilight sky",
+    "flat roof with a stone parapet",
+)
+
+QUALITY_PHRASES = (
+    "photorealistic architectural photography",
+    "ultra detailed",
+    "8k",
+)
+
+
+def _tokens(text: str) -> int:
+    """Roughly how many tokens a phrase costs CLIP."""
+    return int(len(text.replace(",", " ").split()) * TOKENS_PER_WORD)
+
+
+# Also capped at 77, and trimmed to the terms that actually change the
+# image: the things a diffusion model most readily does to a building when
+# left to itself.
 NEGATIVE_PROMPT = (
     "cartoon, illustration, sketch, diagram, blurry, distorted perspective, "
-    "warped walls, floating geometry, watermark, text, signage, people, "
-    "oversaturated, flat lighting, daylight, overcast, bare concrete, "
-    "unfinished construction, empty plot, barren ground"
+    "warped walls, floating geometry, watermark, text, people, "
+    "flat lighting, daylight, unfinished construction, barren ground"
 )
 
 
@@ -68,26 +106,40 @@ def build_prompt(storeys: int, room_labels: list[str] | None = None) -> str:
     inventing features the house does not have -- a pool, a pitched roof --
     which is the usual way a stylization stops resembling its subject.
     """
-    prompt = BASE_PROMPT.format(storeys=storeys)
-
     labels = {label.upper() for label in room_labels or []}
-    if any("PARKING" in label or "GARAGE" in label for label in labels):
-        prompt += ", two parked cars on a block-paved driveway"
-    if any("GARDEN" in label or "LANDSCAPE" in label or "LAWN" in label for label in labels):
-        prompt += (
-            ", manicured lawn edged with clipped hedges and flowering shrubs, "
-            "landscape uplighting through the planting"
-        )
-    if any("TERRACE" in label for label in labels):
-        prompt += ", roof terrace laid to lawn with planters around its edge"
-    if any("BALCONY" in label or "BAL" == label for label in labels):
-        prompt += ", balconies with slim metal railings"
-    if any("POOL" in label or "SWIMMING" in label for label in labels):
-        prompt += ", lit swimming pool"
-    if any("TEMPLE" in label or "POOJA" in label for label in labels):
-        prompt += ", warm timber detailing"
 
-    return prompt
+    def has(*needles: str) -> bool:
+        return any(needle in label for label in labels for needle in needles)
+
+    # What this house has, ahead of what any house has. These are the only
+    # phrases the drawing actually justifies, so they are the last thing
+    # that should be dropped for want of room -- and under the old order
+    # they were the first.
+    site = []
+    if has("PARKING", "GARAGE", "PORCH"):
+        site.append("parked cars on a paved driveway")
+    if has("GARDEN", "LANDSCAPE", "LAWN"):
+        site.append("manicured lawn with clipped hedges")
+    if has("TERRACE"):
+        site.append("planted roof terrace")
+    if has("BALCONY", "BAL"):
+        site.append("balconies with slim metal railings")
+    if has("POOL", "SWIMMING"):
+        site.append("lit swimming pool")
+    if has("TEMPLE", "POOJA"):
+        site.append("warm timber detailing")
+
+    parts = [BASE_PROMPT.format(storeys=storeys)]
+    budget = MAX_PROMPT_TOKENS - PROMPT_SAFETY - _tokens(parts[0])
+
+    for phrase in [*site, *STYLE_PHRASES, *QUALITY_PHRASES]:
+        cost = _tokens(phrase) + 1
+        if cost > budget:
+            continue
+        parts.append(phrase)
+        budget -= cost
+
+    return ", ".join(parts)
 
 
 def edge_guide(render_path: Path, output_path: Path) -> Path:
