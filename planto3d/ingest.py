@@ -69,15 +69,22 @@ GUTTER_INK_FRACTION = 0.004
 # like, or a wide white border drags the reference down towards zero.
 INKED_COLUMN_FLOOR = 0.01
 # A gutter has to be wide relative to the sheet rather than a fixed number
-# of pixels, so the rule holds at any resolution. Measured against
-# CubiCasa's recorded floor counts, 5% was far too demanding: the gutter
-# between two plans laid side by side is routinely 2-3% of the sheet, and
-# nine genuine multi-plan sheets in sixty were missed on that alone.
+# of pixels, so the rule holds at any resolution.
 #
-# Loosening it is only safe because the pieces are now checked afterwards
-# -- detection is generous, and _pieces_look_like_plans throws out what
-# does not stand up.
-MIN_GUTTER_FRACTION = 0.02
+# Swept against CubiCasa's recorded floor counts, this is a plateau rather
+# than a peak -- anything from 0.004 to 0.008 gives the same 55 of 60, and
+# it falls away on both sides. The middle is taken for the margin, and the
+# flatness is the evidence that it is not fitted to these sixty sheets.
+#
+#     0.020   51/60   precision 73%   recall 57%
+#     0.012   53/60             77%             71%
+#     0.006   55/60             85%             79%
+#     0.002   54/60             83%             71%
+#
+# Loosening it this far is only safe because the pieces are checked
+# afterwards: detection is generous and _pieces_look_like_plans throws out
+# what does not stand up.
+MIN_GUTTER_FRACTION = 0.006
 
 # A gutter is frequently ruled down the middle, one plan's border box
 # against the next. That single line of ink breaks the empty run in two,

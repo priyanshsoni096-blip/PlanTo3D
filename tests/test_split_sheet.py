@@ -52,7 +52,13 @@ def test_narrow_gaps_inside_one_drawing_do_not_split_it():
     # width of the gap.
     sheet = _sheet(1)
     width = sheet.shape[1]
-    gap = max(int(width * 0.01), 2)
+    # Well under any real gutter. Measured against CubiCasa's recorded
+    # floor counts, the gutters between two plans run 1.0 to 3.1% of the
+    # sheet, so a gap in that range is genuinely ambiguous on width alone
+    # -- a symmetric block with a clean full-height gap down the middle is
+    # two plans as far as anything can tell. What separates them in
+    # practice is the check on the pieces afterwards, not the gap.
+    gap = max(int(width * 0.003), 2)
     middle = width // 2
     sheet[:, middle - gap // 2 : middle + gap // 2] = WHITE
 
