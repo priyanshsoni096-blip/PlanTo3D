@@ -30,6 +30,16 @@ Types found across 30 plans: kitchen 28, outdoor 25, circulation 23, bath
 22, bedroom 21, storage 16. **Every plan now knows what its rooms are
 for**, which was the entire point of the run.
 
+### Running it
+
+`notebooks/run_on_colab.ipynb` is the one to reach for: upload a plan, get
+the model, six views, the detection overlay and a photoreal render, all on
+a Colab GPU. Smoke tested end to end against a CubiCasa sample.
+
+The overlay in section 6 is the most useful thing in it. Red walls and
+green rooms over the original drawing say whether a disappointing model was
+misread or mishandled, and those need different fixes.
+
 ### What to do next
 
 Nothing is blocked any more, so the next moves are ordinary work rather

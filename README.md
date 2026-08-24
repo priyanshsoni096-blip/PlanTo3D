@@ -189,6 +189,22 @@ python scripts/run_pipeline.py plan.pdf output --checkpoint models/unet_cubicasa
 `notebooks/design_on_colab.ipynb` runs the whole thing on a Colab GPU with
 these as form fields, including the photoreal pass.
 
+## Run it without installing anything
+
+`notebooks/run_on_colab.ipynb` does the whole thing on a Colab GPU: upload
+a plan, choose how it should look, and get the model, six views, the
+detection overlay and a diffusion-dressed render.
+
+[Open it in Colab](https://colab.research.google.com/github/priyanshsoni096-blip/PlanTo3D/blob/main/notebooks/run_on_colab.ipynb)
+
+It needs the trained checkpoint, which is too large for the repository.
+Keep it on Drive at `MyDrive/planto3d/unet_cubicasa.pt` or upload it when
+the notebook asks.
+
+The other notebooks are narrower: `train_on_colab.ipynb` trains the
+segmenter, `photoreal_on_colab.ipynb` runs the diffusion pass alone against
+a depth guide you already have.
+
 ## Installation
 
 Needs Python 3.11+, plus [Poppler](https://poppler.freedesktop.org/) for PDF
