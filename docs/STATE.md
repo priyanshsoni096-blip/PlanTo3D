@@ -9,50 +9,53 @@ drawing's resolution and added augmentation to the training.
 
 ## Start here
 
-**Run `notebooks/train_on_colab.ipynb`.** Nothing else comes close in value,
-and most of what is weak about the output traces back to it.
+**The retrain is done.** `models/unet_cubicasa.pt` predicts eleven classes,
+trained 24 epochs on augmented data, best at epoch 22 with a validation
+Dice of 0.7757 against the five-class model's 0.7577.
 
-It trains eleven classes rather than five, and augments the data, and
-neither has been run yet -- so the room types are code with no weights
-behind them and the model has still only ever seen each plan once, drawn
-one way. Roughly 2.5 hours on a T4 at 24 epochs.
+Where that leaves things, all measured against ground truth:
 
-Two things to actually do while it runs, rather than watch:
+| | Before the retrain | After |
+| --- | --- | --- |
+| Plans reconstructing | 28/30 | **30/30** |
+| Room function, from printed names | 5/30 | 5/30 |
+| Room function, **from predicted type** | **0/30** | **30/30** |
+| Scale, median error | 18.2% | 17.7% |
+| Scale from doors | 6.7%, +0.4% bias | 12.4%, +1.8% bias |
+| Scale from walls | 20.2% | 19.7% |
+| Sheet splitting, exact | 50/60 | 50/60 |
+| Tests | 658 | 663 |
 
-- **Do not skip section 5.** It draws five augmented versions of a real
-  sample beside its mask. Check the mask turns *with* the image. A broken
-  transform is invisible in the loss curve -- it simply trains to a worse
-  number with nothing saying why.
-- **Read the per-class IoU, not the Dice.** The room types are the point of
-  the run, and a type sitting at zero is never being predicted, which the
-  overall figure hides completely. Section 8 names the weakest one.
+Types found across 30 plans: kitchen 28, outdoor 25, circulation 23, bath
+22, bedroom 21, storage 16. **Every plan now knows what its rooms are
+for**, which was the entire point of the run.
 
-Afterwards, re-run these three and compare against the numbers below --
-they are all scored against ground truth, so the comparison is real:
+### What to do next
 
-```bash
-python scripts/batch_evaluate.py <cubicasa> --checkpoint models/unet_cubicasa.pt --limit 30
-python scripts/scale_accuracy.py <cubicasa> --checkpoint models/unet_cubicasa.pt
-python scripts/random_plan.py
-```
+Nothing is blocked any more, so the next moves are ordinary work rather
+than one big lever:
 
-## Where the numbers stand before the retrain
+1. **A second corpus.** Everything is measured on CubiCasa, which is
+   Finnish apartments, plus one Indian villa. Two drafting conventions is
+   two data points, and the generality claim is thinner than it sounds
+   until there is a third.
+2. **The wall-derived scale**, at 19.7% with a bias of -19.7%, is now the
+   weakest measured stage and carries 12 plans of 24. The bias says a 9
+   inch wall is simply wrong for this population; doors are unbiased and
+   should be preferred harder, or the constant should be fitted per
+   drawing rather than assumed.
+3. **The photoreal pass** has been run once, before any of this. Worth
+   re-running now that the model dresses the geometry properly.
 
-| | |
-| --- | --- |
-| Plans reconstructing | 28/30 |
-| Room function known, from names | 5/26 |
-| Room function known, from type | 0 (no weights yet) |
-| Scale from doors | 6.7% median error, +0.4% bias |
-| Scale from walls | 20.2% median error |
-| Sheet splitting, exact | 50/60 |
-| Tests | 658 |
+### A prediction that did not hold
 
-What to expect the retrain to move: room types from nothing to most rooms,
-which is the difference between a grey box and a house; door and window
-prediction, since the loss now weights them by class frequency; and
-possibly the wall-derived scale, which is biased low partly because the
-segmenter predicts thin classes narrow.
+Recorded before the run: weighting the loss by class frequency should
+widen the predicted openings and shrink the scale bias. It did not. The
+model predicts *more* openings rather than wider ones, and the door-based
+scale got worse -- 6.7% error at +0.4% bias became 17.6% at -15.7% --
+because the extra detections are slivers. Bounding door widths by the
+drawing's own wall thickness recovered the bias to +1.8%, but not the
+precision.
 
 ## Done and working
 
