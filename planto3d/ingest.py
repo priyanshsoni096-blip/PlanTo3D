@@ -51,7 +51,23 @@ CLUSTER_GAP = 10
 # Splitting a sheet that carries several plans. A gutter is a band of
 # near-empty page; both it and the pieces either side are measured as
 # fractions of the sheet so the rule holds at any resolution.
+# A gutter is nearly empty *for this sheet*, not empty in absolute terms.
+# The band between two plans carries dimension text, road labels and the
+# odd leader line -- on one sheet it measured 1.5 to 3% ink against 80%
+# for a column through a drawing, and an absolute threshold of 0.4% called
+# it occupied and refused to split. Fifteen percent of a typical drawn
+# column separates the two by a wide margin on every sheet tried.
+GUTTER_INK_RATIO = 0.15
+
+# The floor, for a sheet so sparse that a fraction of its own ink means
+# nothing -- a single plan on a large white page, where the median drawn
+# column is already faint.
 GUTTER_INK_FRACTION = 0.004
+
+# Columns below this carry no drawing at all and are margin rather than
+# gutter. Excluded when working out what a typical drawn column looks
+# like, or a wide white border drags the reference down towards zero.
+INKED_COLUMN_FLOOR = 0.01
 # A gutter has to be wide relative to the sheet rather than a fixed number
 # of pixels, so the rule holds at any resolution. Measured against
 # CubiCasa's recorded floor counts, 5% was far too demanding: the gutter
@@ -343,6 +359,20 @@ def _bridge(mask: np.ndarray, span: int) -> np.ndarray:
     return bridged
 
 
+def _gutter_threshold(profile: np.ndarray) -> float:
+    """How little ink a column may carry and still count as a gutter.
+
+    Measured against the sheet rather than fixed, because "empty" is
+    relative to how heavily the drawing is inked. A band between two plans
+    is never truly blank -- it carries dimension text, road labels and
+    leader lines -- and judging it against zero declared it occupied.
+    """
+    drawn = profile[profile > INKED_COLUMN_FLOOR]
+    if drawn.size == 0:
+        return GUTTER_INK_FRACTION
+    return max(float(np.median(drawn)) * GUTTER_INK_RATIO, GUTTER_INK_FRACTION)
+
+
 def _gutter_cuts(ink: np.ndarray, axis: int) -> list[int]:
     """Where to cut, from bands of near-empty page running across the sheet.
 
@@ -355,7 +385,8 @@ def _gutter_cuts(ink: np.ndarray, axis: int) -> list[int]:
 
     profile = ink.sum(axis=axis) / across
     empty = _bridge(
-        profile < GUTTER_INK_FRACTION, max(int(length * GUTTER_RULE_FRACTION), 3)
+        profile < _gutter_threshold(profile),
+        max(int(length * GUTTER_RULE_FRACTION), 3),
     )
 
     minimum_gutter = length * MIN_GUTTER_FRACTION

@@ -152,6 +152,42 @@ def _split_into_storeys(page: Path, output_dir: Path) -> list[Path]:
     return written
 
 
+# Thinnest wall the geometry can work with. Below this the orientation
+# opening cannot separate one wall from another, a door cannot be told
+# from a fragment, and the scale that comes out is a fraction of the truth.
+MIN_WORKABLE_GAUGE = 10.0
+
+# Never enlarged past this, where the cost stops buying anything.
+MAX_ENLARGEMENT = 4.0
+
+
+def _enlarge_if_unmeasurable(image, mask, segmenter: Segmenter):
+    """Enlarge and re-read a drawing whose walls are too thin to measure.
+
+    Costs a second pass over the segmenter, which is why it is conditional:
+    on any drawing of ordinary resolution the gauge is already fine and
+    this returns immediately.
+    """
+    gauge = wall_gauge(mask)
+    if gauge >= MIN_WORKABLE_GAUGE:
+        return image, mask
+
+    factor = min(MIN_WORKABLE_GAUGE / max(gauge, 1.0), MAX_ENLARGEMENT)
+    height, width = image.shape[:2]
+    logger.info(
+        "walls measure %.0f px, too thin to work with; enlarging %.1fx", gauge, factor
+    )
+
+    # Cubic, not nearest: this runs on the drawing rather than on a mask,
+    # and the network reads a smooth enlargement better than a blocky one.
+    enlarged = cv2.resize(
+        image,
+        (int(round(width * factor)), int(round(height * factor))),
+        interpolation=cv2.INTER_CUBIC,
+    )
+    return enlarged, refine_windows(segmenter(enlarged), enlarged)
+
+
 def _polygon_area(polygon: list[tuple[float, float]]) -> float:
     """Signed area of a polygon, by the shoelace formula."""
     if len(polygon) < 3:
@@ -167,6 +203,17 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
         raise FileNotFoundError(f"could not read page image: {image_path}")
 
     mask = refine_windows(segmenter(image), image)
+
+    # Whether a drawing is big enough is a question about the wall, not
+    # about the page. A CubiCasa sheet 650 pixels across is small but its
+    # walls are twenty pixels thick, and everything downstream works; a web
+    # image of a house is 500 pixels across with four pixel walls, and
+    # every threshold in the geometry sits above them at once.
+    #
+    # So it is asked after segmenting rather than before, and answered by
+    # the gauge. Enlarging invents no detail; it lifts what detail there is
+    # back above the floors the geometry cannot go below.
+    image, mask = _enlarge_if_unmeasurable(image, mask, segmenter)
     # Measured once and shared, so every stage sizes itself against the same
     # figure -- and so it can be reported later, since the wall thickness is
     # also the weakest of the scale references.
