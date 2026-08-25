@@ -15,7 +15,30 @@ logger = logging.getLogger(__name__)
 
 # Input size for the network. Floor plans are large and mostly empty, so a
 # square resize keeps batches affordable without losing wall structure.
+#
+# It costs the thin classes, though, and how much is measurable. A window
+# is drawn about 4 pixels wide on a CubiCasa sheet, and by the time the
+# sheet is squeezed into a square input it is this thin:
+#
+#     class      drawn    at 512    at 768
+#     wall        22px     8.4px    12.5px
+#     door        16px     6.5px     9.8px
+#     window       4px     1.5px     2.2px
+#
+# One and a half pixels. The model is not bad at windows so much as barely
+# shown them -- it finds 37% of them at an IoU of 0.096, against 0.52 to
+# 0.77 for every other class. Its loss weight is already the highest at
+# 3.72, and weighting cannot recover what resampling threw away.
+#
+# 768 raises every thin class by half again, at roughly twice the memory
+# and time. Whether that is worth it is a decision about GPU hours rather
+# than about code, so it is a parameter.
 DEFAULT_SIZE = 512
+
+# What fits alongside each size on a 16 GB card, for a ResNet34 U-Net.
+# Memory goes as the square of the side, so doubling the pixels halves the
+# batch.
+SUGGESTED_BATCH = {512: 8, 640: 6, 768: 4, 1024: 2}
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 

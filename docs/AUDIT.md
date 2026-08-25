@@ -33,7 +33,7 @@ python scripts/split_accuracy.py <cubicasa>
 | Renderer | Complete | Linear light, filmic curve, antialiasing, ambient occlusion |
 | Photoreal pass | Works | Runs on a T4, conditioned on the model's depth |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | 671 passing | — |
+| Tests | 682 passing | — |
 
 ## Gaps, worst first
 
@@ -41,11 +41,11 @@ python scripts/split_accuracy.py <cubicasa>
 | --- | --- | --- | --- | --- |
 | 1 | **Windows barely detected** | IoU **0.096**, finds **37%** | Every façade is sparser than the drawing. Next-worst class is 5× better | **Yes** |
 | 2 | **Scale, 17.7% median error** | Walls −19.7% bias on 20 plans | Sets the whole building's size | Partly — see below |
-| 3 | **Sheet splitting misses** | Recall **57%**, 51/60 exact | A missed split reconstructs several plans as one flat building, confidently | **Yes** |
+| 3 | ~~Sheet splitting misses~~ **closed** | Recall **79%**, 55/60 exact | A missed split reconstructs several plans as one flat building, confidently | **Yes** |
 | 4 | **Only 2½ conventions tested** | — | The generality claim rests on Finnish apartments | **Yes** |
 | 5 | Storage rooms weak | IoU 0.525 | Storage reads as ordinary rooms | Yes |
 | 6 | Bath rooms weak | IoU 0.586 | Wet floors missed | Yes |
-| 7 | Photoreal prompt truncated | >77 CLIP tokens | Most of the prompt is discarded | Yes |
+| 7 | ~~Prompt truncated~~ **closed** | 68 tokens, site features preserved | — | — |
 | 8 | OCR reads few names | 12/60 plans | Largely mitigated: types come from the model now | Inherent |
 | 9 | Diagonal walls not recovered | — | Documented limitation, erased by the orientation filters | Yes |
 | 10 | Classical baseline | No walls on 10/12 unseen | Scaffold for clean CAD only; the trained model is the contribution | Documented |
@@ -64,7 +64,8 @@ not:
 The 9-inch constant is right for one population and wrong for the other.
 Fitting it to CubiCasa would trade Indian plans for Finnish ones. What
 does generalise is preferring doors, which measure **+1.6% bias** — a door
-is about 2'6" wherever it is drawn.
+is about 2'6" wherever it is drawn. Though see below: it is already
+preferred as hard as it usefully can be.
 
 ## Why windows are the next step
 
@@ -82,6 +83,27 @@ at 3.72, and weighting cannot recover information that was resampled away.
 Training at 768 raises every thin class by half again. It costs roughly
 double the GPU time per epoch and helps every plan rather than one
 population.
+
+## Two things measured and deliberately not changed
+
+**Preferring doors harder does not help.** Doors carry a +1.6% bias
+against the wall estimate's -19.7%, so using them wherever possible looks
+obvious. Swept over 24 plans, the current threshold of three is already
+the best available on every measure:
+
+| doors required | plans using doors | median error | within 20% | worst |
+| --- | --- | --- | --- | --- |
+| 5 | 5 | 18.8% | 14/24 | 56.8% |
+| 4 | 8 | 18.3% | 14/24 | 56.8% |
+| **3** | **11** | **18.0%** | **15/24** | **51.0%** |
+| 2 | 15 | 18.1% | 14/24 | 51.0% |
+| 1 | 21 | 18.1% | 14/24 | 61.1% |
+
+Fewer doors means a noisier median, and the noise cancels the bias
+advantage exactly. Recorded so it is not tried again.
+
+**The wall-thickness constant stays at 9 inches.** See above -- the two
+populations disagree by 26 points and fitting either breaks the other.
 
 ## The ceiling
 
