@@ -47,7 +47,7 @@ python scripts/split_accuracy.py <cubicasa>
 | 6 | Bath rooms weak | IoU 0.586 | Wet floors missed | Yes |
 | 7 | ~~Prompt truncated~~ **closed** | 68 tokens, site features preserved | — | — |
 | 8 | OCR reads few names | 12/60 plans | Largely mitigated: types come from the model now | Inherent |
-| 9 | Diagonal walls not recovered | — | Documented limitation, erased by the orientation filters | Yes |
+| 9 | ~~Diagonal walls~~ **not worth building** | Costs **2.7%** of wall pixels, no plan over 10% | See below | — |
 | 10 | Classical baseline | No walls on 10/12 unseen | Scaffold for clean CAD only; the trained model is the contribution | Documented |
 | 11 | Colour heuristics | Windows 5/12, planting 1/12 | One drafting office's convention | Documented |
 
@@ -83,6 +83,52 @@ at 3.72, and weighting cannot recover information that was resampled away.
 Training at 768 raises every thin class by half again. It costs roughly
 double the GPU time per epoch and helps every plan rather than one
 population.
+
+## Wall extraction, measured against the annotations
+
+Never checked until now, and everything downstream rests on it. Measured
+by painting the built walls back at their own thickness and comparing
+with the annotation, over 30 plans:
+
+| | Median | Plans below 70% |
+| --- | --- | --- |
+| **Coverage** — annotated wall that gets built | **99.0%** | **0 of 30** |
+| **Agreement** — built wall that really is wall | 88.4% | 4 of 30 |
+
+Essentially every wall in the drawing is found. What remains is
+over-building on a handful of plans, and two hypotheses for it were
+tested and rejected:
+
+- **Not envelope closing.** Sample 10711 has *zero* invented walls and
+  still sits at 62% agreement, so the disagreement is in the walls read
+  off the drawing.
+- **Not thickness.** Extracted walls come out *thinner* than annotated
+  ones, at a median ratio of 0.79, so a wall painted at its own thickness
+  lands inside the real one rather than spilling outside it.
+
+That leaves position, on four plans of thirty. Small, and not chased.
+
+Worth recording alongside it: the predicted wall gauge runs about 10–15%
+thicker than the annotated one, while the extracted segments run 21%
+thinner. The orientation opening erodes what the segmenter over-predicts.
+
+## Diagonal walls are not worth recovering
+
+The extractor opens the wall mask horizontally and again vertically and
+keeps what survives either, so a genuinely diagonal wall survives neither.
+That has been a documented limitation from the start. What it costs,
+measured on the annotations over 40 plans:
+
+| | |
+| --- | --- |
+| Wall pixels surviving neither opening | **2.7%** |
+| Median plan | 2.3% |
+| Plans losing more than 10% | **0 of 40** |
+
+Recovering 2.7% of wall means redesigning the extraction model, against a
+window class sitting at IoU 0.096 while every other class is 0.52 to
+0.77. It is the wrong trade, and it is recorded here so it is not
+reconsidered without new evidence.
 
 ## Two things measured and deliberately not changed
 
