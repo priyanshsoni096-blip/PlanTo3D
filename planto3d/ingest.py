@@ -398,13 +398,37 @@ def _gutter_cuts(ink: np.ndarray, axis: int) -> list[int]:
 
     minimum_gutter = length * MIN_GUTTER_FRACTION
     minimum_piece = length * MIN_PIECE_FRACTION
-    return [
+    cuts = [
         (start + end) // 2
         for start, end in _runs(empty)
         if end - start >= minimum_gutter
         and start > minimum_piece
         and end < length - minimum_piece
     ]
+    return _merge_close_cuts(cuts, minimum_piece)
+
+
+def _merge_close_cuts(cuts: list[int], minimum_piece: float) -> list[int]:
+    """Collapse cuts too close together to have a plan between them.
+
+    A gutter is rarely one clean band. The gap between two plans carries a
+    plot boundary, a dimension string, a north point -- enough ink at one
+    point to break the quiet run in two and report two cuts a few dozen
+    pixels apart. Split on both and the sheet comes back as three pieces,
+    the middle one a sliver, which is then rejected as not looking like
+    plans -- so a sheet with a perfectly clear gutter does not get split at
+    all, and two houses are reconstructed as one.
+
+    Two cuts closer together than the narrowest allowable plan are one
+    gutter seen twice, so they collapse to their midpoint.
+    """
+    merged: list[int] = []
+    for cut in sorted(cuts):
+        if merged and cut - merged[-1] < minimum_piece:
+            merged[-1] = (merged[-1] + cut) // 2
+        else:
+            merged.append(cut)
+    return merged
 
 
 def _pieces_look_like_plans(

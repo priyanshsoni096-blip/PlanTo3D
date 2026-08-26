@@ -124,7 +124,7 @@ none tested:
 
 The third is the most promising and the least explored.
 
-## Wall extraction, measured against the annotations## Wall extraction, measured against the annotations
+## Wall extraction, measured against the annotations
 
 Never checked until now, and everything downstream rests on it. Measured
 by painting the built walls back at their own thickness and comparing

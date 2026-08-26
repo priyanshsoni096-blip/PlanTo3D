@@ -119,6 +119,12 @@ CANOPY_DROP_FT = 1.0
 RAMP_FALL_RATIO = 0.085
 RAMP_THICKNESS_FT = 0.5
 HEADROOM_WALL_FT = 0.6
+# Smallest piece of a divided slab worth building, against the largest.
+# Cutting an open region out of a slab leaves shreds along the cut where
+# the two outlines very nearly agree; those are artefacts of the boolean
+# and not roof. Anything above this is a real part of the building.
+MIN_SLAB_PIECE_SHARE = 0.02
+
 # A footprint needs this many vertices to enclose an area.
 MIN_FOOTPRINT_VERTICES = 3
 # Door and window heads sit at a common height; windows also get a sill.
@@ -478,14 +484,37 @@ def slab_mesh(
             if cut.is_valid and not cut.is_empty:
                 polygon = polygon.difference(cut)
 
-        # A difference can split the slab into several pieces; keep the
-        # largest, since a roof reduced to slivers is worse than none.
-        if polygon.geom_type == "MultiPolygon":
-            polygon = max(polygon.geoms, key=lambda part: part.area)
-
         if polygon.is_empty or polygon.area <= 0:
             return None
-        slab = extrude_polygon(polygon, height=thickness_ft * FEET_TO_METRES)
+
+        # A difference can split the slab into several pieces -- a terrace
+        # running the depth of a building leaves a roof either side of it,
+        # which is a perfectly ordinary roof. Keeping only the largest of
+        # them threw the rest away: an open region covering 5% of a storey
+        # was enough to remove half that storey's roof, because the region
+        # happened to span it rather than sit inside it. The building then
+        # renders as half sealed and half open to the weather.
+        #
+        # So every piece is built. Only true slivers are dropped, which are
+        # the artefacts of the boolean itself rather than parts of a roof.
+        parts = (
+            list(polygon.geoms) if polygon.geom_type == "MultiPolygon" else [polygon]
+        )
+        largest = max(part.area for part in parts)
+        parts = [
+            part
+            for part in parts
+            if not part.is_empty and part.area > MIN_SLAB_PIECE_SHARE * largest
+        ]
+        if not parts:
+            return None
+
+        slab = trimesh.util.concatenate(
+            [
+                extrude_polygon(part, height=thickness_ft * FEET_TO_METRES)
+                for part in parts
+            ]
+        )
     except Exception as error:
         logger.warning("could not build slab from footprint: %s", error)
         return None
