@@ -41,7 +41,7 @@ python scripts/split_accuracy.py <cubicasa>
 | --- | --- | --- | --- | --- |
 | 1 | **Windows barely detected** | IoU **0.096**, finds **37%** | Every façade is sparser than the drawing. Next-worst class is 5× better | **Yes** |
 | 2 | **Scale, 17.7% median error** | Walls −19.7% bias on 20 plans | Sets the whole building's size | Partly — see below |
-| 3 | ~~Sheet splitting misses~~ **closed** | Recall **79%**, 55/60 exact | A missed split reconstructs several plans as one flat building, confidently | **Yes** |
+| 3 | Sheet splitting misses | Recall **86%**, 55/60 exact | A missed split reconstructs several plans as one flat building, confidently | **Yes** |
 | 4 | **Only 2½ conventions tested** | — | The generality claim rests on Finnish apartments | **Yes** |
 | 5 | Storage rooms weak | IoU 0.525 | Storage reads as ordinary rooms | Yes |
 | 6 | Bath rooms weak | IoU 0.586 | Wet floors missed | Yes |
@@ -50,6 +50,26 @@ python scripts/split_accuracy.py <cubicasa>
 | 9 | ~~Diagonal walls~~ **not worth building** | Costs **2.7%** of wall pixels, no plan over 10% | See below | — |
 | 10 | Classical baseline | No walls on 10/12 unseen | Scaffold for clean CAD only; the trained model is the contribution | Documented |
 | 11 | Colour heuristics | Windows 5/12, planting 1/12 | One drafting office's convention | Documented |
+
+## What rendering a random plan turned up
+
+Everything above is scored against the annotations, which says how well
+the drawing is read and nothing about what gets built from it. Rendering
+a plan picked at random found four faults that no per-class score would
+ever have shown, all of them general and all now fixed.
+
+| Fault | What it did | Measured |
+| --- | --- | --- |
+| Room outlines kept their steps | Squaring makes edges axis-aligned but leaves 4-to-17-pixel notches, every one perfectly square and none of them real | 12.2 vertices per room to **6.9**, no area lost |
+| The footprint was never squared | It carries the slabs, the roof and the parapet, so its jaggedness showed from every angle at once | 31 vertices to **10**; diagonal perimeter 6.8% to **none**; area moves 0.0% |
+| Only the largest piece of a split slab was built | A terrace covering 5% of a storey removed half its roof, by spanning the building rather than sitting inside it | Every piece built now |
+| Noise punched holes in roofs | An "open area" of 2.8 square feet, ten inches wide, cut a slot through a roof and the parapet lined both sides of it | **33 of 96** open regions were too small to stand in, on **10 of 40** plans |
+
+The lesson worth keeping: a per-class IoU cannot see any of these. Three
+of the four are in the geometry stage, downstream of anything the
+segmenter is scored on, and the fourth is in ingestion upstream of it.
+**Render a random plan and look at it** -- it is the cheapest test in the
+project and it found more in one sitting than five GPU hours did.
 
 ## The one that is a trap
 

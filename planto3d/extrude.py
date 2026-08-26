@@ -403,6 +403,56 @@ def opening_panes(
     return panes
 
 
+# What an open-to-sky area has to be before it is allowed to cut a hole in
+# a roof. Somebody has to be able to stand in it: a balcony, a terrace, a
+# courtyard or a lightwell is at least a couple of feet across and covers
+# more than a doormat.
+#
+# Without this a segmentation artefact punches a slot through the roof and
+# the parapet dutifully lines both sides of it, which reads as a fin
+# standing across the roof plane. One measured case was 2.8 square feet and
+# ten inches wide.
+MIN_OPEN_AREA_SQFT = 15.0
+MIN_OPEN_WIDTH_FT = 2.5
+
+
+def real_open_regions(
+    regions: list[list[tuple[float, float]]], scale: float
+) -> list[list[tuple[float, float]]]:
+    """Keep only the open areas big enough to be real.
+
+    Width is measured by shrinking the region until it disappears, which
+    is the distance to its own medial axis -- so a long thin slot fails on
+    width even when its area is respectable, and an L-shaped terrace
+    passes on both.
+    """
+    if not regions or scale <= 0:
+        return regions
+
+    minimum_area = MIN_OPEN_AREA_SQFT * scale**2
+    inset = MIN_OPEN_WIDTH_FT * scale / 2
+
+    kept = []
+    for region in regions:
+        if len(region) < MIN_FOOTPRINT_VERTICES:
+            continue
+        try:
+            polygon = Polygon(region).buffer(0)
+            if polygon.is_empty or polygon.area < minimum_area:
+                continue
+            if polygon.buffer(-inset).is_empty:
+                continue
+        except Exception as error:
+            logger.warning("could not size an open region: %s", error)
+            continue
+        kept.append(region)
+
+    dropped = len(regions) - len(kept)
+    if dropped:
+        logger.info("ignored %d open region(s) too small to stand in", dropped)
+    return kept
+
+
 def merge_regions(
     polygons: list[list[tuple[float, float]]],
 ) -> list[list[tuple[float, float]]]:
@@ -766,7 +816,7 @@ INSIDE_FRACTION = 0.4
 ENCLOSING_REACH = 2.5
 
 
-def _open_air_walls(floor: FloorPlan) -> set[int]:
+def _open_air_walls(floor: FloorPlan, scale: float) -> set[int]:
     """Walls on this storey that enclose nothing, so should be low.
 
     A terrace garden or an open deck is drawn with its edge marked exactly
@@ -784,6 +834,7 @@ def _open_air_walls(floor: FloorPlan) -> set[int]:
     open_regions += floor.planting
     for category in GROUND_COVERS:
         open_regions += floor.labelled_regions.get(category, [])
+    open_regions = real_open_regions(open_regions, scale)
     if not open_regions:
         return set()
 
@@ -1398,7 +1449,7 @@ def floors_to_parts(
                 by_wall.setdefault(opening.wall_id, []).append(opening)
 
         # Walls around an open terrace are its edge, not its enclosure.
-        parapets = _open_air_walls(floor)
+        parapets = _open_air_walls(floor, scale)
         parapet_m = PARAPET_HEIGHT_FT * FEET_TO_METRES
 
         for wall_id, wall in enumerate(floor.walls):
@@ -1559,6 +1610,7 @@ def floors_to_parts(
     for category in GROUND_COVERS:
         open_to_sky += top.labelled_regions.get(category, [])
     open_to_sky += [room.polygon for room in top.rooms if is_open_to_sky(room)]
+    open_to_sky = real_open_regions(open_to_sky, scale)
     open_to_sky = merge_regions(open_to_sky) if open_to_sky else []
 
     roof = slab_mesh(
