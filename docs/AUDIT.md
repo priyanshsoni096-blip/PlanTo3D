@@ -67,24 +67,64 @@ does generalise is preferring doors, which measure **+1.6% bias** — a door
 is about 2'6" wherever it is drawn. Though see below: it is already
 preferred as hard as it usefully can be.
 
-## Why windows are the next step
+## Training at 768 was tried, and did not pay
 
-| Class | Native | At 512 input | At 768 input |
+The prediction, recorded beforehand: a window arrives at the network 1.5
+pixels wide at a 512 input and 2.2 at 768, so raising the resolution
+should lift the model's weakest class substantially.
+
+It was run: 24 epochs at 768, about five hours on a T4, validation Dice
+0.7780 against 512's 0.7757. Scored per class over 40 plans:
+
+| class | IoU 512 | IoU 768 | change |
 | --- | --- | --- | --- |
-| Wall | 22 px | 8.4 px | 12.5 px |
-| Door | 16 px | 6.5 px | 9.8 px |
-| **Window** | **4 px** | **1.5 px** | **2.2 px** |
+| door | 0.567 | 0.619 | **+0.052** |
+| bedroom | 0.765 | 0.807 | +0.042 |
+| wall | 0.718 | 0.743 | +0.025 |
+| storage | 0.525 | 0.544 | +0.019 |
+| **window** | **0.096** | **0.113** | **+0.016** |
+| kitchen | 0.713 | 0.689 | −0.024 |
+| outdoor | 0.773 | 0.743 | −0.030 |
+| circulation | 0.727 | 0.691 | −0.037 |
+| room | 0.740 | 0.687 | **−0.053** |
+| bath | 0.586 | 0.523 | **−0.063** |
 
-A window is **one and a half pixels** by the time the network sees it. It
-is not that the model is bad at windows; it is that windows are barely
-present in its input. The class weight is already the highest in the loss
-at 3.72, and weighting cannot recover information that was resampled away.
+The thin classes improved and the large room classes got worse, and the
+two cancelled. Windows moved 17% in relative terms and remain five times
+worse than anything else.
 
-Training at 768 raises every thin class by half again. It costs roughly
-double the GPU time per epoch and helps every plan rather than one
-population.
+Downstream, which is what actually matters, it is no better and slightly
+worse:
 
-## Wall extraction, measured against the annotations
+| | 512 | 768 |
+| --- | --- | --- |
+| Plans reconstructed | 20/20 | 20/20 |
+| Median openings found | **11** | 9 |
+| Scale within a fifth of true | **16/24** | 14/24 |
+| Training cost | 2.5 h | 5 h |
+
+**The 512 checkpoint is the one in use.** Resolution is not the binding
+constraint on windows, and the five hours bought nothing. Recorded as a
+prediction that failed.
+
+### So what is the constraint?
+
+Unknown, and worth saying so rather than guessing again. Three candidates,
+none tested:
+
+1. **The metric may be misleading.** IoU is brutal on a 4-pixel structure
+   -- a one-pixel offset costs a quarter of it. Recall rose from 36.7% to
+   41.2%, which is the more informative number and still poor.
+2. **Class imbalance beyond what weighting can fix.** Windows are 0.10% of
+   a drawing. Their loss weight is already the highest at 3.72.
+3. **Semantic segmentation may be the wrong tool for them.** A window is
+   not a region so much as an interruption in a wall, and might be better
+   found by looking for gaps along already-extracted walls than by asking
+   a per-pixel classifier for a class that thin.
+
+The third is the most promising and the least explored.
+
+## Wall extraction, measured against the annotations## Wall extraction, measured against the annotations
 
 Never checked until now, and everything downstream rests on it. Measured
 by painting the built walls back at their own thickness and comparing
