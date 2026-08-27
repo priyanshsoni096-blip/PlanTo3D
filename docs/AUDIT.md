@@ -41,7 +41,7 @@ python scripts/split_accuracy.py <cubicasa>
 | --- | --- | --- | --- | --- |
 | 1 | **Windows barely detected** | IoU **0.096**, finds **37%** | Every façade is sparser than the drawing. Next-worst class is 5× better | **Yes** |
 | 2 | **Scale, 17.7% median error** | Walls −19.7% bias on 20 plans | Sets the whole building's size | Partly — see below |
-| 3 | Sheet splitting misses | Recall **86%**, 55/60 exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
+| 3 | Sheet splitting misses | Recall **86%**, **57/60** exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
 | 4 | **Only 2½ conventions tested** | — | The generality claim rests on Finnish apartments | **Yes** |
 | 5 | Storage rooms weak | IoU 0.525 | Storage reads as ordinary rooms | Yes |
 | 6 | Bath rooms weak | IoU 0.586 | Wet floors missed | Yes |
@@ -437,11 +437,15 @@ fault, they are three, and only one of them is a tuning problem.
 
 | Sheet | Wanted | Got | Failure mode |
 | --- | --- | --- | --- |
-| 12787 | 1 | 2 | boundary rule cut a single apartment |
-| 3720 | 1 | 2 | boundary rule cut a single apartment |
+| 12787 | 1 | 2 | boundary rule cut a single apartment -- **fixed** |
+| 3720 | 1 | 2 | boundary rule cut a single apartment -- **fixed** |
 | 8150 | 1 | 2 | a legend below the plan, behind a real gutter |
 | 11378 | 2 | 1 | adjoining units, party wall, no gutter exists |
 | 8583 | 2 | 1 | adjoining units, party wall, no gutter exists |
+
+Two of the five are now fixed and the score is **57/60 at 92% precision,
+86% recall**; see below. The three modes are kept described because the
+two that remain are the harder ones.
 
 ### Which rule fired, and whether it was right
 
@@ -461,19 +465,34 @@ plans across sixty sheets and got one of them right" before
 `_pieces_look_like_plans` was added to guard it; the guard took it from
 eleven firings to three, but not from wrong to right.
 
-Removing it entirely, measured in memory:
+**Fixed, and without the trade.** Removing the rule entirely looked like
+the option, but it costs sheet 9285 -- a genuine three-plan sheet only
+that rule catches. Looking at how many lines it proposes separates the
+cases perfectly:
+
+| Sheet | Wanted | Boundary cuts | Right? |
+| --- | --- | --- | --- |
+| 12787 | 1 | **1** | no |
+| 3720 | 1 | **1** | no |
+| 9285 | 3 | **2** | yes |
+
+A lone boundary line is not evidence of anything: a plot border, a
+dimension band and a strong internal wall all look exactly like the edge
+between two plans. Two lines leaving three comparable pieces is a much
+stronger claim. Requiring a pair -- `MIN_BOUNDARY_CUTS` -- and leaving
+the ordinary two-plan sheet to the gutter rules, which are already
+perfect at it:
 
 | | Exact | Precision | Recall |
 | --- | --- | --- | --- |
 | As shipped | 55/60 | 80% | 86% |
-| Boundary rule disabled | **56/60** | **92%** | 79% |
+| Boundary rule disabled | 56/60 | 92% | **79%** |
+| **Requiring a pair of cuts** | **57/60** | **92%** | **86%** |
 
-Not a free win, which is why it is written down rather than done: it
-costs sheet 9285, a genuine three-plan sheet that only the boundary rule
-catches, and trades 7 points of recall for 12 of precision. Which way
-that trade should go depends on what a wrong split costs downstream --
-a single plan cut in two reconstructs one house as two half-houses,
-where a missed split reconstructs two houses as one flat storey.
+Better than either alternative, and recall is untouched. The evidence is
+three sheets, which is thin, but the argument does not rest on them: it
+only ever makes the weakest rule more cautious, and the rule it defers
+to is right ten times out of ten.
 
 ### Mode 1 -- the boundary rule cuts internal structure (12787, 3720)
 

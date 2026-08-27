@@ -107,6 +107,11 @@ MIN_SPLIT_WIDTH = 400
 # blank page either side of a plan says nothing about whether it is a plan;
 # the drawing in it does.
 MIN_PLAN_INK_SHARE = 0.2
+
+# Boundary lines needed before the fallback may split a sheet. One line is
+# ambiguous; two, leaving three pieces, is a claim about the whole sheet.
+# See ``split_sheet``.
+MIN_BOUNDARY_CUTS = 2
 # Detecting the page itself. A tone this light covering this much of a sheet
 # is paper, not drawing -- no plan's linework covers a tenth of the page in
 # one flat shade.
@@ -503,6 +508,21 @@ def split_sheet(image: np.ndarray) -> list[np.ndarray]:
         divisions = _gutter_cuts(ink, axis)
         if not divisions and axis == 0:
             divisions = _boundary_cuts(ink)
+            # A lone boundary line is not evidence of anything. A plot
+            # border, a dimension band and a strong internal wall all look
+            # exactly like the edge between two plans, and the rule cannot
+            # tell them apart -- it fires on three sheets and is right on
+            # one. Both sheets it gets wrong are cut by a single line
+            # through the middle of one apartment; the sheet it gets right
+            # carries two lines and three plans.
+            #
+            # Two lines leaving three comparable pieces is a much stronger
+            # claim than one line leaving two, and the gutter rules already
+            # cover the ordinary two-plan sheet perfectly -- ten firings,
+            # ten right. So the fallback is left to do only the thing it
+            # can actually do.
+            if len(divisions) < MIN_BOUNDARY_CUTS:
+                divisions = []
 
         divisions = sorted(
             c for c in divisions if minimum_piece < c < length - minimum_piece
