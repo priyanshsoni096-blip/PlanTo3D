@@ -250,6 +250,89 @@ convention**. It helps sheets that print their sizes, it is checked
 before it is believed, and it cannot make an unlabelled plan worse. It is
 not evidence that scale is solved; gap #4 is what would settle that.
 
+## Windows: the gap search cannot work, but a lower bar can
+
+Windows are the weakest class by a wide margin. This audit previously
+called finding them as **gaps in already-extracted wall geometry** "the
+most promising and the least explored". It was measured, and it is
+blocked.
+
+### Why the gap search cannot work
+
+A gap search can only find a window where the predicted wall mask is
+actually interrupted. Of the 75 windows the segmenter misses across 28
+plans:
+
+| Where the missed window sits | Count | |
+| --- | --- | --- |
+| Inside **solid** predicted wall | **62** | **83%** |
+| In a gap in the predicted wall | 6 | 8% |
+| Not near any extracted wall | 7 | 9% |
+
+Asked what it predicts at those points, the segmenter says **wall 85% of
+the time**. It does not leave a hole where a window is; it paints the
+window as wall. The ceiling for a gap search is therefore 6 windows,
+taking recall from 60.5% to at most **63.7%** -- before counting the
+false positives it would add to a precision already at 36%. Recorded as
+a prediction that failed, and not implemented.
+
+### What the numbers actually are
+
+Scored as detection rather than per-pixel overlap, which is the more
+useful question for a 4-pixel strip: does an opening land on the window
+the drawing shows, within a wall thickness and a half. Over 190
+annotated windows on 28 plans, the segmenter-only baseline is **60.5%
+recall at 36.3% precision** -- far better recall than the IoU of 0.096
+suggests, and far worse precision. 317 detections for 190 windows: the
+problem was never only that windows are missed.
+
+### The bar was in the wrong place
+
+Taking the most likely class at every pixel is right when classes are
+comparable in size. Windows are 0.10% of a drawing and arrive at the
+network barely a pixel wide, so a window pixel sits ringed by wall and
+wall wins the average. Giving windows a lower bar, with no retraining:
+
+| Rule | Recall | Precision | F1 |
+| --- | --- | --- | --- |
+| argmax | 58.4% | 39.6% | 0.472 |
+| P(window) >= 0.35 | 57.9% | 40.3% | 0.475 |
+| P(window) >= 0.30 | 62.6% | 46.7% | **0.535** |
+| **P(window) >= 0.25** | **63.2%** | **45.3%** | 0.527 |
+| P(window) >= 0.20 | 60.5% | 47.3% | 0.531 |
+
+Better on both counts at once, which is not the usual shape of this
+trade: forcing the confident pixels through also tidies the fragments
+either side of them, so fewer spurious openings survive as well as more
+real ones. 0.20 to 0.30 all behave alike and 0.35 upwards is
+indistinguishable from argmax, so `WINDOW_PROBABILITY_FLOOR` sits at
+0.25, mid-band.
+
+One thing this is **not**: evidence that the model sees these windows and
+narrowly loses the argmax. At a missed window the mean wall probability
+is 0.68 against 0.028 for window, and window ranks fourth or worse half
+the time. The model is confidently wrong there. The floor recovers the
+minority it is unsure about, not the majority it gets wrong.
+
+### It is a trade, measured end to end
+
+The floor carves window out of pixels the segmenter called wall, so wall
+loses a little everywhere:
+
+| | Before | After |
+| --- | --- | --- |
+| **Window recall** | 60.5% | **61.6%** |
+| **Window precision** | 36.3% | **43.8%** |
+| Wall coverage | 97.4% | 96.6% |
+| Wall agreement | 93.0% | 92.2% |
+| Scale median error | 17.7% | 18.0% |
+| Scale within a fifth | 16/24 | 15/24 |
+
+Kept because windows were the weakest thing in the pipeline by a long
+way and 7.5 points of precision on them outweighs a point each
+elsewhere -- but it is a judgement, not a free win, and reverting it is
+one constant.
+
 ## Two proposed scale sources, both examined and neither added
 
 Two OCR-independent scale sources were proposed for the fallback chain.

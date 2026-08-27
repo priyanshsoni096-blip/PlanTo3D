@@ -20,7 +20,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from planto3d.classes import NUM_CLASSES
+from planto3d.classes import NUM_CLASSES, WINDOW
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,37 @@ ENCODER = "resnet34"
 DEFAULT_SIZE = 512
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+# A window only has to be this likely to be called one, even when another
+# class scores higher.
+#
+# Taking the most likely class at every pixel is the right rule when the
+# classes are comparable in size. Windows are not: they are 0.10% of a
+# drawing, drawn about four pixels wide, and arrive at the network barely
+# more than one pixel wide after the square resize. A pixel of window sits
+# surrounded by wall, and wall wins the average.
+#
+# Measured on 190 annotated windows across 28 plans, scored as detection
+# rather than per-pixel overlap -- whether an opening lands on the window
+# the drawing shows:
+#
+#     rule                    recall   precision      F1
+#     argmax                   58.4%       39.6%   0.472
+#     P(window) >= 0.30        62.6%       46.7%   0.535
+#   * P(window) >= 0.25        63.2%       45.3%   0.527
+#     P(window) >= 0.20        60.5%       47.3%   0.531
+#     P(window) >= 0.35        57.9%       40.3%   0.475
+#
+# Better on both counts at once, which is not the usual shape of such a
+# trade: forcing the confident pixels through also cleans up the fragments
+# either side of them, so fewer spurious openings survive as well as more
+# real ones. Anything from 0.20 to 0.30 gives much the same answer and
+# 0.35 upwards is indistinguishable from argmax, so this sits in the
+# middle of the band rather than on its best single point.
+#
+# Applies to windows alone. No other class is thin enough to need it, and
+# a floor on a large class would take pixels from its neighbours.
+WINDOW_PROBABILITY_FLOOR = 0.25
 
 
 class Segmenter:
@@ -89,7 +120,16 @@ class Segmenter:
         batch = torch.from_numpy(normalized).permute(2, 0, 1).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            predicted = model(batch).argmax(dim=1)[0].cpu().numpy().astype(np.uint8)
+            logits = model(batch)
+            probabilities = torch.softmax(logits, dim=1)[0]
+            predicted = probabilities.argmax(dim=0).cpu().numpy().astype(np.uint8)
+            window = probabilities[WINDOW].cpu().numpy()
+
+        # Windows are too thin to win an argmax against the wall they sit
+        # in, so they are given a lower bar. See WINDOW_PROBABILITY_FLOOR.
+        predicted = np.where(
+            window >= WINDOW_PROBABILITY_FLOOR, WINDOW, predicted
+        ).astype(np.uint8)
 
         # Back to the page's frame, which the rest of the pipeline works in.
         return cv2.resize(
