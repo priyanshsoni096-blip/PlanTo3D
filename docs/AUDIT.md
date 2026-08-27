@@ -119,6 +119,49 @@ segmenter is scored on, and the fourth is in ingestion upstream of it.
 **Render a random plan and look at it** -- it is the cheapest test in the
 project and it found more in one sitting than five GPU hours did.
 
+## Most of the scale error is not a mistake
+
+Both scale estimators read low -- doors by 8.4%, walls by 20.1% -- and two
+independent methods biased the same way looks like a fault upstream of
+both. It is not. CubiCasa records a true scale, so its own annotation can
+be converted into feet and the question settled:
+
+| | Measured from the annotation | Assumed by the code | Predicts a bias of | Actually measured |
+| --- | --- | --- | --- | --- |
+| Interior door | **2.28 ft (2'3")** | 2.50 ft | −8.8% | **−8.4%** |
+| Wall thickness | **0.63 ft (7.6")** | 0.75 ft | −15.4% | **−20.1%** |
+
+**The door bias is 97% explained by the constant alone.** A Finnish
+interior door is 2'3", not the 2'6" the code assumes, and the pipeline is
+reading it correctly. Walls are 77% explained, leaving about 4.7 points
+that really is the extraction reading them thin -- which matches the 21%
+narrowing already recorded above, damped by the gauge being measured on
+the mask rather than on the segments.
+
+This reframes gap #2 entirely. Scale is not 17.3% out because the vision
+is weak; it is 17.3% out because **the pipeline does not know which
+country the drawing came from**, and is applying one tradition's standards
+to another's. The vision is better than that number suggests.
+
+It also makes the trap below exact rather than cautionary. Fitting
+`TYPICAL_DOOR_FT` to 2.28 would take the door bias to near zero on
+CubiCasa and introduce an equal and opposite error on any plan drawn where
+doors are 2'6". There is no constant that is right for both.
+
+What follows from it:
+
+- **No amount of better segmentation fixes most of this.** Only knowing
+  the convention does.
+- **The drawing usually states its own origin** -- areas printed in m²
+  rather than sq ft, the language of the room labels, the paper size, the
+  units on dimension strings. Reading that and selecting standards to
+  match is the one route that does not involve fitting a constant to a
+  dataset, and it is untried.
+- Window widths were measured while the annotation was open: **3.88 ft
+  median**, against the 3.0 ft one might assume, but with a quartile
+  spread of 2.62 to 5.31 against doors' 1.94 to 2.66. A window is far too
+  variable to calibrate on, which is worth knowing before anyone tries.
+
 ## The one that is a trap
 
 **Do not re-tune the wall-thickness constant.** It looks like a bug and is
