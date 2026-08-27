@@ -35,14 +35,38 @@ class Lighting:
     bounce: Colour = (102, 89, 74)
     fill: Colour = (179, 201, 240)
 
-    ambient_strength: float = 0.58
+    # Ambient lights every surface whatever way it faces, so it is the one
+    # control that flattens a building rather than lighting it. At 0.58,
+    # with a key of 0.78 and a fill on top, more light arrived than the
+    # filmic curve had room for: measured on a rendered plan, half the
+    # picture sat above tone 189 with the 75th to 99th percentiles crushed
+    # between 213 and 221, and median saturation was 23 of 255 -- close to
+    # grey, from a palette spanning 145 levels of luminance.
+    #
+    # Lowering ambient and the exposure together, scored on what actually
+    # reaches the pixels:
+    #
+    #     ambient  exposure   spread   saturation
+    #       0.58      1.05        35           28    <- was
+    #       0.42      0.90        71           34
+    #     * 0.35      0.90        75           35
+    #       0.28      0.82        80           41
+    #
+    # It keeps improving as both come down, so this is a judgement about
+    # where to stop rather than a peak: at 0.35 and 0.90 the form reads and
+    # nothing is crushed, and going further trades a murkier shaded wall
+    # for a few more points. Raising the key instead does not work -- it
+    # pushes the lit faces back into the roll-off and the spread falls
+    # again, to 34.
+    ambient_strength: float = 0.35
     key_strength: float = 0.78
     fill_strength: float = 0.16
     specular_strength: float = 0.28
 
     # Lifted before the filmic curve, which pulls mid tones down as it
-    # rolls the highlights off.
-    exposure: float = 1.05
+    # rolls the highlights off. Under one, because the curve was being
+    # asked to roll off more than it could.
+    exposure: float = 0.90
 
     sky_top: Colour = (96, 140, 190)
     sky_bottom: Colour = (206, 220, 232)

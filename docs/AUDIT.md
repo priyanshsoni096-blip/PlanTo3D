@@ -466,6 +466,58 @@ code one: the same sheet rendered at 150 dpi yields **0** text lines
 where at 400 dpi it yields **105**. Resolution, not preprocessing, is
 what decides whether a drawing's own text is available at all.
 
+## Daylight was washing the building out
+
+The renders read as one flat wash. Measured on what actually reaches the
+pixels rather than argued about: half the picture sat above tone 189, the
+75th to 99th percentiles were crushed between 213 and 221, and median
+saturation was **23 of 255** -- close to grey, from a material palette
+spanning 145 levels of luminance.
+
+The cause was ambient light. It lights every surface whatever way it
+faces, so it is the one control that flattens a building rather than
+lighting it, and at 0.58 with a key of 0.78 and a fill on top, more light
+arrived than the filmic curve had room for.
+
+| Ambient | Exposure | Tonal spread | Saturation |
+| --- | --- | --- | --- |
+| 0.58 | 1.05 | 35 | 28 |
+| 0.42 | 0.90 | 71 | 34 |
+| **0.35** | **0.90** | **75** | **35** |
+| 0.28 | 0.82 | 80 | 41 |
+
+Both numbers keep improving as the two come down, so where to stop is a
+judgement rather than a peak: at 0.35 and 0.90 the form reads and nothing
+is crushed, and going further trades a murkier shaded wall for a few more
+points. Raising the key instead does **not** work -- it pushes the lit
+faces back into the roll-off and the spread falls again, to 34.
+
+Checked on fourteen models built from fourteen different drawings, not on
+the one it was chosen from:
+
+| | Spread | Saturation | Blown | Crushed |
+| --- | --- | --- | --- | --- |
+| As shipped | 68 | 30 | 0.0% | 0.0% |
+| Rebalanced | **76** | **35** | 0.0% | 0.0% |
+
+Thirteen of fourteen gained tonal spread and fourteen of fourteen held or
+gained saturation.
+
+Only "midday" used these defaults; the other times of day set their own
+and were scored the same way afterwards. They are left alone, because
+each is now doing something deliberate rather than failing:
+
+| Preset | Spread | Saturation | Median |
+| --- | --- | --- | --- |
+| midday | 77 | 35 | 180 |
+| golden hour | 67 | 34 | 193 |
+| overcast | 66 | 28 | 171 |
+| dusk | 59 | **74** | 148 |
+
+Overcast is flat on purpose -- its own note says nothing should be
+flattered by a good raking light -- and dusk trades spread for colour,
+which is what dusk does.
+
 ## Resolution is not the constraint, and that is now settled
 
 Four separate attempts to buy accuracy with pixels, none of which paid.
