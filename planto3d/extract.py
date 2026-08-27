@@ -713,6 +713,12 @@ MIN_RECTILINEAR_EDGES = 4
 # an edge.
 MIN_STEP_RATIO = 1.0
 
+# Area, in squared wall-thicknesses, above which a region is worth
+# mentioning when something goes wrong with it. Below this it is a speck
+# that will be filtered out long before it could become a room, and saying
+# so at the same volume as a real failure buries the real ones.
+SUBSTANTIAL_REGION_GAUGES = 16.0
+
 
 def _collapse_steps(lines: list[list], threshold: float) -> list[list]:
     """Drop lines shorter than ``threshold`` and rejoin what they separated.
@@ -830,7 +836,20 @@ def _rectilinear(
     before = abs(_polygon_area(polygon))
     after = abs(_polygon_area(corners))
     if before <= 0 or abs(after - before) / before > MAX_SQUARING_DRIFT:
-        logger.info("squaring moved a room's area too far; keeping the trace")
+        # Said quietly for a fragment and out loud for a room. Contours
+        # arrive here long before anything filters them by real-world size,
+        # so the great majority of refusals are on specks that never become
+        # rooms -- on the reference sheet, 43 of them at a median of under
+        # three square feet. Logged at the same level as a real one, they
+        # read as a building full of broken geometry, which sent one
+        # investigation chasing a fault that was not there.
+        size = before / gauge**2 if gauge else 0.0
+        say = logger.info if size >= SUBSTANTIAL_REGION_GAUGES else logger.debug
+        say(
+            "squaring moved a region of %.0f square wall-thicknesses too far; "
+            "keeping the trace",
+            size,
+        )
         return polygon
 
     return corners

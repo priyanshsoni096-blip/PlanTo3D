@@ -464,6 +464,51 @@ code one: the same sheet rendered at 150 dpi yields **0** text lines
 where at 400 dpi it yields **105**. Resolution, not preprocessing, is
 what decides whether a drawing's own text is available at all.
 
+## Room squaring is not failing, and the log was saying it was
+
+A run over the reference sheet printed *"squaring moved a room's area too
+far"* forty-three times, which reads as a building whose rooms are mostly
+built from raw traces. Chased, and it was not that.
+
+Squaring is offered every contour the segmenter produces, long before
+anything filters them by real-world size. Of 190 outlines offered on that
+sheet, 82 were refused -- but their **median area is 1,900 px², which at
+26.28 px/ft is 2.75 square feet**. They are specks. The pipeline discards
+everything under 12 sq ft a few steps later, so they never become rooms
+and never reach the model.
+
+Counting only outlines large enough to survive that filter:
+
+| | |
+| --- | --- |
+| Outlines offered to squaring | 190 |
+| Large enough to become a room | 66 |
+| **Of those, refused** | **7 (11%)** |
+| Rooms in the finished model | 62 |
+
+And the seven are refused correctly. Their vertex counts are 88, 94, 59,
+43, 38, 32 and 23 -- convoluted blobs rather than rooms, where forcing a
+rectilinear loop really would move the area more than a fifth. The guard
+is doing its job.
+
+Across 25 CubiCasa plans the picture is the same and milder: 91% square
+cleanly, and the refusals are 5% with fewer than four vertices and 4%
+collapsing to fewer than four lines. **The drift ceiling never fires on
+CubiCasa at all** -- 0 of 477 outlines, with the 99th percentile of drift
+at 0.173 against a ceiling of 0.2.
+
+Two hypotheses were tested on the way and both were wrong: it is not
+`refine_windows` mangling the outlines (refusals are identical with it
+disabled, though it does halve the window pixels, which is worth its own
+look), and it is not resolution (at 400 dpi the reference sheet has zero
+drift refusals among the contours my survey reached).
+
+What was actually wrong was the message. It logged a speck at the same
+volume as a room, so forty-three fragments read as forty-three broken
+rooms. It now reports the region's size in squared wall-thicknesses and
+drops to debug below sixteen of them: the same run prints **7**, which is
+the true number, and each one is a room worth knowing about.
+
 ## What a change of drafting convention actually costs
 
 Every figure in this audit rests on CubiCasa5K, which is one drafting
