@@ -250,6 +250,102 @@ convention**. It helps sheets that print their sizes, it is checked
 before it is believed, and it cannot make an unlabelled plan worse. It is
 not evidence that scale is solved; gap #4 is what would settle that.
 
+## Two proposed scale sources, both examined and neither added
+
+Two OCR-independent scale sources were proposed for the fallback chain.
+Both were investigated and neither is added, for different reasons, both
+measured.
+
+### PDF page size cannot contribute to scale
+
+The proposal was to read a PDF's physical page size and combine it with
+`WORKING_DPI` for an exact pixel-to-foot mapping. It cannot work, and the
+reason is arithmetic rather than empirical:
+
+    pixels per foot = dpi x 12 / drafting ratio
+
+Page size does not appear. A drawing at 1:150 rendered at 400 dpi is 32
+px/ft on A4, A1 or a napkin -- a bigger sheet holds more building, at the
+same scale. What page size can recover is *dpi*, when a raster's
+resolution is unknown. Two measurements say that case does not arise
+here:
+
+| | |
+| --- | --- |
+| Reference PDF page size | 612 x 792 pt (US Letter) |
+| Rasterized at `WORKING_DPI` = 400 | 3400 x 4400 px, exactly as predicted |
+| CubiCasa rasters carrying a dpi tag | **0 of 60** |
+
+For a PDF the pipeline rasterizes itself, measured dpi is identical to
+assumed dpi by construction. For a bare image there is no tag to read.
+The source is inert on both corpora and is not implemented.
+
+### Printed areas are legible on one sheet in sixty
+
+The proposal was to take one printed total area against the shoelace area
+of the extracted footprint. Two things defeat it.
+
+**The text cannot be read.** Across 60 CubiCasa sheets, exactly **1**
+yields a printed area OCR can parse. The areas are there -- 12787 prints
+`44.5 M2`, 11378 prints `99,0 m2`, 8583 prints `101,0 m2`, all legible to
+the eye. They are below OCR's resolution floor: these rasters are 514 to
+1900 px wide where the reference sheet is 2275 px for a *single* floor.
+Five preprocessing variants were tried and none recovered a single
+dimension pair or area from twelve sheets:
+
+| Preprocessing | Lines | Dimension pairs | Areas |
+| --- | --- | --- | --- |
+| Current, cutoff 60 | 8 | 0 | 0 |
+| Otsu | 41 | 0 | 0 |
+| Cutoff 128 | 29 | 0 | 0 |
+| Cutoff 160 | 30 | 0 | 0 |
+| Upscale 2x + Otsu | 41 | 0 | 0 |
+
+Upscaling interpolates pixels; it does not create letterforms that were
+never sampled.
+
+**And the "total" is not identifiable.** On the reference sheet, where
+areas *are* readable, neither printed figure is a building total --
+`2130 SQ.FT.` is the terrace garden and `600 SQ.FT.` the deck. Taking the
+largest as the total, against the footprint:
+
+| Printed figure | As a building total | Error against the true 26.28 px/ft |
+| --- | --- | --- |
+| `600 SQ.FT.` | 67.85 px/ft | **+158%** |
+| `2130 SQ.FT.` | 36.01 px/ft | **+37%** |
+
+The per-room form already in `calibrate.scale_from_areas` -- each label
+charged to the region it names rather than assumed to be the whole
+building -- gives **-14.5%** on the same sheet and is correctly overruled
+by the dimension pairs. The total-against-footprint form is worse in
+every case measured and is not implemented.
+
+`scripts/scale_accuracy.py` is unchanged at **17.7% median error, 16 of
+24 within a fifth**, because nothing was added to the chain.
+
+### One thing this did settle: leave `INK_CUTOFF` alone
+
+The hard cutoff at greyscale 60 in `isolate_ink` looks like a constant
+fitted to one drawing set, and its own docstring says it was measured on
+the reference sheet. Tested against four alternatives on that sheet at
+full resolution, it is the best of them at what actually matters:
+
+| Preprocessing | Lines | Dimension pairs | Areas |
+| --- | --- | --- | --- |
+| **Current, cutoff 60** | 105 | **14** | **2** |
+| Cutoff 128 | 118 | 9 | 1 |
+| Otsu | 73 | 9 | 0 |
+| Upscale 2x + Otsu | 154 | 15 | 0 |
+| Cutoff 160 | 69 | 7 | 0 |
+
+Alternatives find more raw text and less usable text. Recorded so it is
+not re-tuned on a word count.
+
+Also worth recording, because it is an operational fact rather than a
+code one: the same sheet rendered at 150 dpi yields **0** text lines
+where at 400 dpi it yields **105**. Resolution, not preprocessing, is
+what decides whether a drawing's own text is available at all.
+
 ## The five sheets that split wrong, and why
 
 `scripts/split_accuracy.py` over 60 CubiCasa sheets: **55/60 exact (92%)**,
