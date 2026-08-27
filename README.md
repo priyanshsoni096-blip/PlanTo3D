@@ -4,9 +4,15 @@ Turns a 2D architectural floor plan into a measured 3D model of the building.
 
 Feed it a PDF, PNG or JPEG of a floor plan and it returns a `.glb` you can
 open in any 3D viewer, along with plan, elevation and aerial views. Walls,
-rooms, doors, windows, stairs, gardens and paving are read off the drawing;
-the scale comes from the plan's own printed dimensions, so the model is
-measured in real feet rather than guessed at.
+rooms, doors, windows, stairs, gardens and paving are read off the drawing,
+and each room is identified by what it is for rather than by any text
+printed on it -- most plans print none.
+
+Where the drawing states its own size, in printed room dimensions or a
+floor area, that is read and used after being checked against the
+geometry. Where it does not, the size is inferred from door widths and
+wall thickness, and the pipeline says out loud that it is estimating: the
+proportions are right and the absolute figure is a judgement.
 
 ![Aerial view](docs/images/aerial.png)
 
@@ -28,108 +34,85 @@ extruded into a stacked, materialled model.
 
 ## Results
 
-The segmenter was trained on [CubiCasa5K](https://github.com/CubiCasa/CubiCasa5k)
-(5,000 annotated floor plans) and scored on its held-out test split:
+Every figure below was produced by running the script named beside it, on
+the checkpoint that is actually installed. Nothing here is quoted from a
+training log.
 
-| Metric | Score |
-| --- | --- |
-| Dice | 0.7577 |
-| IoU | 0.6790 |
-| Wall IoU | 0.7721 |
-| Room IoU | 0.9299 |
-| Door IoU | 0.6505 |
-| Window IoU | 0.1177 |
+### What the segmenter reads
 
-Wall IoU is the figure that matters most, since walls drive the entire
-reconstruction. Window IoU is poor for a reason worth stating: windows are
-0.11% of CubiCasa's pixels, and Dice loss alone does not overcome that
-imbalance. The loss now weights the cross-entropy term by class frequency
-as well, which is aimed squarely at this.
+`scripts/class_accuracy.py`, 30 CubiCasa sheets at their own resolution:
 
-These are the five-class figures. The segmenter has since been given the
-room type to predict as well -- bedroom, kitchen, bath, storage,
-circulation, outdoor -- and the numbers above will be replaced once it has
-been retrained on the wider scheme.
+| Class | Share of page | IoU | Recall |
+| --- | --- | --- | --- |
+| background | 39.40% | 0.961 | 97.0% |
+| outdoor | 5.77% | 0.883 | 95.9% |
+| kitchen | 6.11% | 0.778 | 85.5% |
+| circulation | 4.64% | 0.733 | 88.5% |
+| room | 19.34% | 0.717 | 76.9% |
+| bedroom | 9.38% | 0.713 | 89.2% |
+| **wall** | 8.50% | **0.697** | 86.1% |
+| bath | 3.94% | 0.602 | 67.1% |
+| storage | 4.25% | 0.570 | 77.4% |
+| door | 0.62% | 0.560 | 85.2% |
+| **window** | **0.11%** | **0.089** | 50.9% |
 
-### Why the room type is predicted rather than read
+Wall matters most, since walls drive the whole reconstruction. Window is
+the weakest thing in the project and the share column is why: at 0.11% of
+a page, a window arrives at the network barely a pixel wide. IoU is also
+harsh on something four pixels across -- a one-pixel offset costs a
+quarter of it -- which is why recall is printed beside it.
 
-Floor finishes, planting, railings and wet areas all depend on knowing what
-a room is for. That came from OCR, which works only on a drawing with room
-names printed on it -- and most have none. Over sixty CubiCasa plans the
-pipeline read a room name on three; the rest carry a disclaimer and a
-watermark, and their rooms are identifiable only from the fixtures drawn
-inside them.
+These are pooled over pixels. The script also prints a per-sheet median,
+which is far kinder (bath reads 0.94 rather than 0.60); the pooled figure
+is quoted everywhere because it is the less flattering of the two.
 
-CubiCasa annotates a room type on every space, so the model is asked for it
-directly and needs no text at all. Where a drawing *does* print a name, the
-name wins: it distinguishes a verandah from a balcony in a way no segmenter
-trained on Finnish apartments can.
+### What the geometry makes of it
 
-### Against a classical baseline
-
-A threshold-and-morphology baseline is included, tuned to clean CAD sheets.
-On the reference drawings the trained model finds what the baseline
-structurally cannot:
-
-| | Classical | Trained U-Net |
+| What | Script | Result |
 | --- | --- | --- |
-| Wall pixels | 4.2% | 6.7% |
-| Room pixels | 24.9% | 54.7% |
-| **Doors** | **none** | 0.6% |
-| **Windows** | **none** | 0.1% |
-| Rooms named | 17 | 30 |
+| Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 30 | **96.6%** |
+| Wall agreement — built wall that really is wall | `wall_accuracy.py`, 30 | **92.2%** |
+| Windows found, as detection | 28 sheets, 190 windows | **62.1%** at 43.5% precision |
+| Sheets split into the right number of plans | `split_accuracy.py`, 60 | **58/60**, 100% precision, 86% recall |
+| Scale within a fifth of true | `scale_accuracy.py`, 48 | **33/48**, 17.3% median error |
+| Tests | `pytest` | **738** |
 
-The baseline detects no doors or windows at all — it distinguishes two grey
-levels and nothing more. That gap is what makes real openings possible, so
-the trained model does not merely score better; it unlocks geometry the
-baseline cannot produce.
+Window detection is reported separately from window IoU on purpose. A
+window is a strip, and what matters downstream is whether an opening ends
+up on the right wall in roughly the right place, not whether the pixels
+line up. Measured that way it finds 62% of them -- poor, but not the
+0.089 the pixel score suggests.
 
 ### Does it generalise?
 
-The geometry layer's constants were measured from one drawing set, so
-`scripts/generalisation_test.py` runs the stages over CubiCasa samples
-drafted by other people in other conventions. Predictions were recorded
-before the run; all three held.
+Honestly: not proven. Every number above comes from Finnish apartment
+plans, plus one Indian villa used as a control. That is the single
+biggest qualification on the whole project and `docs/AUDIT.md` says so at
+the top.
 
-| | Trained U-Net | Classical baseline | Colour signals |
-| --- | --- | --- | --- |
-| Usable geometry | **12 of 12** | — | — |
-| Mean wall pixels | 7.2% | **0.0%** | — |
-| Mean walls found | 31 | **1** | — |
-| Found anything | — | no walls at all on 10 of 12 | windows 5/12, planting 1/12 |
+What can be tested cheaply is the *rendering* of a drawing rather than
+its origin. `scripts/convention_stress.py` redraws the sheets we have the
+way other conventions draw them, holding the annotation fixed so the
+ground truth stays valid:
 
-Across sheets from 954×984 to 3536×1879. The trained model generalises; the
-heuristics around it do not. That is the honest reading, and it is why the
-segmentation model is the contribution rather than the pipeline that
-consumes it.
-
-Three more things are measured against ground truth rather than asserted.
-CubiCasa records each room's real size and each sheet's floor count inside
-the annotation, which makes both checkable on every plan in the dataset.
-
-**Scale** (`scripts/scale_accuracy.py`, 24 plans): median error 12.5%, 17
-within a fifth of true. The sign matters more than the median: doors run
-12.5% low and walls 7.2% low, both systematically, so houses come out about
-a tenth too big. Two independent methods biased the same way points at the
-segmenter predicting thin classes narrow rather than at either constant
-being wrong.
-
-**Sheet splitting** (`scripts/split_accuracy.py`, 60 sheets):
-
-| | Before | After |
+| Convention | Wall IoU | vs as drawn |
 | --- | --- | --- |
-| Exact floor count | 40/60 | **50/60** |
-| Precision | 31% | **64%** |
-| Recall | 36% | **64%** |
+| Solid poché walls | 0.811 | +0.064 |
+| Photocopied, toned paper, heavier or finer pen | 0.732–0.752 | within 0.015 |
+| **As drawn** | **0.747** | — |
+| Hatched walls | 0.688 | −0.059 |
+| **Outline walls** | **0.534** | **−0.214** |
+| Reversed print (blueprint) | 0.014 → **0.747** | fixed at ingest |
 
-It had been failing in both directions at once. The false splits all came
-from the boundary-rule fallback firing on dimension lines; the misses came
-from looking only for side-by-side gutters when sheets stack plans top to
-bottom as well, and from demanding a gutter 5% of the sheet when a real one
-is 2-3%.
+The model is not fragile: scan quality, paper tone and pen weight cost
+almost nothing, and hatched walls -- which were predicted to be read as
+background -- are read as walls. Outline-drawn walls are the one real
+gap, and the training augmentation now includes them for the next run. A
+reversed print used to destroy it and is now turned the right way up on
+read, scoring exactly what the ordinary sheet does.
 
-**Room naming** (`scripts/batch_evaluate.py`, 21 plans): a room name was
-read on 3. That number is why the room type is predicted rather than read.
+A simulated convention is not a second corpus. It is a lower bound on the
+damage, and what it narrows is *which* corpus would be worth getting.
 
 ### Geometric accuracy
 
@@ -144,16 +127,26 @@ Most plans do not print room dimensions. Rather than refuse them, scale falls
 back through progressively weaker references, each still grounded in the
 drawing:
 
-| Source | Accuracy on the reference sheet |
-| --- | --- |
-| Printed dimensions | exact, 28.15 px/ft |
-| Door widths | within 4% |
-| Wall thickness | within 11% |
-| Drafting ratio | within 14% |
+| Source | Median error | Bias | Used on |
+| --- | --- | --- | --- |
+| Printed dimensions or area | — | — | checked against the geometry first |
+| **Door widths** | **12.3%** | **−8.4%** | 30 of 48 plans |
+| Wall thickness | 20.2% | −20.1% | 18 of 48 plans |
+| Drafting ratio | — | — | last resort, never needed on this corpus |
+
+`scripts/scale_accuracy.py` over 48 plans: 17.3% median error overall, 33
+within a fifth of true.
 
 Doors work because they are the most standardised element in a building: a
 house is mostly interior doors around 2'6", whatever the drafting conventions
-or the language on the sheet.
+or the language on the sheet. Wall thickness does not travel nearly as well
+-- it reads 20% low on Finnish apartments and 6% high on the Indian
+control -- which is why the constant behind it is deliberately left alone.
+See the trap noted in `docs/AUDIT.md`.
+
+Anything printed is **gated**: a figure read by OCR is used only when it
+agrees with the geometric estimate, because one misread character would
+otherwise resize the whole building.
 
 ## What you choose, and what the drawing decides
 
@@ -302,20 +295,23 @@ tile where it is worked in, stone through circulation.
 
 ## Limitations
 
-- **Sheets holding several plans are split, but only about two thirds of
-  the time.** Measured against CubiCasa's recorded floor counts the
-  splitter is right on 50 of 60 sheets, at 64% precision and 64% recall.
-  Feeding one storey per image remains the reliable route.
-- **Absolute size is inferred, and runs about a tenth large.** Where a plan
-  prints no dimensions the scale comes from door widths or wall thickness,
-  with a median error of 12.5% and a systematic bias low. Proportions are
-  sound; the absolute figure is an estimate.
-- Targets clean, digital floor plans. Photographs and heavily compressed
-  scans produce poor results, because the segmentation is only as good as
-  its input.
-- Windows and planting are read partly from the drawing's colour — cyan for
-  glazing, green for planting. Greyscale plans fall back to the model, which
-  is weak on both.
+- **Windows are the weakest thing here.** 62% of them are found and 44% of
+  what is reported is real, so elevations come out sparser than the
+  drawing. Four ways of fixing it with more pixels have been tried and
+  measured, and none paid; `docs/AUDIT.md` records all four so they are
+  not tried a fifth time.
+- **Absolute size is inferred unless the drawing states it.** Over 48
+  plans, 33 land within a fifth of true at a 17.3% median error, biased
+  low. Proportions are sound; the absolute figure is an estimate, and the
+  output says which it is.
+- **Sheets holding several plans are split on 58 of 60**, at 100%
+  precision and 86% recall. What it still misses is terraced blocks whose
+  units share a party wall, where there is no gutter to find at any
+  threshold. Feeding one storey per image remains the certain route.
+- **Only two and a half drafting conventions have ever been tested.** This
+  is the biggest qualification on every number in this file. Eight
+  conventions were simulated and the model held up on all but
+  outline-drawn walls, but a simulation is not a second corpus.
 - Only axis-aligned walls are recovered. Diagonal walls are erased by the
   orientation filters, which is acceptable for the rectilinear plans this
   targets and wrong for anything else.
@@ -336,7 +332,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points
-tests/        384 tests
+tests/        738 tests
 docs/         design spec and implementation plan
 ```
 

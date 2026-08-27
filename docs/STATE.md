@@ -4,31 +4,46 @@ A handoff note, so work can resume from a fresh session without the
 conversation that produced it. Read alongside the [README](../README.md),
 which covers what the project does and how to run it.
 
-Last updated after the session that made the geometry independent of the
-drawing's resolution and added augmentation to the training.
+Last updated after the session that fixed sheet splitting, rebalanced the
+daylight, and found the colour heuristic that was deleting the model's
+windows.
+
+**[`docs/AUDIT.md`](AUDIT.md) is the authority on every measurement.** This
+file is a narrative and parts of it are history; where the two disagree,
+the audit is right, because each of its figures names the script that
+produced it.
 
 ## Start here
 
-**The retrain is done.** `models/unet_cubicasa.pt` predicts eleven classes,
-trained 24 epochs on augmented data, best at epoch 22 with a validation
-Dice of 0.7757 against the five-class model's 0.7577.
+`models/unet_cubicasa.pt` predicts eleven classes, trained 24 epochs on
+augmented data, best at epoch 22 with a validation Dice of 0.7757. A 768px
+run was tried afterwards and was not better -- see the audit.
 
-Where that leaves things, all measured against ground truth:
+Where things stand, every figure from the script beside it:
 
-| | Before the retrain | After |
+| | Result | Script |
 | --- | --- | --- |
-| Plans reconstructing | 28/30 | **30/30** |
-| Room function, from printed names | 5/30 | 5/30 |
-| Room function, **from predicted type** | **0/30** | **30/30** |
-| Scale, median error | 18.2% | 17.7% |
-| Scale from doors | 6.7%, +0.4% bias | 12.4%, +1.8% bias |
-| Scale from walls | 20.2% | 19.7% |
-| Sheet splitting, exact | 50/60 | 50/60 |
-| Tests | 658 | 663 |
+| Sheets split into the right number of plans | **58/60**, 100% precision, 86% recall | `split_accuracy.py` |
+| Wall coverage — annotated wall that gets built | **96.6%** | `wall_accuracy.py` |
+| Wall agreement — built wall that really is wall | **92.2%** | `wall_accuracy.py` |
+| Windows found, as detection | **62.1%** at 43.5% precision | 28 sheets, 190 windows |
+| Scale within a fifth of true | **33/48**, 17.3% median | `scale_accuracy.py` |
+| Room function, from the predicted type | **every plan** | `batch_evaluate.py` |
+| Per-class IoU | wall 0.697, door 0.560, **window 0.089** | `class_accuracy.py` |
+| Tests | **738** | `pytest` |
 
-Types found across 30 plans: kitchen 28, outdoor 25, circulation 23, bath
-22, bedroom 21, storage 16. **Every plan now knows what its rooms are
-for**, which was the entire point of the run.
+### What is worth doing next
+
+1. **A retrain is queued and prepared.** `training/augment.py` gained
+   `unfill_walls`, because outline-drawn walls were much the worst of eight
+   drafting conventions tested -- 0.214 of wall IoU. It changes nothing
+   until something is trained. Section 8b of the training notebook
+   re-measures exactly that.
+2. **Windows remain the largest gap** and are not a resolution problem.
+   Four ways of buying them with pixels have been tried and measured, and
+   the audit records all four so a fifth is not attempted.
+3. **A second drafting corpus is the real unknown.** Eight conventions were
+   simulated and only outline walls hurt, but a simulation is not a corpus.
 
 ### Running it
 
@@ -365,22 +380,27 @@ is 6.9 ft, with 80% of plans between 5.3 and 8.9. The Indian reference sheet
 sits at 7.4 ft. That agreement is worth knowing even though the estimator
 built on it was not good enough.
 
-## Splitting multi-storey sheets is measurably poor
+## Splitting multi-storey sheets — history, now fixed
+
+**Current: 58/60 exact, 100% precision, 86% recall.** What follows is how
+it got there, and is kept because the failure modes are instructive. The
+remaining two are terraced blocks whose units share a party wall, where
+no gutter exists at any threshold.
+
+## How splitting used to fail
 
 `scripts/split_accuracy.py` scores the splitter against the `Floor` groups
 CubiCasa records. Over 60 sheets:
 
-| | |
-| --- | --- |
-| | Before | After |
-| --- | --- | --- |
-| Exact floor count | 40/60 (67%) | **50/60 (83%)** |
-| Precision | 5/16 (31%) | **9/14 (64%)** |
-| Recall | 5/14 (36%) | **9/14 (64%)** |
+| | At its worst | After that session | Today |
+| --- | --- | --- | --- |
+| Exact floor count | 40/60 (67%) | 50/60 (83%) | **58/60 (97%)** |
+| Precision | 5/16 (31%) | 9/14 (64%) | **12/12 (100%)** |
+| Recall | 5/14 (36%) | 9/14 (64%) | **12/14 (86%)** |
 
-It is wrong in **both** directions, which is worse than being merely shy: it
-splits single plans into two or three (11 sheets) and misses real
-multi-storey sheets (9). The damage is not symmetrical. Splitting a single
+It was wrong in **both** directions, which is worse than being merely shy: it
+split single plans into two or three (11 sheets) and missed real
+multi-storey sheets (9). The damage was not symmetrical. Splitting a single
 apartment into three stacks fragments of one plan into a tower, and the
 fragments are small enough to throw the scale badly off -- sample 11578 is
 split into 3 and lands at 8.8 px/ft against a true 30.6, a 71% error and the
