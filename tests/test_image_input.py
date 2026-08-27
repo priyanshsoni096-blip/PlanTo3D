@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from planto3d.classical import ROOM_FILL, WALL_FILL
+from planto3d.ingest import read_image
 from planto3d.pipeline import IMAGE_SUFFIXES, _load_pages, run
 
 
@@ -83,3 +84,48 @@ class TestRunFromImage:
         assert result.scale is not None
         assert result.scale_assumed
         assert result.scale_source in {"doors", "walls", "ratio"}
+
+
+class TestReversedPrints:
+    """A blueprint carries the same drawing with its tones the other way up.
+
+    The segmenter has never seen one: reversing 15 sheets took wall IoU
+    from 0.747 to 0.014 and left 4 of them reconstructable. It is the most
+    damaging thing that can be done to a drawing without changing a line
+    of it, and the cheapest to undo.
+    """
+
+    def _plan(self):
+        sheet = np.full((400, 500, 3), 255, dtype=np.uint8)
+        sheet[60:340, 80:420] = 30
+        sheet[80:320, 100:400] = 255
+        return sheet
+
+    def test_a_light_on_dark_sheet_is_turned_the_right_way_up(self, tmp_path):
+        path = tmp_path / "blueprint.png"
+        cv2.imwrite(str(path), 255 - self._plan())
+
+        read = read_image(path)
+
+        assert read is not None
+        # Paper is light again, and the drawing survives the turn.
+        assert np.median(cv2.cvtColor(read, cv2.COLOR_BGR2GRAY)) > 128
+        assert np.array_equal(read, self._plan())
+
+    def test_an_ordinary_sheet_is_left_exactly_alone(self, tmp_path):
+        path = tmp_path / "ordinary.png"
+        plan = self._plan()
+        cv2.imwrite(str(path), plan)
+
+        assert np.array_equal(read_image(path), plan)
+
+    def test_a_heavily_inked_sheet_is_not_mistaken_for_a_reversed_one(self, tmp_path):
+        # A dense drawing is still mostly paper. The two populations are far
+        # apart -- the lowest ordinary median across 66 sheets is 195 and the
+        # highest reversed one is 60 -- and this guards the gap between them.
+        sheet = np.full((400, 500, 3), 255, dtype=np.uint8)
+        sheet[:, ::3] = 20           # ink over a third of the sheet
+        path = tmp_path / "dense.png"
+        cv2.imwrite(str(path), sheet)
+
+        assert np.array_equal(read_image(path), sheet)

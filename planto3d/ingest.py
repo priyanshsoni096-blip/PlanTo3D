@@ -95,6 +95,9 @@ GUTTER_RULE_FRACTION = 0.01
 MIN_PIECE_FRACTION = 0.12
 MIN_PIECE_INK = 0.01
 MIN_SPLIT_WIDTH = 400
+# Median greyscale below which a sheet is taken to be a reversed print --
+# a blueprint, a negative scan, a dark-mode export. See ``_upright_tones``.
+REVERSED_PRINT_MEDIAN = 128
 
 # Least share of a sheet's ink a piece must hold to be believed a plan of
 # its own. Measured against CubiCasa's recorded floor counts: every false
@@ -180,8 +183,32 @@ def read_image(path: Path) -> np.ndarray | None:
         return flattened.astype(np.uint8)
 
     if image.ndim == 2:
-        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    return image
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    return _upright_tones(image)
+
+
+def _upright_tones(image: np.ndarray) -> np.ndarray:
+    """Reverse a print that is drawn light-on-dark.
+
+    A blueprint, a dark-mode export or a negative scan carries the same
+    drawing with its tones the other way up, and the segmenter has never
+    seen one: measured over 15 sheets, reversing them takes wall IoU from
+    0.747 to 0.014 and leaves 4 of 15 reconstructable at all. It is the
+    single most damaging thing that can be done to a drawing without
+    changing a line of it, and the cheapest to undo.
+
+    Safe because the two populations do not come close to overlapping. A
+    drawing is mostly paper, so an ordinary sheet is mostly light: across
+    66 sheets from two drawing sets the lowest ordinary median grey is 195
+    and the highest reversed one is 60. The threshold sits in the middle
+    of that gap and separates all 66 both ways.
+    """
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+    if float(np.median(grey)) >= REVERSED_PRINT_MEDIAN:
+        return image
+
+    logger.info("sheet is drawn light on dark; reversing its tones")
+    return 255 - image
 
 
 def paper_tones(grey: np.ndarray) -> set[int]:

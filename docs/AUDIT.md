@@ -464,6 +464,80 @@ code one: the same sheet rendered at 150 dpi yields **0** text lines
 where at 400 dpi it yields **105**. Resolution, not preprocessing, is
 what decides whether a drawing's own text is available at all.
 
+## What a change of drafting convention actually costs
+
+Every figure in this audit rests on CubiCasa5K, which is one drafting
+tradition. Sourcing a second corpus is the real answer to "does this
+generalise" and it is expensive, so this is the cheap one first: take the
+sheets we have and redraw them the way other conventions draw them,
+holding the annotation fixed so the ground truth stays valid. Only the
+inking changes -- same walls, same rooms -- so any drop is caused by the
+convention alone. `scripts/convention_stress.py`, 15 sheets:
+
+| Convention | Wall IoU | Wall recall | Room IoU | Reconstructs |
+| --- | --- | --- | --- | --- |
+| Solid poché walls | **0.811** | 0.966 | 0.975 | 13/15 |
+| Finer pen | 0.752 | 0.851 | 0.954 | 13/15 |
+| **As drawn** | **0.747** | 0.899 | 0.961 | 14/15 |
+| Photocopied | 0.746 | 0.897 | 0.961 | 14/15 |
+| Toned paper | 0.740 | 0.881 | 0.960 | 14/15 |
+| Heavier pen | 0.732 | 0.917 | 0.961 | 14/15 |
+| Hatched walls | 0.688 | 0.864 | 0.949 | 13/15 |
+| **Outline walls** | **0.534** | 0.689 | 0.933 | 15/15 |
+| **Reversed print** | **0.014** | 0.017 | 0.228 | **4/15** |
+
+Three things follow, and the first two are more reassuring than expected.
+
+**The model is not fragile.** Pen weight, paper tone, photocopying and
+JPEG all land within 0.015 of the drawing as issued. Whatever else is
+wrong, it is not that the segmenter has memorised one rendering.
+
+**Hatched walls were predicted to be the problem and are not.** The
+concern was that a model trained on uniform wall fills would read a
+hatched partition as background. It reads them as wall: recall falls from
+0.899 to 0.864, a single point, and IoU by 0.059. Nor is the premise
+quite right -- CubiCasa's own walls are far from uniform, running from
+0.05 to 0.95 dark-ink share with a median of 0.72, so the model has
+already seen walls drawn as outlines and walls drawn solid. Targeted
+hatching augmentation would be solving a problem worth 0.059, and it
+would cost a retrain. **Not recommended.**
+
+**Two real failures, one of them free to fix.** Outline walls -- two
+lines with white between them, and no fill at all -- cost 0.214 of wall
+IoU and take recall to 0.689. That one is genuine and would need data or
+augmentation. A reversed print destroys the model outright: 0.014 IoU,
+and 4 sheets of 15 still reconstructable.
+
+### Reversed prints are now turned the right way up
+
+A blueprint, a negative scan or a dark-mode export carries the same
+drawing with its tones inverted, and it was the single most damaging
+thing that could happen to a sheet without changing a line of it. It
+needs no model work at all, because the two populations do not come close
+to overlapping: across 66 sheets from two drawing sets the lowest
+ordinary median grey is **195** and the highest reversed one is **60**.
+`read_image` now reverses anything below 128, in the middle of that gap.
+
+| | Wall IoU | Reconstructs |
+| --- | --- | --- |
+| Ordinary sheet | 0.747 | 14/15 |
+| Reversed, before | 0.014 | 4/15 |
+| **Reversed, after** | **0.747** | **14/15** |
+
+Identical to an ordinary sheet, which is what it should be: it is the
+same drawing.
+
+### What this does and does not tell us
+
+It is a lower bound on the damage, not an estimate of it. A real
+convention differs in more ways than can be simulated -- symbol
+vocabulary, annotation habits, what is drawn at all, what is left to the
+reader -- and a transform written by the same person who reads the result
+is not an independent test. Gap #4 stands. What this narrows is the
+*scope* of a second corpus: it should be chosen for outline-drawn walls
+and unfamiliar symbol sets rather than for scan quality or wall hatching,
+which the model already handles.
+
 ## The five sheets that split wrong, and why
 
 `scripts/split_accuracy.py` over 60 CubiCasa sheets: **55/60 exact (92%)**,
