@@ -35,6 +35,54 @@ python scripts/split_accuracy.py <cubicasa>
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
 | Tests | 682 passing | — |
 
+## What the finished model gets right, end to end
+
+Every other measurement here scores one stage. All of them can pass and
+still leave a model nobody would accept, because a plan 80% right on six
+separate things is not 80% of a house. `scripts/output_scorecard.py` runs
+plans end to end and asks how many come out right on **every** count at
+once, scored against the annotations rather than by eye.
+
+Over 30 plans: **10 of 30 (33%)**.
+
+| Check | Fails on | |
+| --- | --- | --- |
+| **size** — scale within a fifth of true | **10 of 30** | the largest single cause |
+| **openings** — within 0.6x to 1.5x of those drawn | 9 of 30 | |
+| **walls** — coverage ≥85% and agreement ≥80% | 8 of 30 | |
+| **rooms** — count within 25% of annotated | 4 of 30 | |
+| built — a model comes out at all | **0 of 30** | |
+| storeys — right number of them | **0 of 30** | |
+
+This reorders the work. The gaps table above ranks windows first and scale
+second on stage metrics; end to end it is **scale first**. Room function,
+which looked like a major problem at bath 0.602 and storage 0.570, costs
+only 4 plans of 30 -- a room read as the wrong kind is a wrong floor
+finish, not a wrong building.
+
+Nothing crashes and nothing is split wrongly, which is worth saying: the
+33% is entirely accuracy, not robustness.
+
+### Three faults in the scorecard itself, found and fixed before trusting it
+
+The first version reported **0 of 12** and would have been bad news from a
+bad ruler:
+
+- Annotated rooms were counted over the *union* of the room classes, so an
+  open-plan floor collapsed into one component and a four-room flat scored
+  as two. Counted per class, as `extract_rooms` does, room failures fell
+  from 7 in 12 to 1.
+- The openings check was a floor rather than a band, so a plan passed by
+  over-reporting -- which is the failure it should catch, given window
+  precision is 43%.
+- The wall check painted every storey's walls onto the original sheet's
+  annotation. On a split sheet each piece has its own origin, so that
+  compares nothing; it is now judged only on sheets that stayed whole.
+
+The thresholds are still first guesses and are marked as such in the
+script. They decide the headline, so they deserve more scepticism than the
+figures they produce.
+
 ## Gaps, worst first
 
 | # | Gap | Measured | Why it matters | General? |
