@@ -20,7 +20,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from planto3d.classes import NUM_CLASSES, WINDOW
+from planto3d.classes import BACKGROUND, NUM_CLASSES, WALL, WINDOW
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,15 @@ IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 # Applies to windows alone. No other class is thin enough to need it, and
 # a floor on a large class would take pixels from its neighbours.
 WINDOW_PROBABILITY_FLOOR = 0.25
+
+# ...and only over these. The argument for the floor is that a window pixel
+# sits ringed by wall and wall wins the average. It says nothing about a
+# door, and a door is what the scale estimate rests on -- letting windows
+# overrule doors would trade the building's size for its glazing. Measured
+# over 30 plans, restricting it this way keeps the same window recall at
+# slightly better precision, and wall agreement comes out higher than
+# argmax rather than lower.
+WINDOW_MAY_OVERRULE = (WALL, BACKGROUND)
 
 
 class Segmenter:
@@ -126,9 +135,13 @@ class Segmenter:
             window = probabilities[WINDOW].cpu().numpy()
 
         # Windows are too thin to win an argmax against the wall they sit
-        # in, so they are given a lower bar. See WINDOW_PROBABILITY_FLOOR.
+        # in, so they are given a lower bar -- but only against the classes
+        # that swallow them. See WINDOW_PROBABILITY_FLOOR.
         predicted = np.where(
-            window >= WINDOW_PROBABILITY_FLOOR, WINDOW, predicted
+            (window >= WINDOW_PROBABILITY_FLOOR)
+            & np.isin(predicted, WINDOW_MAY_OVERRULE),
+            WINDOW,
+            predicted,
         ).astype(np.uint8)
 
         # Back to the page's frame, which the rest of the pipeline works in.

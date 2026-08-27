@@ -2,16 +2,33 @@
 
 import numpy as np
 
-from planto3d.ingest import split_sheet
+from planto3d.ingest import MIN_SPLIT_WIDTH, split_sheet
 
 WHITE, INK = 255, 40
 
 
 def _plan(width=300, height=400):
-    """A dense block standing in for a drawing."""
+    """Walls enclosing rooms, standing in for a drawing.
+
+    This used to be a solid block of ink, which was enough while the
+    splitter only asked where the gutters were and how much ink each piece
+    carried. It also asks whether a piece encloses any space now, since
+    that is what separates a floor plan from a legend or a title block --
+    and a solid block encloses nothing. So the stand-in has to be a plan:
+    an outer wall with partitions inside it.
+    """
     piece = np.full((height, width, 3), WHITE, dtype=np.uint8)
-    piece[40 : height - 40, 30 : width - 30] = INK
-    piece[height // 2, :] = INK
+    thickness = 10
+    top, bottom, left, right = 40, height - 40, 30, width - 30
+
+    # Outer wall, drawn as a ring rather than a filled rectangle.
+    piece[top:bottom, left:right] = INK
+    piece[top + thickness : bottom - thickness, left + thickness : right - thickness] = WHITE
+
+    # One partition each way, leaving four rooms.
+    middle_y, middle_x = (top + bottom) // 2, (left + right) // 2
+    piece[middle_y : middle_y + thickness, left:right] = INK
+    piece[top:bottom, middle_x : middle_x + thickness] = INK
     return piece
 
 
@@ -135,5 +152,45 @@ def test_a_ruled_gutter_still_reads_as_one_gutter():
     sheet = _sheet(2)
     width = sheet.shape[1]
     sheet[:, width // 2 - 1 : width // 2 + 1] = 0
+
+    assert len(split_sheet(sheet)) == 2
+
+
+def _legend(width=300, height=150):
+    """A key: rows of short strokes beside small symbols.
+
+    Carries plenty of ink and sits behind a perfectly good gutter, which
+    is exactly why it used to be built as a second storey. It encloses
+    nothing, which is what gives it away.
+    """
+    piece = np.full((height, width, 3), WHITE, dtype=np.uint8)
+    for row, y in enumerate(range(20, height - 20, 34)):
+        piece[y : y + 9, 24 : 24 + 18] = INK          # the symbol
+        piece[y + 2 : y + 8, 60 : width - 40] = INK   # the caption beside it
+    return piece
+
+
+def test_a_legend_under_the_plan_is_not_a_second_storey():
+    # Sheet 8150: a sketch with a key beneath it, split into plan plus key
+    # and reconstructed as a two-storey building. The gutter is real; what
+    # is behind it is not a plan.
+    plan = _plan(width=460)
+    legend = _legend(width=plan.shape[1])
+    gutter = np.full((70, plan.shape[1], 3), WHITE, dtype=np.uint8)
+    sheet = np.vstack([plan, gutter, legend])
+
+    # The sheet has to clear MIN_SPLIT_WIDTH or nothing is even considered,
+    # which would pass this test for the wrong reason.
+    assert sheet.shape[1] >= MIN_SPLIT_WIDTH
+
+    assert len(split_sheet(sheet)) == 1
+
+
+def test_a_real_second_plan_behind_the_same_gutter_still_splits():
+    # The guard must not simply refuse every stacked sheet: the thing it
+    # rejects is a piece that encloses nothing, not a piece below a gutter.
+    plan = _plan(width=460)
+    gutter = np.full((70, plan.shape[1], 3), WHITE, dtype=np.uint8)
+    sheet = np.vstack([plan, gutter, _plan(width=460)])
 
     assert len(split_sheet(sheet)) == 2

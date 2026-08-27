@@ -314,24 +314,49 @@ is 0.68 against 0.028 for window, and window ranks fourth or worse half
 the time. The model is confidently wrong there. The floor recovers the
 minority it is unsure about, not the majority it gets wrong.
 
-### It is a trade, measured end to end
+### It may not overrule a door
 
-The floor carves window out of pixels the segmenter called wall, so wall
-loses a little everywhere:
+The floor is allowed to overturn **wall and background only**
+(`WINDOW_MAY_OVERRULE`). The argument for it -- a window pixel sits
+ringed by wall and wall wins the average -- says nothing about a door,
+and doors are what the scale estimate rests on. Letting windows overrule
+doors would trade the building's size for its glazing. Restricting it
+costs nothing and gains a little:
 
-| | Before | After |
-| --- | --- | --- |
-| **Window recall** | 60.5% | **61.6%** |
-| **Window precision** | 36.3% | **43.8%** |
-| Wall coverage | 97.4% | 96.6% |
-| Wall agreement | 93.0% | 92.2% |
-| Scale median error | 17.7% | 18.0% |
-| Scale within a fifth | 16/24 | 15/24 |
+| Rule | Window recall | Window precision | Wall agreement |
+| --- | --- | --- | --- |
+| argmax | 58.4% | 39.6% | 92.7% |
+| Floor over any class | 63.2% | 45.3% | 93.4% |
+| **Floor over wall and background** | **63.2%** | **45.8%** | **93.4%** |
 
-Kept because windows were the weakest thing in the pipeline by a long
-way and 7.5 points of precision on them outweighs a point each
-elsewhere -- but it is a judgement, not a free win, and reverting it is
-one constant.
+### It is a trade, and the cost is in the scale
+
+Measured end to end over 48 plans, with each of today's two behaviour
+changes switched on alone:
+
+| Configuration | Scale median | Within a fifth | Plans scaled from doors |
+| --- | --- | --- | --- |
+| Before today | 17.6% | **34/48** | 30 |
+| Window floor only | 17.7% | 30/48 | 29 |
+| Splitting fixes only | 17.6% | 32/48 | 29 |
+| Both, as shipped | 18.1% | 28/48 | 28 |
+
+The mechanism is second-order and worth stating plainly: carving window
+out of wall changes the wall segments, some doors then sit too far from
+any wall to bind to one, and a plan with too few doors falls back to the
+wall gauge, which carries a -20% bias. It is not that windows overrule
+doors -- they are forbidden to -- it is that they move the walls doors
+attach to.
+
+So the two worst gaps in this audit are in direct opposition here.
+Windows gain 4.8 points of recall and 6.2 of precision; scale loses four
+plans in forty-eight. Wall agreement gains 0.7 and coverage loses 0.6.
+
+**Kept**, on the grounds that a model with the wrong windows in the wrong
+places is wrong in a way anyone can see, while absolute size is already
+declared an estimate to callers whenever it is not measured. But it is a
+judgement between two real costs rather than a free win, the whole of it
+is above, and reverting it is one constant.
 
 ## Two proposed scale sources, both examined and neither added
 

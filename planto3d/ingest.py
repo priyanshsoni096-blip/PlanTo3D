@@ -112,6 +112,22 @@ MIN_PLAN_INK_SHARE = 0.2
 # ambiguous; two, leaving three pieces, is a claim about the whole sheet.
 # See ``split_sheet``.
 MIN_BOUNDARY_CUTS = 2
+
+# How much of a piece's empty area must be sealed off from its own border
+# before that piece is accepted as a floor plan.
+#
+# This is the one thing a floor plan always does: walls enclose rooms. A
+# legend, a key, a title block or a revision table encloses nothing --
+# flood fill from its edge reaches almost every empty pixel in it. Measured
+# over 25 pieces of correctly split sheets the share runs 0.21 to 0.96 with
+# a median of 0.50; the legend on sheet 8150 scores 0.019. This sits an
+# order of magnitude above the legend and half the worst real plan.
+MIN_ENCLOSED_SHARE = 0.10
+
+# How many points along each edge to start the flood from. A drawing whose
+# outer wall touches the sheet edge would seal the fill out from a single
+# corner, so it is started from many points along all four sides.
+BORDER_PROBES = 200
 # Detecting the page itself. A tone this light covering this much of a sheet
 # is paper, not drawing -- no plan's linework covers a tenth of the page in
 # one flat shade.
@@ -467,7 +483,57 @@ def _pieces_look_like_plans(
             thinnest * 100,
         )
         return False
+
+    # Carrying ink is not the same as being a plan. A legend, a key, a
+    # title block or a revision table sits behind a gutter just as a second
+    # plan does and carries plenty of ink -- sheet 8150 is a sketch with a
+    # key beneath it, and the key was built as a second storey. What tells
+    # them apart is that a plan encloses space and a list of symbols does
+    # not.
+    for index, (a, b) in enumerate(zip(edges, edges[1:])):
+        piece = ink[:, a:b] if axis == 0 else ink[a:b, :]
+        enclosed = _enclosed_share(piece)
+        if enclosed < MIN_ENCLOSED_SHARE:
+            logger.info(
+                "rejecting split into %d: piece %d encloses %.1f%% of itself, "
+                "so it is a legend or a title block rather than a plan",
+                len(shares),
+                index,
+                enclosed * 100,
+            )
+            return False
     return True
+
+
+def _enclosed_share(ink: np.ndarray) -> float:
+    """Share of a piece's empty area that its own border cannot reach.
+
+    Flood fill inward from every edge; whatever the fill cannot reach is
+    sealed off by ink, which on a floor plan means it is a room. Returns 0
+    for a piece with no empty space at all.
+    """
+    height, width = ink.shape
+    if height < 3 or width < 3:
+        return 0.0
+
+    free = (~ink.astype(bool)).astype(np.uint8)
+    total = float(free.sum())
+    if total <= 0:
+        return 0.0
+
+    # cv2.floodFill needs a mask two pixels larger than the image.
+    reachable = free.copy()
+    scratch = np.zeros((height + 2, width + 2), np.uint8)
+    for x in range(0, width, max(width // BORDER_PROBES, 1)):
+        for y in (0, height - 1):
+            if reachable[y, x]:
+                cv2.floodFill(reachable, scratch, (x, y), 0)
+    for y in range(0, height, max(height // BORDER_PROBES, 1)):
+        for x in (0, width - 1):
+            if reachable[y, x]:
+                cv2.floodFill(reachable, scratch, (x, y), 0)
+
+    return float(reachable.sum()) / total
 
 
 def split_sheet(image: np.ndarray) -> list[np.ndarray]:
