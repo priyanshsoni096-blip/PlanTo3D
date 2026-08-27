@@ -146,33 +146,72 @@ The third is the most promising and the least explored.
 
 ## Wall extraction, measured against the annotations
 
-Never checked until now, and everything downstream rests on it. Measured
-by painting the built walls back at their own thickness and comparing
-with the annotation, over 30 plans:
+Everything downstream rests on this. Measured by painting the built walls
+back at their own thickness and comparing with the annotation, over 30
+plans -- `scripts/wall_accuracy.py`:
 
 | | Median | Plans below 70% |
 | --- | --- | --- |
-| **Coverage** — annotated wall that gets built | **99.0%** | **0 of 30** |
-| **Agreement** — built wall that really is wall | 88.4% | 4 of 30 |
+| **Coverage** — annotated wall that gets built | **97.4%** | **0 of 30** |
+| **Agreement** — built wall that really is wall | **93.0%** | 4 of 30 |
 
-Essentially every wall in the drawing is found. What remains is
-over-building on a handful of plans, and two hypotheses for it were
-tested and rejected:
+Agreement was 88.4% until the ceiling on wall thickness came down from
+four times the drawing's own wall to 2.5 -- see `MAX_THICKNESS_RATIO`. It
+cost 1.6 points of coverage and bought 4.6 of agreement, and the wall and
+opening counts did not move, so what it removed was a handful of grossly
+over-thick runs per plan rather than real wall.
+
+Three hypotheses for the remainder were tested and rejected:
 
 - **Not envelope closing.** Sample 10711 has *zero* invented walls and
-  still sits at 62% agreement, so the disagreement is in the walls read
-  off the drawing.
-- **Not thickness.** Extracted walls come out *thinner* than annotated
-  ones, at a median ratio of 0.79, so a wall painted at its own thickness
-  lands inside the real one rather than spilling outside it.
+  still sat at 62%, so the disagreement is in the walls read off the
+  drawing.
+- **Not thickness in general.** Extracted walls come out *thinner* than
+  annotated ones at a median ratio of 0.79, so a wall painted at its own
+  thickness lands inside the real one rather than spilling outside it. It
+  is the few extreme runs that cost, not the typical one.
+- **Not open junctions.** See below.
 
-That leaves position, on four plans of thirty. Small, and not chased.
+What is left, on the four plans still under 70%, is **sheets that were
+never split**. Plan 11855 is two plans side by side and scores 56%: its
+worst invented walls are a title-block rule along the foot of the sheet
+and runs fused across the gap between the two drawings. That is gap #3,
+not a wall-extraction fault.
 
-Worth recording alongside it: the predicted wall gauge runs about 10–15%
-thicker than the annotated one, while the extracted segments run 21%
-thinner. The orientation opening erodes what the segmenter over-predicts.
+## Chamfering open junctions was tried, and there were none to close
 
-## Diagonal walls are not worth recovering
+The prediction: 3DPlanNet (Park & Kim, *Electronics* 2021, 10, 2729)
+lists four node/edge generation rules, and three of them already exist
+here in `_merge_collinear`. The fourth, "chamfer" -- extending two walls
+whose endpoints nearly meet into a proper right-angle junction -- did
+not, and open junctions looked like an obvious cause of rooms failing to
+close.
+
+It was built and swept from 0.5 to 4 wall-thicknesses of reach. Coverage
+and agreement did not move at all until 4, where agreement got *worse*.
+
+The reason is measurable, and is why the rule does not transfer. Across
+12 plans there are 79 junctions where two perpendicular walls do not
+meet, and their gaps are not near-misses:
+
+| Gap between wall and wall, in wall-thicknesses | |
+| --- | --- |
+| 10th percentile | 3.2 |
+| median | **4.8** |
+| 90th percentile | 5.7 |
+| **within 1.5 thicknesses** | **3 of 79** |
+
+A junction here is either already crossing or a real doorway. Walls are
+extracted as runs whose endpoints sit on their own bounding-box
+centreline and are then merged across gaps of up to 3.75 thicknesses, so
+anything that could be chamfered has already been joined. Reaching to 4
+starts bridging doors, which is why agreement fell.
+
+The rule is sound in its own setting and redundant in this one. Recorded
+as a prediction that failed, and the code removed rather than left in
+place firing on 3 junctions in 79.
+
+## Diagonal walls are not worth recovering## Diagonal walls are not worth recovering
 
 The extractor opens the wall mask horizontally and again vertically and
 keeps what survives either, so a genuinely diagonal wall survives neither.

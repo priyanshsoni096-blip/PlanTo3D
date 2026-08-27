@@ -349,7 +349,27 @@ def _merge_collinear(walls: list[Wall], gap: float, offset: float) -> list[Wall]
 # hatching, dimension bands and title-block rules, which the segmenter
 # reports as enormously thick walls: on the reference sheet the median run
 # is 10 inches and the fattest is nearly ten feet.
-MAX_THICKNESS_RATIO = 4.0
+# How much thicker than the drawing's other walls a run may be before it is
+# not a wall at all. A drawing's walls are near enough all one thickness, so
+# a run several times the rest is something else wearing a wall's clothes:
+# a title-block rule, a hatched section, a dimension band, or two walls the
+# orientation pass has fused across a room.
+#
+# Swept over 30 plans against the annotations. It is the single biggest
+# lever on how much invented wall gets built:
+#
+#     max thickness   coverage   agreement
+#           4.0         99.0%       88.4%
+#           2.8         98.7%       91.2%
+#         * 2.5         97.4%       93.0%
+#           2.2         96.9%       92.3%
+#           2.0         97.4%       92.1%
+#
+# 2.4 to 2.6 all give 93.0%, so this sits in the middle of a plateau rather
+# than on a peak. It trades 1.6 points of coverage for 4.6 of agreement,
+# and the wall and opening counts do not move -- what it removes is a
+# handful of grossly over-thick runs per plan, not real wall.
+MAX_THICKNESS_RATIO = 2.5
 
 def _drop_impossibly_thick(walls: list[Wall]) -> list[Wall]:
     """Remove runs far thicker than the drawing's own walls.
