@@ -11,6 +11,7 @@ a median across every labelled room so a single misread cannot skew it.
 """
 
 import logging
+import math
 import re
 from dataclasses import dataclass
 from statistics import median
@@ -38,6 +39,35 @@ DIMENSION_PATTERN = re.compile(
     r"\s*[xX×]\s*"
     rf"(\d{{1,3}})\s*{FOOT_MARK}\s*(\d{{1,2}})"
 )
+
+# An area printed on the drawing: "2130 SQ.FT.", "600 SQ. FT.", "125 m2",
+# "125 SQM". Indian and Korean residential sheets print these routinely and
+# they are the most direct scale reference a drawing can carry -- an area is
+# two dimensions at once, and unlike a room's bounding box it does not care
+# which way round the label reads.
+#
+# The unit is required. A bare number on a plan is a room number, a level,
+# a door tag or a note, and reading one as an area would resize the whole
+# building.
+# The superscript two, named rather than typed, so the pattern survives
+# every editor and shell it passes through.
+SUPERSCRIPT_TWO = "²"
+
+AREA_PATTERN = re.compile(
+    r"(\d{1,3}(?:[,\s]\d{3}|\d*)(?:\.\d+)?)\s*"
+    r"(sq\s*\.?\s*(?:ft|feet|m|metres|meters)|sqft|sqm"
+    r"|m\s*[" + SUPERSCRIPT_TWO + r"2]|ft\s*[" + SUPERSCRIPT_TWO + r"2])",
+    re.IGNORECASE,
+)
+
+SQUARE_FEET_PER_SQUARE_METRE = 10.7639
+
+# Smallest and largest printed area worth believing, in square feet. Below
+# the first a label is more likely a door tag than a room; above the second
+# it is a plot or a whole development rather than anything the polygon under
+# the text encloses.
+MIN_PRINTED_AREA_SQFT = 20.0
+MAX_PRINTED_AREA_SQFT = 20000.0
 
 INCHES_PER_FOOT = 12
 MIN_CONFIDENCE = 40.0
@@ -104,6 +134,130 @@ def parse_dimension_text(text: str) -> tuple[float, float] | None:
         feet_a + inches_a / INCHES_PER_FOOT,
         feet_b + inches_b / INCHES_PER_FOOT,
     )
+
+
+def parse_area_text(text: str) -> float | None:
+    """Extract a printed area in square feet from a label, or None.
+
+    Metric areas are converted, so the caller never has to know which unit
+    the drawing used.
+    """
+    match = AREA_PATTERN.search(text)
+    if not match:
+        return None
+
+    try:
+        amount = float(match.group(1).replace(",", "").replace(" ", ""))
+    except ValueError:
+        return None
+
+    unit = match.group(2).lower().replace(" ", "").replace(".", "")
+    metric = unit.endswith(("m", "m2", "m²", "sqm", "metres", "meters"))
+    area = amount * SQUARE_FEET_PER_SQUARE_METRE if metric else amount
+
+    if not MIN_PRINTED_AREA_SQFT <= area <= MAX_PRINTED_AREA_SQFT:
+        return None
+    return area
+
+
+def _polygon_area_px(room: Room) -> float:
+    """The room's own area by the shoelace formula.
+
+    Its bounding box would do for a rectangle and overstate an L-shaped
+    room badly, and a terrace or a lounge is very often L-shaped.
+    """
+    points = room.polygon
+    if len(points) < 3:
+        return 0.0
+    total = 0.0
+    for index in range(len(points)):
+        x1, y1 = points[index]
+        x2, y2 = points[(index + 1) % len(points)]
+        total += x1 * y2 - x2 * y1
+    return abs(total) / 2
+
+
+def scale_from_areas(rooms: list[Room], text_boxes: list[TextBox]) -> float | None:
+    """Estimate pixels per foot from rooms carrying a printed area.
+
+    An area gives the scale directly: a region of A square feet drawn as
+    P square pixels was drawn at sqrt(P/A) pixels per foot. This is the
+    relation 3DPlanNet calibrates on (Park & Kim, *Electronics* 2021, 10,
+    2729, equation 1), where it reaches 97% scale accuracy on drawings
+    that print their areas.
+
+    Returns None when no room can be matched, leaving the caller to fall
+    back to something measured off the geometry.
+    """
+    samples: list[float] = []
+
+    # Matched label to room rather than room to label, because a label
+    # belongs to exactly one region while a point on a plan sits inside
+    # several: the segmenter emits a polygon per class, so a space read as
+    # part bedroom and part generic room yields two overlapping outlines,
+    # and a plan can carry ninety of them. Asking each room whether it
+    # holds a label took whichever polygon came first in class order,
+    # which is arbitrary -- on the reference sheet it charged "2130 SQ.FT."
+    # to a region a third of the terrace's size and put the whole building
+    # out by a third.
+    #
+    # The largest containing polygon is the right one. Where outlines
+    # nest, the label names the space, not a fragment of it.
+    for box in text_boxes:
+        area_ft2 = parse_area_text(box.text)
+        if area_ft2 is None or area_ft2 <= 0:
+            continue
+
+        containing = [room for room in rooms if room.contains(box.centre)]
+        if not containing:
+            continue
+
+        area_px = max(_polygon_area_px(room) for room in containing)
+        if area_px <= 0:
+            continue
+        samples.append(math.sqrt(area_px / area_ft2))
+
+    if not samples:
+        return None
+
+    scale = median(samples)
+    logger.info(
+        "scale estimated at %.2f px/ft from %d printed area(s)", scale, len(samples)
+    )
+    return scale
+
+
+# How far a scale read off the drawing's own text may sit from one measured
+# off its geometry before the text is disbelieved.
+#
+# The geometric estimate is itself only good to about a fifth, so the gate
+# has to be looser than that or it would reject correct readings. What it is
+# for is the gross failure: a dropped foot mark, a transposed digit, a room
+# number read as an area. Those are wrong by multiples, not by a third.
+MAX_PRINTED_DISAGREEMENT = 0.4
+
+
+def corroborated(printed: float, reference: float | None) -> bool:
+    """Whether a scale read from text is close enough to a measured one.
+
+    With nothing to check against the text is taken on trust -- it is
+    still the best evidence available, and refusing it would leave the
+    drawing with no scale at all.
+    """
+    if reference is None or reference <= 0 or printed <= 0:
+        return True
+
+    disagreement = abs(printed - reference) / reference
+    if disagreement > MAX_PRINTED_DISAGREEMENT:
+        logger.warning(
+            "printed scale %.2f px/ft disagrees with %.2f measured off the "
+            "drawing by %.0f%%; keeping the measured one",
+            printed,
+            reference,
+            disagreement * 100,
+        )
+        return False
+    return True
 
 
 def isolate_ink(image: np.ndarray, cutoff: int = INK_CUTOFF) -> np.ndarray:

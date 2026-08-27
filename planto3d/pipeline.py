@@ -23,8 +23,10 @@ from planto3d.calibrate import (
     ASSUMED_DRAWING_RATIO,
     TextBox,
     assumed_scale,
+    corroborated,
     estimate_scale,
     read_text_boxes,
+    scale_from_areas,
     scale_from_doors,
     scale_from_gauge,
     scale_from_walls,
@@ -69,6 +71,12 @@ MIN_ROOM_AREA = 2000
 MIN_ROOM_SQFT = 12.0
 
 
+# Scale sources that are the drawing's own statement of its size rather
+# than something inferred from it. Everything else means the proportions
+# are right and the absolute size is an estimate.
+PRINTED_SCALE_SOURCES = frozenset({"dimensions", "areas"})
+
+
 @dataclass
 class FloorResult:
     """One floor's extracted geometry and the image it came from."""
@@ -104,15 +112,16 @@ class PipelineResult:
     scale: float | None
     model_path: Path | None
     # Where the scale came from, weakest last: "dimensions" is measured off
-    # printed room sizes; "doors" and "walls" infer it from standard element
-    # sizes; "ratio" assumes a drafting convention. Anything but "dimensions"
-    # means the proportions are right but the absolute size is inferred, and
-    # callers must not present it as measured.
+    # printed room sizes and "areas" off a printed floor area; "doors" and
+    # "walls" infer it from standard element sizes; "ratio" assumes a
+    # drafting convention. Anything the drawing did not state means the
+    # proportions are right but the absolute size is inferred, and callers
+    # must not present it as measured.
     scale_source: str = "dimensions"
 
     @property
     def scale_assumed(self) -> bool:
-        return self.scale_source != "dimensions"
+        return self.scale_source not in PRINTED_SCALE_SOURCES
 
     @property
     def wall_count(self) -> int:
@@ -335,35 +344,56 @@ def run(
         _extract_floor(index, path, segmenter) for index, path in enumerate(cropped)
     ]
 
-    # Pool every floor's rooms and text so sparsely labelled sheets still
-    # benefit from the set's shared scale.
-    scale = estimate_scale(
-        [room for floor in floors for room in floor.plan.rooms],
-        [box for floor in floors for box in floor.text_boxes],
-    )
+    # What the drawing measures on its own geometry. Worked out first
+    # because it is also what a printed number is checked against, and
+    # because it is the fallback when there is no printed number to read.
+    gauges = [floor.wall_gauge_px for floor in floors if floor.wall_gauge_px]
+    gauge = float(median(gauges)) if gauges else None
 
-    # Many plans carry no dimensions at all. Rather than give up, fall back
-    # through progressively weaker references, each still grounded in the
-    # drawing itself before resorting to a drafting convention. This has to
-    # settle before rooms can be filtered by real-world size.
-    scale_source = "dimensions"
-    if scale is None:
-        gauges = [floor.wall_gauge_px for floor in floors if floor.wall_gauge_px]
-        scale = scale_from_doors(
-            [opening for floor in floors for opening in floor.plan.openings],
-            gauge=float(median(gauges)) if gauges else None,
-        )
-        scale_source = "doors"
-    if scale is None:
-        gauges = [floor.wall_gauge_px for floor in floors if floor.wall_gauge_px]
-        scale = (
-            scale_from_gauge(float(median(gauges)))
-            if gauges
+    reference = scale_from_doors(
+        [opening for floor in floors for opening in floor.plan.openings],
+        gauge=gauge,
+    )
+    reference_source = "doors"
+    if reference is None:
+        reference = (
+            scale_from_gauge(gauge)
+            if gauge
             else scale_from_walls(
                 [wall for floor in floors for wall in floor.drawn_walls]
             )
         )
-        scale_source = "walls"
+        reference_source = "walls"
+
+    # What the drawing says about itself. Better evidence than anything
+    # inferred from standard element sizes -- a printed "13'0\" x 10'0\"" or
+    # "2130 SQ.FT." is the architect's own statement of size, where a door
+    # width is an assumption about doors in general.
+    #
+    # Pooled across floors, so sparsely labelled sheets still benefit from
+    # the set's shared scale: the reference terrace sheet yields one
+    # dimension on its own against eight from its ground floor.
+    rooms = [room for floor in floors for room in floor.plan.rooms]
+    boxes = [box for floor in floors for box in floor.text_boxes]
+
+    printed = estimate_scale(rooms, boxes)
+    printed_source = "dimensions"
+    if printed is None:
+        printed = scale_from_areas(rooms, boxes)
+        printed_source = "areas"
+
+    # But only if it survives the check. OCR on a busy drawing misreads a
+    # foot mark, drops a digit, or takes a door tag for a room size, and an
+    # ungated printed number resizes the entire building on one bad read.
+    # Agreement means the text was read correctly and refines the answer;
+    # disagreement means it was not, and the geometry stands.
+    scale = None
+    scale_source = "ratio"
+    if printed is not None and corroborated(printed, reference):
+        scale, scale_source = printed, printed_source
+    elif reference is not None:
+        scale, scale_source = reference, reference_source
+
     if scale is None:
         scale = assumed_scale(WORKING_DPI)
         scale_source = "ratio"

@@ -211,7 +211,46 @@ The rule is sound in its own setting and redundant in this one. Recorded
 as a prediction that failed, and the code removed rather than left in
 place firing on 3 junctions in 79.
 
-## Diagonal walls are not worth recovering## Diagonal walls are not worth recovering
+## Scale from what the drawing prints, gated
+
+A drawing that states its own size is better evidence than any inference
+from door widths. Two forms are read: dimension pairs (`13'0" x 10'0"`)
+and printed areas (`2130 SQ.FT.`, `125 m2`), the latter being the
+relation 3DPlanNet calibrates on, where it reaches 97%.
+
+**Both are now gated.** Previously a dimension reading won outright. OCR
+on a busy sheet drops a foot mark, transposes a digit, or takes a door
+tag for a room size, and one bad read resized the whole building. A
+printed figure is now used only when it agrees with the geometric
+estimate within 40% -- looser than that estimate's own ~20% error, so it
+cannot reject a correct reading, but tight enough to catch the failures,
+which are wrong by multiples rather than by a third.
+
+The area path was checked for structural bias, which it would inherit
+squared. Over 30 plans the extracted room polygons enclose **0.986** of
+the annotated room area at the median, 29 of 30 within 10%, so a scale
+taken from an area carries only a **-0.7%** bias. The method is sound.
+
+Matching a label to a room was not. A point on a plan sits inside several
+outlines, because the segmenter emits one polygon per class and a sheet
+can carry ninety of them; taking whichever came first in class order
+charged the reference sheet's `2130 SQ.FT.` to a fragment a third of the
+terrace's size and put the scale out by 36%. Charging each label to the
+**largest** outline containing it took that to -14.5%, where the gate
+then prefers the dimension pairs anyway.
+
+**On the corpus this changes nothing**, and that is the point: CubiCasa's
+rasters print almost no text -- OCR returned 0 to 3 boxes per plan and no
+usable dimension pair on 8 of 8 -- because its dimensions live in the
+annotation rather than on the drawing. Scale accuracy is unchanged at
+17.7% median, 16 of 24 within a fifth.
+
+So this is **opportunistic and unvalidated beyond one drafting
+convention**. It helps sheets that print their sizes, it is checked
+before it is believed, and it cannot make an unlabelled plan worse. It is
+not evidence that scale is solved; gap #4 is what would settle that.
+
+## Diagonal walls are not worth recovering
 
 The extractor opens the wall mask horizontally and again vertically and
 keeps what survives either, so a genuinely diagonal wall survives neither.

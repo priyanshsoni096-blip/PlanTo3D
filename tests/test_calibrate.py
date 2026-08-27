@@ -2,10 +2,14 @@ import numpy as np
 import pytest
 
 from planto3d.calibrate import (
+    MAX_PRINTED_DISAGREEMENT,
     TextBox,
+    corroborated,
     estimate_scale,
+    parse_area_text,
     parse_dimension_text,
     read_text_boxes,
+    scale_from_areas,
 )
 from planto3d.geometry_types import Room
 
@@ -214,3 +218,94 @@ class TestReadTextBoxes:
 
 def test_textbox_centre_is_the_middle_of_its_bounds():
     assert TextBox(text="X", bbox=(10, 20, 30, 40), confidence=90.0).centre == (25.0, 40.0)
+
+
+class TestPrintedAreas:
+    """Scale from an area the drawing prints on itself.
+
+    3DPlanNet (Park & Kim, *Electronics* 2021, 10, 2729, equation 1)
+    calibrates this way and reaches 97% on drawings that print an area.
+    Indian residential sheets print them routinely; the Finnish corpus
+    does not print any, so this path is opportunistic and gated.
+    """
+
+    @pytest.mark.parametrize(
+        "text,expected",
+        [
+            ("TERRACE GARDEN 2130 SQ.FT.", 2130.0),
+            ("600 SQ.FT.", 600.0),
+            ("PANTRY/DECK SEATING 600 SQ FT", 600.0),
+            ("1,250 SQFT", 1250.0),
+            ("AREA 450 SQ. FT", 450.0),
+            ("125 m2", 1345.5),
+            ("98.5 SQM", 1060.2),
+        ],
+    )
+    def test_it_reads_an_area_however_the_sheet_writes_it(self, text, expected):
+        parsed = parse_area_text(text)
+        assert parsed is not None, text
+        assert parsed == pytest.approx(expected, rel=0.01)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "BEDROOM 3",       # a room number
+            "ROOM 101",        # a door tag
+            "2130",            # a bare number is not an area
+            "13'0\" X 10'0\"",  # a dimension pair, handled elsewhere
+            "5 SQ.FT.",        # too small to be a room
+            "99000 SQ.FT.",    # a development, not a room
+        ],
+    )
+    def test_it_refuses_what_is_not_an_area(self, text):
+        # The unit is required and the size is bounded. A bare number read
+        # as an area would resize the whole building.
+        assert parse_area_text(text) is None
+
+    def test_a_label_is_charged_to_the_space_not_a_fragment_of_it(self):
+        # The segmenter emits a polygon per class, so outlines overlap and
+        # a point sits inside several. Taking whichever came first put the
+        # reference sheet's terrace label on a region a third its size and
+        # the building out by a third.
+        big = Room(
+            polygon=[(0.0, 0.0), (400.0, 0.0), (400.0, 400.0), (0.0, 400.0)],
+            label="TERRACE",
+        )
+        fragment = Room(
+            polygon=[(150.0, 150.0), (250.0, 150.0), (250.0, 250.0), (150.0, 250.0)],
+            category="outdoor",
+        )
+        label = TextBox(text="1600 SQ.FT.", bbox=(195, 195, 10, 10), confidence=90.0)
+
+        # 400x400 px over 1600 sq ft is 10 px/ft; the fragment would say 2.5.
+        for rooms in ([big, fragment], [fragment, big]):
+            assert scale_from_areas(rooms, [label]) == pytest.approx(10.0, rel=0.01)
+
+    def test_no_area_on_the_sheet_is_not_an_error(self):
+        room = Room(polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
+        assert scale_from_areas([room], []) is None
+
+
+class TestTheGateOnPrintedScale:
+    """Text read off a drawing is better evidence than a door width -- but
+    only once it has been checked. OCR on a busy sheet drops a foot mark or
+    takes a tag for a size, and an ungated reading resizes the building."""
+
+    def test_a_reading_close_to_the_geometry_is_believed(self):
+        assert corroborated(26.3, 28.4)
+
+    def test_a_reading_out_by_a_multiple_is_not(self):
+        # A dropped digit, a transposed pair, a room number read as a size.
+        assert not corroborated(3.0, 32.0)
+        assert not corroborated(64.0, 32.0)
+
+    def test_with_nothing_to_check_against_it_is_taken_on_trust(self):
+        # Refusing it would leave the drawing with no scale at all, and it
+        # is still the best evidence available.
+        assert corroborated(32.0, None)
+
+    def test_the_gate_is_looser_than_the_geometry_it_checks(self):
+        # The measured estimate is itself only good to about a fifth, so a
+        # tighter gate would reject correct readings. This guards against
+        # someone tightening it to look rigorous.
+        assert MAX_PRINTED_DISAGREEMENT > 0.2
