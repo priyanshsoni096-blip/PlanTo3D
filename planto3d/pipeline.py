@@ -31,7 +31,7 @@ from planto3d.calibrate import (
     scale_from_gauge,
     scale_from_walls,
 )
-from planto3d.classical import classical_mask, refine_windows, vegetation_regions
+from planto3d.classical import classical_mask, vegetation_regions
 from planto3d.extract import (
     close_envelope,
     wall_gauge,
@@ -194,7 +194,7 @@ def _enlarge_if_unmeasurable(image, mask, segmenter: Segmenter):
         (int(round(width * factor)), int(round(height * factor))),
         interpolation=cv2.INTER_CUBIC,
     )
-    return enlarged, refine_windows(segmenter(enlarged), enlarged)
+    return enlarged, segmenter(enlarged)
 
 
 def _polygon_area(polygon: list[tuple[float, float]]) -> float:
@@ -211,7 +211,26 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     if image is None:
         raise FileNotFoundError(f"could not read page image: {image_path}")
 
-    mask = refine_windows(segmenter(image), image)
+    # The segmenter's own answer, unrefined.
+    #
+    # `refine_windows` used to run here, replacing the model's windows with
+    # ones read from the drawing's colour wherever colour found enough
+    # strips to be trusted. Measured against the annotations over 28 plans
+    # it was doing severe harm, and worst exactly where it claimed to help:
+    #
+    #     what it did to the sheet            plans   F1 model   F1 after
+    #     colour trusted, model wiped            12      0.509      0.051
+    #     colour merged in                        7      0.406      0.397
+    #     no colour found                         9      0.600      0.600
+    #
+    # Overall it took window detection from 62.1% recall at 43.5%
+    # precision to 41.6% at 26.7%. It hurt both subsets, the colourful one
+    # worst. Its premise -- that colour beats the model on sheets that mark
+    # glazing in colour -- was true of a much weaker model and is not true
+    # of this one.
+    #
+    # The function stays in `classical` where the baseline still uses it.
+    mask = segmenter(image)
 
     # Whether a drawing is big enough is a question about the wall, not
     # about the page. A CubiCasa sheet 650 pixels across is small but its

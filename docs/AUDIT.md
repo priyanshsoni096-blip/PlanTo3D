@@ -351,16 +351,18 @@ wall gauge, which carries a -20% bias. It is not that windows overrule
 doors -- they are forbidden to -- it is that they move the walls doors
 attach to.
 
-So the two worst gaps in this audit are in direct opposition here.
-Against the shipped baseline, measured by the scripts:
+That opposition turned out to be mostly someone else's fault. Removing
+`refine_windows` (below) gave the scale back, so the standing position is:
 
-| | Before | After |
-| --- | --- | --- |
-| Window recall | 60.5% | **62.1%** |
-| Window precision | 36.3% | **43.5%** |
-| Wall coverage | 97.4% | 96.6% |
-| Wall agreement | 93.0% | 92.2% |
-| Scale within a fifth, of 48 | 34 | 28 |
+| | Before | Window floor | ...and without `refine_windows` |
+| --- | --- | --- | --- |
+| Window recall | 60.5% | 62.1% | **62.1%** |
+| Window precision | 36.3% | 43.5% | **43.5%** |
+| Wall coverage | 97.4% | 96.6% | 96.6% |
+| Wall agreement | 93.0% | 92.2% | 92.2% |
+| Scale within a fifth, of 48 | 34 | 28 | **33** |
+
+One plan of forty-eight, for six points of window precision.
 
 **Kept**, on the grounds that a model with the wrong windows in the wrong
 places is wrong in a way anyone can see, while absolute size is already
@@ -463,6 +465,53 @@ Also worth recording, because it is an operational fact rather than a
 code one: the same sheet rendered at 150 dpi yields **0** text lines
 where at 400 dpi it yields **105**. Resolution, not preprocessing, is
 what decides whether a drawing's own text is available at all.
+
+## Colour-read windows were making the model worse
+
+`refine_windows` ran on every mask the segmenter produced. Where colour
+found enough glazing strips to be trusted it **deleted the model's
+windows entirely** and used the coloured ones instead; below that
+threshold it merged the two. Its premise, in its own docstring, was that
+"colour is far more reliable than the model on sheets that mark glazing
+in colour".
+
+It had never been scored against the annotations. Over 28 plans, as
+detection:
+
+| | Recall | Precision | F1 |
+| --- | --- | --- | --- |
+| The model alone | **62.1%** | **43.5%** | **0.512** |
+| After `refine_windows` | 41.6% | 26.7% | 0.325 |
+
+And it fails hardest exactly where it claims to help:
+
+| What it did to the sheet | Plans | F1 model | F1 after |
+| --- | --- | --- | --- |
+| Colour trusted, model wiped | 12 | 0.509 | **0.051** |
+| Colour merged in | 7 | 0.406 | 0.397 |
+| No colour found | 9 | 0.600 | 0.600 |
+
+On the twelve sheets where it decided colour knew better, it took window
+detection to an F1 of **0.05** -- ten times worse than the model it
+overruled. It hurt the colourful subset by 0.240 and the high-quality one
+by 0.107, so this is not a matter of picking the right sheets.
+
+The premise was probably true once. It was written against a model
+scoring 0.12 IoU on windows; that model has since been retrained on 11
+classes with class weighting, and windows now have a probability floor.
+The heuristic was never re-measured against the model that replaced the
+one it was beating.
+
+It no longer touches the trained model's output. The function stays in
+`classical`, where the baseline still uses it and where the traps list
+already says colour-driven windows are one drawing office's convention.
+
+**It was also the scale regression.** Deleting the model's windows
+changed the wall mask, which moved the wall segments, which orphaned
+doors -- and doors carry the scale estimate. Removing it took plans
+calibrated within a fifth from 28 of 48 back to **33**, with 30 plans
+scaled from doors rather than 28, and the worst error from 56.1% to
+44.6%. The window floor was blamed for that and was mostly innocent.
 
 ## Room squaring is not failing, and the log was saying it was
 
