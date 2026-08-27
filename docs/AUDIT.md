@@ -152,8 +152,11 @@ plans -- `scripts/wall_accuracy.py`:
 
 | | Median | Plans below 70% |
 | --- | --- | --- |
-| **Coverage** — annotated wall that gets built | **97.4%** | **0 of 30** |
-| **Agreement** — built wall that really is wall | **93.0%** | 4 of 30 |
+| **Coverage** — annotated wall that gets built | **96.6%** | **0 of 30** |
+| **Agreement** — built wall that really is wall | **92.2%** | 4 of 30 |
+
+Both were 0.8 higher (97.4% and 93.0%) before windows were given a lower
+bar than the wall they sit in; see below for that trade.
 
 Agreement was 88.4% until the ceiling on wall thickness came down from
 four times the drawing's own wall to 2.5 -- see `MAX_THICKNESS_RATIO`. It
@@ -323,11 +326,11 @@ and doors are what the scale estimate rests on. Letting windows overrule
 doors would trade the building's size for its glazing. Restricting it
 costs nothing and gains a little:
 
-| Rule | Window recall | Window precision | Wall agreement |
-| --- | --- | --- | --- |
-| argmax | 58.4% | 39.6% | 92.7% |
-| Floor over any class | 63.2% | 45.3% | 93.4% |
-| **Floor over wall and background** | **63.2%** | **45.8%** | **93.4%** |
+| Rule | Window recall | Window precision |
+| --- | --- | --- |
+| argmax | 58.4% | 39.6% |
+| Floor over any class | 63.2% | 45.3% |
+| **Floor over wall and background** | **63.2%** | **45.8%** |
 
 ### It is a trade, and the cost is in the scale
 
@@ -349,8 +352,15 @@ doors -- they are forbidden to -- it is that they move the walls doors
 attach to.
 
 So the two worst gaps in this audit are in direct opposition here.
-Windows gain 4.8 points of recall and 6.2 of precision; scale loses four
-plans in forty-eight. Wall agreement gains 0.7 and coverage loses 0.6.
+Against the shipped baseline, measured by the scripts:
+
+| | Before | After |
+| --- | --- | --- |
+| Window recall | 60.5% | **62.1%** |
+| Window precision | 36.3% | **43.5%** |
+| Wall coverage | 97.4% | 96.6% |
+| Wall agreement | 93.0% | 92.2% |
+| Scale within a fifth, of 48 | 34 | 28 |
 
 **Kept**, on the grounds that a model with the wrong windows in the wrong
 places is wrong in a way anyone can see, while absolute size is already
