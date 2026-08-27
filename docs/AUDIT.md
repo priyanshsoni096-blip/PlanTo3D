@@ -466,6 +466,56 @@ code one: the same sheet rendered at 150 dpi yields **0** text lines
 where at 400 dpi it yields **105**. Resolution, not preprocessing, is
 what decides whether a drawing's own text is available at all.
 
+## Resolution is not the constraint, and that is now settled
+
+Four separate attempts to buy accuracy with pixels, none of which paid.
+Written together because the idea keeps returning in a new costume.
+
+| Attempt | Result |
+| --- | --- |
+| **Train at 768** | Windows +0.016 IoU, room and bath worse, downstream flat to worse. 5 GPU hours. |
+| **Find windows as gaps in the wall** | 62 of 75 missed windows sit inside *solid* predicted wall. Ceiling +3.2% recall. |
+| **Segment high-resolution tiles** | Window F1 0.543 to 0.409 at 2x2 and 0.319 at 3x3. Precision halves. |
+| **Infer at a larger input** | No configuration dominates; 640 buys 0.8 of wall agreement and costs two plans their scale. |
+
+The tiling result is worth keeping for what it says about Task 5. Cutting
+a sheet into tiles and segmenting each at the same input size gives the
+network a bigger picture of a smaller area -- exactly what the tiled
+object-detection precedent proposes -- and it makes windows sharply
+**worse**, because a tile is out of distribution twice over: the walls
+arrive two or three times thicker than any it trained on, and a corner of
+a plan with no enclosing wall is not something it has seen. That does not
+refute Task 5, whose detector would be *trained* on tiles. It does mean
+Task 5 cannot be tested cheaply with the weights we have, so it is a
+full training commitment rather than a quick experiment.
+
+Inference size was worth trying because a U-Net is fully convolutional
+and it costs nothing but time. It is measured here because the natural
+next thought after "training at 768 failed" is "then infer at 768", and
+someone should be able to see that it was tried:
+
+| Inference input | Wall coverage | Wall agreement | Scale median | Within a fifth |
+| --- | --- | --- | --- | --- |
+| **512, as trained** | 96.5% | 90.2% | **17.7%** | **16/24** |
+| 640 | **97.1%** | 91.0% | 18.7% | 14/24 |
+| 768 | 94.9% | **92.0%** | 17.7% | 15/24 |
+
+What the same experiments did turn up is that the model's quality tracks
+the wall thickness it is *shown* after the square resize:
+
+| Wall gauge at the network's input | Plans | Median wall IoU |
+| --- | --- | --- |
+| Under 7 px | 9 | 0.697 |
+| 7 to 12 px | 12 | 0.772 |
+| Over 12 px | 4 | **0.827** |
+
+A sheet arriving at 2.2 px scores 0.442. Large sheets shrink most and are
+read worst. That is a real weakness and it is **not** fixed by feeding
+the network more pixels, as the table above shows -- the two ideas look
+alike and are not. It is a training-distribution problem: the augmentation
+already rescales, and whether it rescales enough is a question for the
+next run rather than for inference.
+
 ## Colour-read windows were making the model worse
 
 `refine_windows` ran on every mask the segmenter produced. Where colour
