@@ -162,6 +162,55 @@ What follows from it:
   spread of 2.62 to 5.31 against doors' 1.94 to 2.66. A window is far too
   variable to calibrate on, which is worth knowing before anyone tries.
 
+## The drawing can say whether to trust its own size
+
+Since most of the scale error is a convention mismatch that no amount of
+better vision detects, the useful thing left is to say **which** answers
+to doubt. Doors and the wall gauge measure different things and are wrong
+in different ways, so how far apart they sit says something neither says
+alone. Both are now worked out even though only one is used, and the gap
+is reported as `scale_agreement`, with `scale_confident` reading it.
+
+Swept over the 30 plans carrying both estimates. They usually agree
+closely -- median disagreement 0.062, 90th percentile 0.207 -- so the line
+sits out in the tail:
+
+| Threshold | Flagged | Error if confident | If flagged | Gap |
+| --- | --- | --- | --- | --- |
+| 0.10 | 11/30 | 10.8% | 17.6% | 6.8 |
+| **0.14** | 6/30 | **11.1%** | **21.4%** | **10.3** |
+| 0.18 | 5/30 | 11.5% | 17.6% | 6.1 |
+| 0.26 | 2/30 | 12.3% | 17.5% | 5.2 |
+
+As it ships, over 48 plans:
+
+| | Plans | Median error | Within a fifth |
+| --- | --- | --- | --- |
+| Size reported confident | 24 | **11.1%** | **22/24** |
+| Size flagged as doubtful | 24 | 20.2% | 11/24 |
+
+Ninety-two per cent against forty-six. A plan is also flagged when only
+one estimate could be worked out at all, which is a different reason to
+doubt an answer and an equally good one.
+
+**Combining the two was tried first and does not work.** It was the
+obvious idea and it was wrong:
+
+| Rule | Median error | Within a fifth |
+| --- | --- | --- |
+| **Doors alone, as shipped** | 12.3% | **25/30** |
+| Walls alone | 9.3% | 24/30 |
+| Arithmetic mean | 11.8% | 24/30 |
+| Geometric mean | 11.6% | 24/30 |
+| Larger of the two | 9.9% | 24/30 |
+
+Every blend loses a plan. Walls alone looks tempting on the median and is
+a trap twice over: these are the 30 plans where doors *also* work, which
+is the easier half, and on the 18 where doors fail walls runs at 20.2%.
+
+So the scale itself is unchanged. Only the confidence is new, and a caller
+ignoring it gets the same numbers as before.
+
 ## The one that is a trap
 
 **Do not re-tune the wall-thickness constant.** It looks like a bug and is

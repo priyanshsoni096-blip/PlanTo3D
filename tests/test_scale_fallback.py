@@ -5,6 +5,7 @@ import pytest
 
 from planto3d.calibrate import ASSUMED_DRAWING_RATIO, TextBox, assumed_scale, estimate_scale
 from planto3d.geometry_types import Room
+from planto3d.pipeline import MAX_SCALE_DISAGREEMENT, PipelineResult
 from planto3d.ingest import WORKING_DPI
 
 
@@ -108,3 +109,47 @@ class TestMeasuredScaleStillWins:
         room = Room(polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
 
         assert estimate_scale([room], []) is None
+
+
+class TestScaleConfidence:
+    """Two estimates disagreeing is the drawing arguing with itself.
+
+    Doors and the wall gauge measure different things and are wrong in
+    different ways, so the gap between them says something neither says
+    alone. Measured over 48 plans: where they agree the size lands within
+    a fifth of true 22 times in 24, and where they do not, 11 times in 24.
+    """
+
+    def _result(self, **kwargs):
+        return PipelineResult(floors=[], scale=30.0, model_path=None, **kwargs)
+
+    def test_a_printed_size_is_believed_without_a_second_opinion(self):
+        # The architect wrote it down. It has already been checked against
+        # the geometry by the gate in calibrate; nothing more is needed.
+        for source in ("dimensions", "areas"):
+            assert self._result(scale_source=source, scale_agreement=None).scale_confident
+
+    def test_estimates_that_agree_are_trusted(self):
+        assert self._result(scale_source="doors", scale_agreement=0.03).scale_confident
+
+    def test_estimates_that_argue_are_not(self):
+        assert not self._result(scale_source="doors", scale_agreement=0.45).scale_confident
+
+    def test_one_estimate_alone_is_not_confidence(self):
+        # Nothing corroborated it. That is not the same as it being wrong,
+        # and it is not the same as it being checked either.
+        assert not self._result(scale_source="walls", scale_agreement=None).scale_confident
+
+    def test_the_flag_does_not_touch_the_size(self):
+        # Confidence is reported alongside the answer, never instead of it.
+        # Combining the two estimates was measured and does not help, so
+        # the chosen scale is exactly what it was before this existed.
+        doubted = self._result(scale_source="doors", scale_agreement=0.9)
+        assert doubted.scale == 30.0
+        assert doubted.scale_source == "doors"
+
+    def test_the_threshold_sits_out_in_the_tail(self):
+        # The estimates usually agree closely -- median disagreement 0.062,
+        # 90th percentile 0.207. A threshold below the median would flag
+        # half of everything and mean nothing.
+        assert 0.10 < MAX_SCALE_DISAGREEMENT < 0.25
