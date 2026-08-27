@@ -14,7 +14,10 @@ geometry. Where it does not, the size is inferred from door widths and
 wall thickness, and the pipeline says out loud that it is estimating: the
 proportions are right and the absolute figure is a judgement.
 
-![Aerial view](docs/images/aerial.png)
+![A CubiCasa5K plan, what the pipeline reads off it, and the model it builds](docs/images/pipeline.png)
+
+*A sheet from CubiCasa5K, the walls and rooms read off it, and the model
+built from them. Nothing in the middle panel is hand-corrected.*
 
 ## What it does
 

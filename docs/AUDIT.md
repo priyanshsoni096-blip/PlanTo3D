@@ -660,6 +660,66 @@ rooms. It now reports the region's size in squared wall-thicknesses and
 drops to debug below sixteen of them: the same run prints **7**, which is
 the true number, and each one is a room worth knowing about.
 
+## The outline-wall augmentation worked, and cost more than it bought
+
+`unfill_walls` was added because outline-drawn walls were much the worst
+of eight conventions. A 24-epoch run at 512 followed, all epochs
+completed, best at epoch 20 with a validation Dice of 0.7726 against the
+installed checkpoint's 0.7757. Epochs 21 to 24 gave 0.767, 0.771, 0.772,
+0.772 -- plateaued, not cut short.
+
+**On the convention it was aimed at, it worked:**
+
+| Convention | Installed | Retrained | |
+| --- | --- | --- | --- |
+| **Outline walls** | 0.534 | **0.702** | **+0.168** |
+| Reversed print | 0.014 | 0.429 | +0.415 |
+| Hatched walls | 0.688 | 0.722 | +0.034 |
+| Photocopied | 0.746 | 0.728 | −0.018 |
+| Solid poché | 0.811 | 0.789 | −0.022 |
+| **As drawn** | **0.747** | 0.718 | **−0.029** |
+| Finer pen | 0.752 | 0.676 | −0.076 |
+
+The spread across the eight collapsed from 0.28 to **0.045**. The model
+became *more even*, not better, which is what an augmentation of this kind
+should do.
+
+**On the corpus we can actually measure, it is worse:**
+
+| | Installed | Retrained | |
+| --- | --- | --- | --- |
+| Median class IoU, pooled | **0.713** | 0.673 | −0.040 |
+| circulation | **0.733** | 0.579 | **−0.154** |
+| kitchen | **0.778** | 0.699 | −0.079 |
+| bedroom | 0.713 | **0.766** | +0.053 |
+| wall | **0.697** | 0.673 | −0.024 |
+| window | 0.089 | 0.093 | +0.004 |
+| Wall coverage | 96.6% | **97.4%** | +0.8 |
+| Wall agreement | **92.2%** | 90.7% | −1.5 |
+| **Window recall** | **62.1%** | 57.4% | **−4.7** |
+| Window precision | **43.5%** | 41.4% | −2.1 |
+| Scale median error | 17.3% | **16.3%** | better |
+| Scale within a fifth | 33/48 | 33/48 | — |
+
+**The installed checkpoint is kept.** The gains are on conventions
+simulated by a transform written for the purpose; the losses are against
+CubiCasa's own annotations. Trading 4.7 points of window recall and 0.154
+of circulation IoU for robustness to a convention we have no real
+examples of is the wrong way round while windows are still the weakest
+thing in the project.
+
+This is not a verdict on the augmentation, which did exactly what it was
+built to do. `unfill` ran at 0.3, putting about a third of training draws
+through hollow walls; a lower rate would likely buy much of the
+robustness for less of the cost, and that is one run away from being
+known. The checkpoint is kept rather than discarded.
+
+Worth recording separately: **validation Dice fell while the run
+succeeded.** 0.7757 to 0.7726, because the validation split is drawn from
+the same convention as the training set and so measures the thing that
+got slightly worse rather than the thing that got much better. Anyone
+judging a run of this kind on Dice alone would have called it a failure.
+
 ## What a change of drafting convention actually costs
 
 Every figure in this audit rests on CubiCasa5K, which is one drafting
