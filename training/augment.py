@@ -179,9 +179,10 @@ def augment(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Apply the whole set, each with its own chance.
 
-    Order matters a little: geometry first, so the photometric steps act on
-    what the network will actually see, and compression last, because that
-    is the last thing to happen to a drawing before it reaches anyone.
+    Order matters a little: geometry first, then how the drawing is inked,
+    then the photometric steps, so those act on what the network will
+    actually see -- and compression last, because that is the last thing to
+    happen to a drawing before it reaches anyone.
     """
     chance = {**PROBABILITIES, **(probabilities or {})}
 
@@ -199,6 +200,13 @@ def augment(
             (float(rng.random()), float(rng.random())),
         )
 
+    # Before the photometric steps, because how a wall is inked is part of
+    # the drawing rather than something that happened to it afterwards. Left
+    # until last it would come back crisp on a sheet that was otherwise
+    # blurred and compressed, which is a giveaway rather than a convention.
+    if rng.random() < chance["unfill"]:
+        image = unfill_walls(image, mask)
+
     if rng.random() < chance["exposure"]:
         image = exposure(
             image, float(rng.uniform(*EXPOSURE_RANGE)), float(rng.uniform(*CONTRAST_RANGE))
@@ -207,9 +215,6 @@ def augment(
     if rng.random() < chance["blur"]:
         shorter = min(image.shape[:2])
         image = blur(image, float(rng.uniform(*BLUR_RANGE)) * shorter)
-
-    if rng.random() < chance["unfill"]:
-        image = unfill_walls(image, mask)
 
     if rng.random() < chance["compress"]:
         image = compress(image, int(rng.integers(*JPEG_QUALITY_RANGE)))

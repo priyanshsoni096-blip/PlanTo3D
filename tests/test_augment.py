@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from planto3d.classes import WALL
-from training.augment import augment, blur, compress, exposure, flip, rescale, rotate, unfill_walls
+from training.augment import PROBABILITIES, augment, blur, compress, exposure, flip, rescale, rotate, unfill_walls
 
 
 def _drawing(size=96):
@@ -144,9 +144,9 @@ class TestTheWholeSet:
 
     def test_turning_everything_off_changes_nothing(self):
         image, mask = _drawing()
-        off = dict.fromkeys(
-            ("rotate", "flip", "rescale", "exposure", "compress", "blur"), 0.0
-        )
+        # Taken from the set itself rather than listed here, so adding a
+        # transform cannot leave this test quietly checking five of six.
+        off = dict.fromkeys(PROBABILITIES, 0.0)
 
         result_image, result_mask = augment(
             image.copy(), mask.copy(), np.random.default_rng(0), off
