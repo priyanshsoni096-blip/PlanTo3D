@@ -416,6 +416,71 @@ MIN_OPEN_AREA_SQFT = 15.0
 MIN_OPEN_WIDTH_FT = 2.5
 
 
+def open_to_sky(floor: FloorPlan, scale: float) -> list[list[tuple[float, float]]]:
+    """Regions on this storey that must have nothing built over them.
+
+    A balcony, a terrace, a courtyard, a light well, a terrace garden, a
+    roof pool -- the drawing marks them differently from one another and
+    they all mean the same thing to the geometry: no ceiling here.
+
+    Collected from three sources because no one of them is reliable. The
+    segmenter's ``outdoor`` class finds them on plans that draw them as
+    rooms; a printed label finds them on plans that name them; colour
+    finds the planted ones. The reference sheet's colour blobs cover 48%
+    of the top storey while the room labelled TERRACE GARDEN covers 73%,
+    so any single source leaves a quarter of the garden under a slab.
+
+    Sized afterwards, so a sliver of misread paving cannot punch a hole
+    through a floor.
+    """
+    regions = list(floor.planting)
+    for category in GROUND_COVERS:
+        regions += floor.labelled_regions.get(category, [])
+    regions += [room.polygon for room in floor.rooms if is_open_to_sky(room)]
+    regions = real_open_regions(regions, scale)
+    return merge_regions(regions) if regions else []
+
+
+def _beyond(
+    regions: list[list[tuple[float, float]]], footprint: list[tuple[float, float]]
+) -> list[list[tuple[float, float]]]:
+    """The parts of ``regions`` lying outside ``footprint``.
+
+    Used to keep a hole in a slab from reaching under the storey that slab
+    belongs to: what is open below is only open where nothing stands above
+    it. Returns the regions untouched if the difference cannot be taken,
+    which errs towards the old behaviour rather than towards a hole in
+    somebody's floor.
+    """
+    if not regions or len(footprint) < MIN_FOOTPRINT_VERTICES:
+        return regions
+
+    try:
+        stands_on = Polygon(footprint).buffer(0)
+    except Exception as error:
+        logger.warning("could not read the storey's own outline: %s", error)
+        return regions
+
+    beyond = []
+    for region in regions:
+        if len(region) < MIN_FOOTPRINT_VERTICES:
+            continue
+        try:
+            remainder = Polygon(region).buffer(0).difference(stands_on)
+        except Exception as error:
+            logger.warning("could not trim an open region: %s", error)
+            continue
+        if remainder.is_empty:
+            continue
+        pieces = (
+            remainder.geoms if remainder.geom_type == "MultiPolygon" else [remainder]
+        )
+        for piece in pieces:
+            if piece.area > 0:
+                beyond.append([(float(x), float(y)) for x, y in piece.exterior.coords[:-1]])
+    return beyond
+
+
 def real_open_regions(
     regions: list[list[tuple[float, float]]], scale: float
 ) -> list[list[tuple[float, float]]]:
@@ -584,8 +649,63 @@ def slab_mesh(
     return slab
 
 
+# How far past an edge to look for floor before calling that edge a drop.
+# A little over a wall's thickness, so a railing is not cancelled by the
+# slab it stands on poking out beneath it.
+DROP_PROBE_FT = 1.0
+
+
+def _guarded_edges(
+    polygon: list[tuple[float, float]], standing_on: "Polygon | None", scale: float
+) -> list[bool]:
+    """Which edges of ``polygon`` have a drop beyond them.
+
+    A railing exists to stop someone falling. An edge with more floor on
+    the far side of it is not a fall, it is a doorway or a change of
+    surface, and a rail across it is a fence through the middle of a
+    terrace.
+
+    That was happening wherever the segmenter found a patch of open ground
+    inside a larger open area -- a deck within a terrace garden, paving
+    inside a courtyard. Each patch got a balustrade around its whole
+    perimeter, so the reference building's roof garden came out with 300
+    stray posts standing in the lawn tracing the shapes of its furniture.
+
+    Returns one flag per edge, all True when the storey's extent is not
+    known, which is the behaviour this replaces.
+    """
+    edges = [True] * len(polygon)
+    if standing_on is None or standing_on.is_empty:
+        return edges
+
+    probe = DROP_PROBE_FT * scale
+    for index in range(len(polygon)):
+        start = np.asarray(polygon[index], dtype=float)
+        end = np.asarray(polygon[(index + 1) % len(polygon)], dtype=float)
+        along = end - start
+        length = float(np.hypot(*along))
+        if length <= 0:
+            continue
+
+        # Straight out from the edge's midpoint, on the side away from the
+        # region's own interior.
+        outward = np.array([along[1], -along[0]]) / length
+        middle = (start + end) / 2
+        centre = np.asarray(polygon, dtype=float).mean(axis=0)
+        if np.dot(outward, middle - centre) < 0:
+            outward = -outward
+
+        beyond = middle + outward * probe
+        edges[index] = not standing_on.contains(ShapelyPoint(float(beyond[0]), float(beyond[1])))
+
+    return edges
+
+
 def _railing_parts(
-    polygon: list[tuple[float, float]], base_m: float, scale: float
+    polygon: list[tuple[float, float]],
+    base_m: float,
+    scale: float,
+    standing_on: "Polygon | None" = None,
 ) -> list[trimesh.Trimesh]:
     """A balustrade around an open-edged room: posts under a top rail.
 
@@ -602,8 +722,12 @@ def _railing_parts(
     rail_m = RAIL_DEPTH_FT * FEET_TO_METRES
     spacing_m = POST_SPACING_FT * FEET_TO_METRES
 
+    guarded = _guarded_edges(polygon, standing_on, scale)
+
     parts: list[trimesh.Trimesh] = []
     for index in range(len(polygon)):
+        if not guarded[index]:
+            continue
         run = Wall(
             start=polygon[index],
             end=polygon[(index + 1) % len(polygon)],
@@ -1439,6 +1563,29 @@ def floors_to_parts(
             outline = merge_regions([outline, floors[index - 1].footprint])
             outline = max(outline, key=len) if outline else floor.footprint
 
+            # And because it is that ceiling, it has to stop where the storey
+            # below is open to the sky. Only the roof did this, so an open
+            # area on any storey but the top was sealed under the floor of
+            # the storey above -- and the reach-back just above made it
+            # worse, deliberately stretching the slab out over the very
+            # projection a balcony sits on.
+            #
+            # But only where this storey does not itself stand. That
+            # distinction is the whole of it, and it is the difference
+            # between the two kinds of balcony a plan can draw:
+            #
+            #   projecting  the storey above stops short of it, so there is
+            #               sky above and the slab must not reach out
+            #   recessed    the storey above covers it, so its ceiling is
+            #               that floor -- and cutting the hole anyway would
+            #               take away the floor of the room upstairs
+            #
+            # Nothing here knows what a balcony is. It asks which regions
+            # are open and which of them this storey stands on, and a
+            # terrace, a courtyard, a light well and a roof pool all answer
+            # the same way.
+            voids = voids + _beyond(open_to_sky(floors[index - 1], scale), floor.footprint)
+
         slab = slab_mesh(outline, SLAB_THICKNESS_FT, base_ft, scale, holes=voids)
         if slab is not None:
             parts["floor"].append(slab)
@@ -1474,13 +1621,23 @@ def floors_to_parts(
             )
 
         # Balconies and terraces are open to the air. Without a railing an
-        # upper floor reads as a hole punched in the facade.
+        # upper floor reads as a hole punched in the facade -- but only
+        # along the edges that are actually a drop. See ``_guarded_edges``.
+        standing_on = None
+        if len(floor.footprint) >= MIN_FOOTPRINT_VERTICES:
+            try:
+                standing_on = Polygon(floor.footprint).buffer(0)
+            except Exception as error:
+                logger.warning("could not read the storey's extent: %s", error)
+
         for room in features.get("open", []):
             parts.setdefault("railing", []).extend(
-                _railing_parts(room.polygon, wall_base_m, scale)
+                _railing_parts(room.polygon, wall_base_m, scale, standing_on)
             )
 
-        # A void's edge is a drop, so it needs a railing too.
+        # A void's edge is a drop on every side by definition: the floor
+        # stops and there is a storey's fall beneath it. So it is guarded
+        # all the way round regardless of what surrounds it.
         for room in features.get("void", []):
             parts.setdefault("railing", []).extend(
                 _railing_parts(room.polygon, wall_base_m, scale)
@@ -1606,22 +1763,17 @@ def floors_to_parts(
     # reference sheet's colour blobs cover 48% of the top storey while the
     # room it labels TERRACE GARDEN covers 73%, so roofing to the colour
     # alone left a quarter of the garden under a slab.
-    open_to_sky = list(top.planting)
-    for category in GROUND_COVERS:
-        open_to_sky += top.labelled_regions.get(category, [])
-    open_to_sky += [room.polygon for room in top.rooms if is_open_to_sky(room)]
-    open_to_sky = real_open_regions(open_to_sky, scale)
-    open_to_sky = merge_regions(open_to_sky) if open_to_sky else []
+    sky = open_to_sky(top, scale)
 
     roof = slab_mesh(
-        top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale, holes=open_to_sky
+        top.footprint, SLAB_THICKNESS_FT, roof_base_ft, scale, holes=sky
     )
     if roof is not None:
         parts["roof"].append(roof)
         parapet_base_ft = roof_base_ft + SLAB_THICKNESS_FT
         # Around the roof that exists, not around the whole storey: a
         # parapet standing over an open terrace is a wall in mid-air.
-        parapet = _parapet_walls(_roof_outline(top.footprint, open_to_sky), roof_base_ft, scale)
+        parapet = _parapet_walls(_roof_outline(top.footprint, sky), roof_base_ft, scale)
         for wall in parapet:
             parts["roof"].extend(
                 _wall_parts(
@@ -1639,7 +1791,7 @@ def floors_to_parts(
         # Following the roof as the parapet does. Traced round the whole
         # storey it left a thin rail hanging in the air over the terrace,
         # capping a parapet that is not there.
-        roofed = _roof_outline(top.footprint, open_to_sky)
+        roofed = _roof_outline(top.footprint, sky)
         coping_outline = _expand_outline(roofed, COPING_OVERHANG_FT * scale)
         inner = _expand_outline(
             roofed, -(PARAPET_THICKNESS_FT + COPING_OVERHANG_FT) * scale

@@ -137,3 +137,125 @@ def test_a_storey_with_nothing_open_is_left_alone():
         if mesh.bounds[0][1] >= top_floor - 0.1
     ]
     assert min(heights) > PARAPET_HEIGHT_FT * FEET_TO_METRES
+
+
+# A storey that stops short of the open half, so whatever is below it
+# projects out from under the building rather than being set into it.
+SET_BACK = [(0.0, 0.0), (400.0, 0.0), (400.0, 500.0), (0.0, 500.0)]
+
+
+def _storey(open_label=None, outline=None):
+    """One storey, optionally standing on a smaller footprint than the rest."""
+    outline = outline or OUTLINE
+    rooms = [Room(polygon=list(ROOM_HALF), label="BEDROOM")]
+    walls = _walls(outline)
+    if open_label:
+        rooms.append(Room(polygon=list(OPEN_HALF), label=open_label))
+        walls += _walls(OPEN_HALF)
+    return FloorPlan(walls=walls, footprint=list(outline), rooms=rooms)
+
+
+def _covers(mesh, page_point):
+    """Does this mesh have surface over ``page_point``?
+
+    Asked of the mesh's triangles rather than its vertices. A slab that
+    covers an area whole has no vertex anywhere near it -- its corners are
+    out at the building's edge -- so testing vertices passes a solid slab
+    and proves nothing. This projects each triangle back to page
+    coordinates and asks whether any of them lies over the point.
+    """
+    flat = [
+        (x / FEET_TO_METRES * SCALE, z / FEET_TO_METRES * SCALE)
+        for x, _, z in mesh.vertices
+    ]
+    for a, b, c in mesh.faces:
+        triangle = Polygon([flat[a], flat[b], flat[c]]).buffer(0)
+        if triangle.contains(page_point):
+            return True
+    return False
+
+
+@pytest.mark.parametrize("label", OPEN_LABELS)
+class TestOnAStoreyThatIsNotTheTop:
+    """The same rule one storey down, where a balcony can be either kind.
+
+    Only the roof ever cut holes for open areas, so an open space on any
+    storey but the top was sealed under the floor of the storey above --
+    and the slab is deliberately stretched out to cover whatever the
+    storey below covered, which reached it out over the very projection a
+    balcony stands on.
+
+    Which of the two cases applies is decided by the storey above, not by
+    the label:
+
+        projecting  it stops short, so there is sky above
+        recessed    it covers the area, so that floor is the ceiling
+
+    Both are drawn "BALCONY". Getting the second one wrong would punch a
+    hole through the floor of the room upstairs, so both are tested.
+    """
+
+    def _centre(self):
+        return Polygon(OPEN_HALF).centroid
+
+    def test_a_projecting_balcony_has_sky_above_it(self, label):
+        parts = floors_to_parts(
+            [
+                _storey(),
+                _storey(open_label=label),
+                _storey(outline=SET_BACK),
+            ],
+            wall_height_ft=HEIGHT,
+            scale=SCALE,
+        )
+        overhead = _storey_floor_m(1) + 0.5
+        for mesh in parts.get("floor", []) + parts.get("roof", []):
+            if mesh.bounds[1][1] < overhead:
+                continue
+            assert not _covers(mesh, self._centre()), (
+                f"a projecting {label} is covered by a slab at "
+                f"{mesh.bounds[0][1]:.1f}m"
+            )
+
+    def test_a_projecting_balcony_still_has_a_floor(self, label):
+        # The other way to pass the test above is to cut the hole through
+        # every slab, which leaves the balcony with nothing to stand on.
+        parts = floors_to_parts(
+            [_storey(), _storey(open_label=label), _storey(outline=SET_BACK)],
+            wall_height_ft=HEIGHT,
+            scale=SCALE,
+        )
+        own_floor = _storey_floor_m(1)
+        assert any(
+            _covers(mesh, self._centre())
+            for mesh in parts.get("floor", [])
+            if mesh.bounds[1][1] <= own_floor + 0.1
+        ), f"a projecting {label} has no floor under it"
+
+    def test_a_recessed_balcony_keeps_the_floor_above_it(self, label):
+        # Set into the building rather than projecting from it, so the
+        # storey above stands over it and that slab is its ceiling.
+        # Cutting the hole anyway would take the floor out from under the
+        # room upstairs.
+        parts = floors_to_parts(
+            [_storey(), _storey(open_label=label), _storey()],
+            wall_height_ft=HEIGHT,
+            scale=SCALE,
+        )
+        overhead = _storey_floor_m(1) + 0.5
+        assert any(
+            _covers(mesh, self._centre())
+            for mesh in parts.get("floor", [])
+            if mesh.bounds[1][1] >= overhead
+        ), f"a recessed {label} left the room above it with no floor"
+
+
+@pytest.mark.parametrize("label", OPEN_LABELS)
+def test_the_roof_really_is_open_over_a_top_storey_terrace(label):
+    """The roof, asked about its surface rather than its vertices."""
+    parts = floors_to_parts(
+        [_storey(), _storey(open_label=label)], wall_height_ft=HEIGHT, scale=SCALE
+    )
+    centre = Polygon(OPEN_HALF).centroid
+    for mesh in parts.get("roof", []):
+        assert not _covers(mesh, centre), f"{label} has roof over its centre"
