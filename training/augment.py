@@ -19,6 +19,13 @@ currently read badly:
 ``compress``    Plans arrive as messaging-app JPEGs at 40 KB, where every
                 wall carries ringing artefacts along its edge.
 ``blur``        Photographs of drawings, and scans of photocopies.
+``unfill``      Some offices draw a wall as two lines with nothing between
+                them. Measured with ``scripts/convention_stress.py``, that
+                convention costs 0.214 of wall IoU and takes wall recall
+                from 0.899 to 0.689 -- much the worst of the eight tested,
+                and the only one left that needs the model rather than the
+                reader. CubiCasa fills most walls, so the model has to be
+                shown the empty ones.
 
 Rotation is by quarter turns only. A floor plan is rectilinear and the
 geometry stage downstream can only recover axis-aligned walls, so teaching
@@ -33,6 +40,8 @@ labelled, blending a wall and a room into a door.
 
 import cv2
 import numpy as np
+
+from planto3d.classes import WALL
 
 # How much of the page a random crop may take before being resized back.
 # Never the whole page, or the model never sees a plan larger than it fits,
@@ -56,6 +65,10 @@ PROBABILITIES = {
     "flip": 0.5,
     "rescale": 0.5,
     "exposure": 0.5,
+    # Roughly a quarter of CubiCasa's walls are already drawn thin, so this
+    # is set to bring the share of hollow-walled plans the model sees to
+    # about half, without making the filled convention the unusual one.
+    "unfill": 0.3,
     "compress": 0.3,
     "blur": 0.2,
 }
@@ -132,6 +145,32 @@ def blur(image: np.ndarray, sigma: float) -> np.ndarray:
     return cv2.GaussianBlur(image, (0, 0), sigmaX=sigma, sigmaY=sigma)
 
 
+def unfill_walls(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Redraw filled walls as an outline with empty space inside.
+
+    Uses the mask to find the walls, so the outline lands exactly where the
+    drawing put it and the labels stay true -- the wall is still a wall,
+    it is just drawn hollow. Only the image changes.
+
+    Where a wall is already hollow this does almost nothing, which is the
+    right behaviour: CubiCasa's walls run from 0.05 to 0.95 dark-ink share
+    and roughly a quarter are drawn thin already.
+    """
+    walls = (mask == WALL).astype(np.uint8)
+    if not walls.any():
+        return image
+
+    # Leave a rim so the wall keeps its edges; empty what is inside it.
+    inside = cv2.erode(walls, np.ones((3, 3), np.uint8)).astype(bool)
+    if not inside.any():
+        return image
+
+    out = image.copy()
+    paper = int(np.median(image[walls == 0])) if (walls == 0).any() else 255
+    out[inside] = paper if out.ndim == 2 else (paper, paper, paper)
+    return out
+
+
 def augment(
     image: np.ndarray,
     mask: np.ndarray,
@@ -168,6 +207,9 @@ def augment(
     if rng.random() < chance["blur"]:
         shorter = min(image.shape[:2])
         image = blur(image, float(rng.uniform(*BLUR_RANGE)) * shorter)
+
+    if rng.random() < chance["unfill"]:
+        image = unfill_walls(image, mask)
 
     if rng.random() < chance["compress"]:
         image = compress(image, int(rng.integers(*JPEG_QUALITY_RANGE)))

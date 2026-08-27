@@ -504,9 +504,15 @@ would cost a retrain. **Not recommended.**
 
 **Two real failures, one of them free to fix.** Outline walls -- two
 lines with white between them, and no fill at all -- cost 0.214 of wall
-IoU and take recall to 0.689. That one is genuine and would need data or
-augmentation. A reversed print destroys the model outright: 0.014 IoU,
-and 4 sheets of 15 still reconstructable.
+IoU and take recall to 0.689. A reversed print destroys the model
+outright: 0.014 IoU, and 4 sheets of 15 still reconstructable.
+
+The outline case needs the model, so `training/augment.py` gained
+`unfill_walls`, which redraws a filled wall hollow using the mask to find
+it -- the wall stays labelled a wall, only its inking changes. It is
+armed at 0.3 and **takes effect at the next training run**, whenever that
+happens; nothing in the shipped checkpoint has seen it yet, so the 0.534
+above still stands.
 
 ### Reversed prints are now turned the right way up
 

@@ -9,10 +9,12 @@ at the pipeline and is currently read badly -- sheets printed sideways,
 messaging-app JPEGs, the same building drawn at another resolution.
 """
 
+import cv2
 import numpy as np
 import pytest
 
-from training.augment import augment, blur, compress, exposure, flip, rescale, rotate
+from planto3d.classes import WALL
+from training.augment import augment, blur, compress, exposure, flip, rescale, rotate, unfill_walls
 
 
 def _drawing(size=96):
@@ -161,3 +163,53 @@ class TestTheWholeSet:
 
         assert np.array_equal(first[0], second[0])
         assert np.array_equal(first[1], second[1])
+
+
+class TestUnfillWalls:
+    """Some offices draw a wall as two lines with nothing between them.
+
+    Measured with scripts/convention_stress.py, that convention costs 0.214
+    of wall IoU and takes recall from 0.899 to 0.689 -- much the worst of
+    the eight tested, and the only one left needing the model rather than
+    the reader.
+    """
+
+    def _drawing(self):
+        image = np.full((200, 200, 3), 255, dtype=np.uint8)
+        mask = np.zeros((200, 200), dtype=np.uint8)
+        image[40:160, 40:60] = 20
+        mask[40:160, 40:60] = WALL
+        return image, mask
+
+    def test_a_filled_wall_comes_back_hollow(self):
+        image, mask = self._drawing()
+        wall = mask == WALL
+
+        before = (cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)[wall] < 100).mean()
+        after = (cv2.cvtColor(unfill_walls(image, mask), cv2.COLOR_BGR2GRAY)[wall] < 100).mean()
+
+        assert before > 0.9
+        assert after < 0.3
+
+    def test_the_wall_keeps_its_edges(self):
+        # Hollow, not absent. An outline wall still has two lines.
+        image, mask = self._drawing()
+        out = cv2.cvtColor(unfill_walls(image, mask), cv2.COLOR_BGR2GRAY)
+
+        assert (out[mask == WALL] < 100).any()
+
+    def test_the_labels_are_untouched(self):
+        # The wall is still a wall; only how it is drawn changes. Altering
+        # the mask here would teach the model that a hollow wall is not one.
+        image, mask = self._drawing()
+        original = mask.copy()
+
+        unfill_walls(image, mask)
+
+        assert np.array_equal(mask, original)
+
+    def test_a_drawing_with_no_walls_is_returned_unchanged(self):
+        image = np.full((60, 60, 3), 255, dtype=np.uint8)
+        mask = np.zeros((60, 60), dtype=np.uint8)
+
+        assert np.array_equal(unfill_walls(image, mask), image)
