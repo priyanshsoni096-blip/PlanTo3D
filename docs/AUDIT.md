@@ -41,7 +41,7 @@ python scripts/split_accuracy.py <cubicasa>
 | --- | --- | --- | --- | --- |
 | 1 | **Windows barely detected** | IoU **0.096**, finds **37%** | Every façade is sparser than the drawing. Next-worst class is 5× better | **Yes** |
 | 2 | **Scale, 17.7% median error** | Walls −19.7% bias on 20 plans | Sets the whole building's size | Partly — see below |
-| 3 | Sheet splitting misses | Recall **86%**, 55/60 exact | A missed split reconstructs several plans as one flat building, confidently | **Yes** |
+| 3 | Sheet splitting misses | Recall **86%**, 55/60 exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
 | 4 | **Only 2½ conventions tested** | — | The generality claim rests on Finnish apartments | **Yes** |
 | 5 | Storage rooms weak | IoU 0.525 | Storage reads as ordinary rooms | Yes |
 | 6 | Bath rooms weak | IoU 0.586 | Wet floors missed | Yes |
@@ -249,6 +249,103 @@ So this is **opportunistic and unvalidated beyond one drafting
 convention**. It helps sheets that print their sizes, it is checked
 before it is believed, and it cannot make an unlabelled plan worse. It is
 not evidence that scale is solved; gap #4 is what would settle that.
+
+## The five sheets that split wrong, and why
+
+`scripts/split_accuracy.py` over 60 CubiCasa sheets: **55/60 exact (92%)**,
+precision 80%, recall 86%. Nobody had looked at the five. They are not one
+fault, they are three, and only one of them is a tuning problem.
+
+| Sheet | Wanted | Got | Failure mode |
+| --- | --- | --- | --- |
+| 12787 | 1 | 2 | boundary rule cut a single apartment |
+| 3720 | 1 | 2 | boundary rule cut a single apartment |
+| 8150 | 1 | 2 | a legend below the plan, behind a real gutter |
+| 11378 | 2 | 1 | adjoining units, party wall, no gutter exists |
+| 8583 | 2 | 1 | adjoining units, party wall, no gutter exists |
+
+### Which rule fired, and whether it was right
+
+Splits were attributed to the rule that produced them, mirroring
+`split_sheet`'s own order:
+
+| Rule | Fired | Right | Wrong |
+| --- | --- | --- | --- |
+| Gutter, columns | 10 | **10** | 0 |
+| Gutter, rows | 2 | 1 | 1 |
+| **Boundary rule** | **3** | **1** | **2** |
+
+Column gutters are perfect. The boundary-rule fallback in
+`_boundary_cuts` is right one time in three, and causes two of the three
+over-splits. Its docstring already records that it "split eleven single
+plans across sixty sheets and got one of them right" before
+`_pieces_look_like_plans` was added to guard it; the guard took it from
+eleven firings to three, but not from wrong to right.
+
+Removing it entirely, measured in memory:
+
+| | Exact | Precision | Recall |
+| --- | --- | --- | --- |
+| As shipped | 55/60 | 80% | 86% |
+| Boundary rule disabled | **56/60** | **92%** | 79% |
+
+Not a free win, which is why it is written down rather than done: it
+costs sheet 9285, a genuine three-plan sheet that only the boundary rule
+catches, and trades 7 points of recall for 12 of precision. Which way
+that trade should go depends on what a wrong split costs downstream --
+a single plan cut in two reconstructs one house as two half-houses,
+where a missed split reconstructs two houses as one flat storey.
+
+### Mode 1 -- the boundary rule cuts internal structure (12787, 3720)
+
+Both are photographed or scanned brochure pages rather than CAD output:
+12787 has a grey paper field, highlighter and biro on it, and
+`paper_tones` finds no paper tone at all; 3720 is a scan with a grey room
+fill. The boundary rule then cuts along a strong internal wall -- x=457
+through the middle of a one-bedroom flat on 12787, x=283 through a studio
+on 3720.
+
+A saturated ink mask looked like the cause and **is not**. Ink fraction
+across the 55 sheets that split correctly has a median of 0.154 and a
+98th percentile of 0.587, so a heavily inked sheet is ordinary here; two
+sheets with ink above 0.5 (10711, 11002) split correctly, and two of the
+three sheets where `paper_tones` finds nothing (11002, 12403) are also
+right. Neither signal separates the failures. The rule itself is the
+fault, not the mask feeding it.
+
+### Mode 2 -- a legend behind a real gutter (8150)
+
+A hand-drawn sketch with a key beneath it: three symbols against the
+words *pauhella-leivinuuni*, *porttöuuni*, *kamina*. The white band at
+y=889 is a genuine gutter and the splitter is right to find it. What is
+below the band is a legend, and it carries enough ink to satisfy
+`_pieces_look_like_plans`, so the sheet comes back as a plan plus a
+legend built as a second storey.
+
+This is the mode most likely to matter beyond CubiCasa. A title block, a
+key, a north point and a revision table are on almost every professional
+sheet, and every one of them sits behind a real gutter.
+
+### Mode 3 -- adjoining units with a party wall (11378, 8583)
+
+Not a tuning failure. Both sheets are terraced blocks: 11378 carries two
+units each marked *4H+K+S, 99,0 m²*, 8583 two marked *C5 4H+K+S 101,0
+m²*. The units share a party wall, so the drawings touch and **there is
+no gutter at any threshold**. On 11378 the ink profile has no quiet band
+anywhere on either axis except the outer margins; on 8583 the only quiet
+bands are three in the top third, which collapse to one cut that
+`_pieces_look_like_plans` then rightly rejects.
+
+Splitting these would need to detect repeated structure -- two copies of
+one unit -- rather than whitespace, which is a different technique from
+anything in `ingest.py`.
+
+It is also worth asking whether they should be split at all. The ground
+truth here is CubiCasa's count of `Floor` groups, and on these two sheets
+that counts **dwellings, not storeys**: they are two homes side by side
+on one level, and reconstructing them as one building with a party wall
+down the middle is arguably the more faithful answer. Two of the five
+failures may be a disagreement about the question rather than the answer.
 
 ## Diagonal walls are not worth recovering
 
