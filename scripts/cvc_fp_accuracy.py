@@ -31,7 +31,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from planto3d.classes import CLASS_NAMES, DOOR, NUM_CLASSES, ROOM_CLASSES, WALL, WINDOW
+from planto3d.classes import CLASS_NAMES, DOOR, NUM_CLASSES, ROOM, WALL, WINDOW
 from planto3d.cvc_fp import sample_paths, svg_to_mask
 from planto3d.extract import extract_walls, wall_gauge
 from planto3d.segment import load_segmenter
@@ -91,8 +91,8 @@ def main(root: str, checkpoint: Path | None, limit: int) -> None:
     segmenter = load_segmenter(checkpoint)
 
     coverages, agreements = [], []
-    per_class_pooled = {name: [0, 0] for name in CLASS_NAMES}  # [intersection, union]
-    per_class_ious: dict[str, list[float]] = {name: [] for name in CLASS_NAMES}
+    per_class_pooled = {index: [0, 0] for index in range(NUM_CLASSES)}  # [intersection, union]
+    per_class_ious: dict[int, list[float]] = {index: [] for index in range(NUM_CLASSES)}
     usable = 0
 
     pairs = sample_paths(Path(root))[:limit]
@@ -114,18 +114,18 @@ def main(root: str, checkpoint: Path | None, limit: int) -> None:
             coverages.append(wall_result[0])
             agreements.append(wall_result[1])
 
-        for index, name in enumerate(CLASS_NAMES):
+        for index in range(NUM_CLASSES):
             predicted_mask = predicted_classes == index
             truth_mask = truth == index
             if not truth_mask.any():
                 continue
             intersection = int(np.logical_and(predicted_mask, truth_mask).sum())
             union = int(np.logical_or(predicted_mask, truth_mask).sum())
-            per_class_pooled[name][0] += intersection
-            per_class_pooled[name][1] += union
+            per_class_pooled[index][0] += intersection
+            per_class_pooled[index][1] += union
             iou = _iou(predicted_mask, truth_mask)
             if iou is not None:
-                per_class_ious[name].append(iou)
+                per_class_ious[index].append(iou)
 
     print(f"{len(pairs)} plans, {usable} yielding usable geometry\n")
     if coverages:
@@ -133,13 +133,14 @@ def main(root: str, checkpoint: Path | None, limit: int) -> None:
         print(f"wall agreement: {statistics.median(agreements):.1%}")
     print()
     print(f"{'class':10} {'pooled IoU':>10} {'median IoU':>10} {'sheets':>7}")
-    for name in CLASS_NAMES:
-        sheets = len(per_class_ious[name])
+    for index in (WALL, ROOM, DOOR, WINDOW):
+        sheets = len(per_class_ious[index])
         if sheets < MIN_SHEETS:
             continue
-        intersection, union = per_class_pooled[name]
+        name = CLASS_NAMES[index]
+        intersection, union = per_class_pooled[index]
         pooled = intersection / union if union else 0.0
-        median = statistics.median(per_class_ious[name])
+        median = statistics.median(per_class_ious[index])
         print(f"{name:10} {pooled:>10.3f} {median:>10.3f} {sheets:>7}")
 
 
