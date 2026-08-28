@@ -4,15 +4,21 @@ An honest stage-by-stage audit. Every figure here is measured, and the
 source of each measurement is named so it can be re-run and disagreed
 with.
 
-**What it is measured on.** 60 CubiCasa plans (Finnish apartments), one
-Indian villa used only as a control, and one web-sized sheet carrying two
-plans. That is **two and a half drafting conventions**, and it is the
-single biggest qualification on everything below.
+**What it is measured on.** 60 CubiCasa plans (Finnish apartments), 122
+CVC-FP plans in four further styles, one Indian villa used as a control,
+and one web-sized sheet carrying two plans. Call it **three and a half
+drafting conventions**, and it remains the single biggest qualification on
+everything below -- CVC-FP records no scale, so it cannot judge the
+largest failure there is.
 
 ```bash
-python scripts/batch_evaluate.py <cubicasa> --checkpoint models/unet_cubicasa.pt --limit 60
-python scripts/scale_accuracy.py <cubicasa> --checkpoint models/unet_cubicasa.pt
-python scripts/split_accuracy.py <cubicasa>
+python scripts/output_scorecard.py <corpus> --checkpoint models/unet_cubicasa.pt
+python scripts/class_accuracy.py <corpus> --checkpoint models/unet_cubicasa.pt
+python scripts/wall_accuracy.py <corpus> --checkpoint models/unet_cubicasa.pt
+python scripts/scale_accuracy.py <corpus> --checkpoint models/unet_cubicasa.pt
+python scripts/split_accuracy.py <corpus>
+python scripts/convention_stress.py <corpus> --checkpoint models/unet_cubicasa.pt
+python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt --limit 60
 ```
 
 ## Complete and measured
@@ -120,10 +126,10 @@ prettiest artefact meant the geometry was never really being looked at.
 
 | # | Gap | Measured | Why it matters | General? |
 | --- | --- | --- | --- | --- |
-| 1 | **Windows barely detected** | IoU **0.096**, finds **37%** | Every façade is sparser than the drawing. Next-worst class is 5× better | **Yes** |
-| 2 | **Scale, 17.7% median error** | Walls −19.7% bias on 20 plans | Sets the whole building's size | Partly — see below |
+| 1 | **Windows weak** | Detection **62.1%** at 43.5% precision; IoU 0.089 | Façades sparser than the drawing, plus openings that are not there. Openings fail on 9 of 30 plans end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
+| 2 | **Scale, 17.3% median error** | 33/48 within a fifth; doors −8.4%, walls −20.1% | Sets the whole building's size, and is the **largest end-to-end failure** at 10 of 30 | No — mostly the drawing's tradition, not the vision. See below |
 | 3 | Sheet splitting misses | Recall **86%**, **57/60** exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
-| 4 | **Only 2½ conventions tested** | — | The generality claim rests on Finnish apartments | **Yes** |
+| 4 | **Only 2½ conventions tested** | Now **3½** — CVC-FP added, 122 sheets, 4 styles | Walls hold at 96.7% coverage on an unseen tradition; scale still untestable there | **Yes** |
 | 5 | Storage rooms weak | IoU 0.525 | Storage reads as ordinary rooms | Yes |
 | 6 | Bath rooms weak | IoU 0.586 | Wet floors missed | Yes |
 | 7 | ~~Prompt truncated~~ **closed** | 68 tokens, site features preserved | — | — |
@@ -892,6 +898,66 @@ succeeded.** 0.7757 to 0.7726, because the validation split is drawn from
 the same convention as the training set and so measures the thing that
 got slightly worse rather than the thing that got much better. Anyone
 judging a run of this kind on Dice alone would have called it a failure.
+
+## A second drafting tradition, at last
+
+CVC-FP: 122 scanned plans in four subsets that differ deliberately in
+origin, style, quality and resolution, against CubiCasa's 5,000 sheets
+from one Finnish source. Read by `planto3d/cvc_fp.py`. Forty times
+smaller and much harder, which is the point.
+
+**What it cannot settle, said first.** There is no metric ground truth
+anywhere in its 122 annotations, so **the largest failure on the
+end-to-end scorecard is the one this corpus cannot judge**. It also
+labels every space simply "Room" with no type, and carries no floor
+grouping. It tests walls, rooms and openings, and nothing else.
+
+Over 30 sheets, against the same measurement on CubiCasa:
+
+| | CVC-FP | CubiCasa |
+| --- | --- | --- |
+| **Wall coverage** | **96.7%** | 96.6% |
+| Wall agreement | 77.5% | 92.2% |
+| Sheets yielding usable geometry | **30/30** | — |
+| wall IoU | 0.636 | 0.697 |
+| room IoU | 0.530 | 0.717 |
+| **window IoU** | **0.239** | 0.089 |
+| door IoU | 0.136 | 0.560 |
+
+**Walls generalise, and that is the headline.** Coverage on a drawing
+tradition the model has never seen is 96.7% against 96.6% on the one it
+was trained on. Every sheet yields usable geometry. Agreement falls to
+77.5%, so more is invented, but essentially none of the real wall is
+missed. The thing the whole reconstruction rests on survives a change of
+convention.
+
+**Windows get nearly three times better**, 0.089 to 0.239. That is the
+strongest evidence yet for what has been suspected all along: windows do
+not fail because the model cannot see them, they fail because CubiCasa
+draws them at 0.11% of a page. CVC-FP draws them at 0.9% and at 1.75 wall
+thicknesses deep against CubiCasa's 1.33, and the model finds them. The
+window problem is substantially a property of the training corpus rather
+than of the network.
+
+**The door collapse is not a door collapse.** It looked like the model
+failing badly, and it is the two corpora meaning different things:
+
+| | Median span | Median depth | Aspect |
+| --- | --- | --- | --- |
+| CubiCasa door | 3.62 gauges | **0.79** | 4.6 — a thin strip |
+| CVC-FP door | 3.50 gauges | **3.19** | 1.1 — nearly square |
+
+CubiCasa annotates the **door leaf** sitting in the wall. CVC-FP
+annotates the **swing arc**, the quarter-circle the door sweeps into the
+room. A model trained on one and scored against the other cannot do well,
+and the 0.136 says nothing about whether it finds doors. Any figure
+comparing door or opening accuracy across these two corpora is measuring
+the annotation guideline, not the model.
+
+The `outdoor` row is a mapping artefact for the same reason and is left
+out above: CVC-FP's only named space is "Parking", which this loader maps
+to `OUTDOOR`, and 81 small polygons across 75 sheets is not the same
+thing as CubiCasa's balconies and terraces.
 
 ## What a change of drafting convention actually costs
 

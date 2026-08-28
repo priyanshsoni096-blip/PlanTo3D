@@ -7,6 +7,9 @@ venv/
 # Personal floor plans — do not publish (repo is public)
 data/soni_residence/
 data/cubicasa5k/
+# Second drafting corpus, 122 scanned plans in four styles. Downloaded,
+# not ours to redistribute, and the page states no licence.
+data/cvc_fp/
 
 # Generated outputs. The glob rather than a list of names: two output
 # directories were committed by accident because they were called
