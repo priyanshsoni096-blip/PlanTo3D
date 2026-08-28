@@ -30,10 +30,9 @@ python scripts/split_accuracy.py <cubicasa>
 | Roof forms | Complete | Dome, pitched, glazed, tank, chimney, tower, canopy, ramp |
 | Feature vocabulary | Complete | 460 keywords, 15 categories, no duplicates |
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
-| Renderer | Complete | Linear light, filmic curve, antialiasing, ambient occlusion |
-| Photoreal pass | Works | Runs on a T4, conditioned on the model's depth |
+| Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | 682 passing | — |
+| Tests | **744 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -82,6 +81,40 @@ bad ruler:
 The thresholds are still first guesses and are marked as such in the
 script. They decide the headline, so they deserve more scepticism than the
 figures they produce.
+
+## The photoreal pass is not part of the result
+
+It used to sit in the table above, under a heading that says "complete and
+measured", with "runs on a T4" in the measurement column. Running is not a
+measurement. It has been taken out, because leaving it there was the one
+place this document was quietly dishonest.
+
+**It has never been scored against anything, and it cannot be.** There is
+no ground truth for what a house should look like. Everything else here is
+checked against CubiCasa's annotations; a diffusion render has nothing to
+be checked against.
+
+That matters more than it sounds, because the two failure modes point in
+opposite directions and each hides the other:
+
+- A convincing image **does not** mean the geometry is right. Diffusion
+  will happily dress a model with the wrong number of storeys and make it
+  look like an architect's visualization.
+- An awkward image **does not** mean the geometry is wrong. It is equally
+  capable of making a correct model look strange.
+
+So the two are now shipped and judged separately. The model, its six views
+and the detection overlays are the **result**: measured, and traceable to
+a line on the drawing. The photoreal image is an **impression**: unmeasured
+and partly invented, useful for showing someone what a building could look
+like and useless as evidence that the pipeline read the plan correctly.
+
+`notebooks/run_on_colab.ipynb` says so at the top of both sections, and the
+zip it produces separates them.
+
+This is the risk that was flagged when the end-to-end scorecard was
+proposed and it went unaddressed for a while: judging the pipeline by its
+prettiest artefact meant the geometry was never really being looked at.
 
 ## Gaps, worst first
 

@@ -188,8 +188,10 @@ these as form fields, including the photoreal pass.
 ## Run it without installing anything
 
 `notebooks/run_on_colab.ipynb` does the whole thing on a Colab GPU: upload
-a plan, choose how it should look, and get the model, six views, the
-detection overlay and a diffusion-dressed render.
+a plan, choose how it should look, and get two different kinds of thing:
+the **model** with its six views and detection overlays, which is measured
+and traces back to your drawing, and a **diffusion-dressed impression**,
+which is neither. The notebook keeps them apart and says which is which.
 
 [Open it in Colab](https://colab.research.google.com/github/priyanshsoni096-blip/PlanTo3D/blob/main/notebooks/run_on_colab.ipynb)
 
