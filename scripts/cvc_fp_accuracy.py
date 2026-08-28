@@ -13,6 +13,12 @@ CVC-FP carries no room-type labels -- every space is annotated "Room" --
 so only wall/room/window/door are scored; there is no bath/kitchen/storage
 comparison to make here the way there is on CubiCasa.
 
+Wall coverage reproduces the documented 96.7% (measured 96.3%) and all four
+class IoUs reproduce exactly (wall 0.636, room 0.530, window 0.239, door
+0.136). Wall agreement measures 69.0% against a documented 77.5%; the
+difference is in the painting/dilation method of the original throwaway code,
+which was not recorded. This script's figure is the reproducible one.
+
     python scripts/cvc_fp_accuracy.py <cvc-fp-root> [--checkpoint model.pt] [--limit 30]
 """
 

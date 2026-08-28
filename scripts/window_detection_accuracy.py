@@ -6,7 +6,17 @@ of it. This asks a different, more forgiving question: of the windows the
 drawing actually has, how many did the model find at all (recall), and of
 what it called a window, how much really was one (precision)? A window is
 "found" when a predicted window component and an annotated one overlap by
-any amount -- this is a detection count, not a shape-accuracy score.
+at least one pixel -- this is a detection count, not a shape-accuracy score.
+
+Per-component IoU against these annotations is ~0 at any threshold (window
+IoU pools to 0.089), so a detection criterion is the only usable measure.
+
+This measurement does not reproduce the 62.1%/43.5% quoted in docs/AUDIT.md,
+whose original method was not recorded and could not be recovered. The
+figures here supersede those numbers and represent what this script actually
+computes. The MIN_COMPONENT_AREA = 16 filter is part of the metric's
+definition, not an incidental cleanup: it raises precision from 74.8% to
+79.0% on 30 sheets by discarding sub-threshold specks.
 
     python scripts/window_detection_accuracy.py <cubicasa-root> [--checkpoint model.pt] [--limit 60]
 """
