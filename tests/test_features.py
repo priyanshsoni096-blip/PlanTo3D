@@ -309,3 +309,42 @@ class TestTheLanguageTheTrainingDataIsDrawnIn:
         # builds anything a plain room would not.
         for label in ("OH", "MH", "ET"):
             assert classify(label) is None
+
+
+class TestSpanishAndPortuguese:
+    """Today's real coverage of the two languages Phase 7 will add.
+
+    Two of these already return an answer, and neither is real support:
+    "balcón" matches "open" only because "BAL" -- kept for OCR truncation
+    of the English word -- happens to be a substring of "balcon", and
+    "garagem" matches "paving" only because "GARAGE" is a substring of
+    it. "patio" is a genuine hit: PATIO is already an explicit English/
+    Spanish loanword keyword. Everything else below returns nothing,
+    which is the honest baseline -- if Messi uploads a plan labelled
+    "varanda" or "cochera", the vocabulary does not know either word.
+    This class documents that gap; it is not meant to pass differently
+    until the vocabulary itself is extended.
+    """
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "VARANDA",
+            "COCHERA",
+            "JARDIN",
+            "JARDIM",
+            "TERRAZA",
+            "TERRACO",
+            "SOTANO",
+            "PORAO",
+        ],
+    )
+    def test_unsupported_spanish_and_portuguese_terms(self, label):
+        assert classify(label) is None
+
+    def test_two_terms_already_match_by_accident_not_design(self):
+        # Documented so a future reader does not mistake these for real
+        # Portuguese/Spanish support and leave them out of Phase 7's work.
+        assert classify("BALCON") == "open"  # via "BAL", not "balcón"
+        assert classify("GARAGEM") == "paving"  # via "GARAGE", not design
+        assert classify("PATIO") == "paving"  # this one is genuine
