@@ -343,7 +343,24 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     )
 
 
-IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+# Anything not on this list is handed to the PDF rasterizer, which is the
+# right default and a poor failure: a plan in an unlisted format comes back
+# as "unable to get page count" rather than as a model. GIF earned its
+# place the hard way -- every one of BRIDGE's 2,400 Indian plans is a GIF,
+# and all 60 of a sample failed on that line while `read_image` was reading
+# them perfectly well.
+IMAGE_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tif",
+    ".tiff",
+    ".bmp",
+    ".webp",
+    ".gif",
+    ".ppm",
+    ".pgm",
+}
 
 
 def _load_pages(source: Path, pages_dir: Path) -> list[Path]:

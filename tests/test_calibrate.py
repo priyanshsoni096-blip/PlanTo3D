@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from planto3d.calibrate import (
+    MAX_OCR_UPSCALE,
     MAX_PRINTED_DISAGREEMENT,
     TextBox,
     corroborated,
@@ -126,7 +127,10 @@ class TestReadTextBoxes:
 
         monkeypatch.setattr(calibrate.pytesseract, "image_to_data", fake_image_to_data)
 
-        boxes = read_text_boxes(np.zeros((600, 600, 3), dtype=np.uint8))
+        # Comfortably over MIN_OCR_LONG_EDGE, so nothing is enlarged and
+        # the faked coordinates come back as given. Enlargement has its own
+        # tests below.
+        boxes = read_text_boxes(np.zeros((1400, 1400, 3), dtype=np.uint8))
 
         texts = [b.text for b in boxes]
         assert "BEDROOM" in texts
@@ -309,3 +313,68 @@ class TestTheGateOnPrintedScale:
         # tighter gate would reject correct readings. This guards against
         # someone tightening it to look rigorous.
         assert MAX_PRINTED_DISAGREEMENT > 0.2
+
+
+class TestSmallSheetsAreEnlargedBeforeReading:
+    """OCR has a resolution floor, and plenty of plans sit under it.
+
+    A sheet that fits a whole house into 600 pixels prints its dimensions
+    at a size Tesseract cannot resolve: the letters are there and come back
+    as nothing. Measured over 30 such sheets, enlarging past the floor took
+    the dimension pairs recovered from 1 to 8.
+    """
+
+    def _fake(self, seen):
+        def image_to_data(image, output_type):
+            seen.append(image.shape[:2])
+            return {
+                "text": ["12'-6\"", "x 13'-8\""],
+                "left": [200, 300],
+                "top": [400, 400],
+                "width": [80, 90],
+                "height": [20, 20],
+                "conf": ["90", "90"],
+                "block_num": [1, 1],
+                "par_num": [1, 1],
+                "line_num": [1, 1],
+            }
+        return image_to_data
+
+    def test_a_small_sheet_is_enlarged(self, monkeypatch):
+        import planto3d.calibrate as calibrate
+
+        seen = []
+        monkeypatch.setattr(calibrate.pytesseract, "image_to_data", self._fake(seen))
+        read_text_boxes(np.zeros((400, 600, 3), dtype=np.uint8))
+
+        assert seen[0] == (800, 1200)
+
+    def test_a_large_sheet_is_left_alone(self, monkeypatch):
+        import planto3d.calibrate as calibrate
+
+        seen = []
+        monkeypatch.setattr(calibrate.pytesseract, "image_to_data", self._fake(seen))
+        read_text_boxes(np.zeros((1600, 2000, 3), dtype=np.uint8))
+
+        assert seen[0] == (1600, 2000)
+
+    def test_boxes_come_back_in_the_original_frame(self, monkeypatch):
+        # Callers match these against room polygons drawn in the original
+        # image's coordinates. A box left in the enlarged frame lands in the
+        # wrong room, or off the page.
+        import planto3d.calibrate as calibrate
+
+        monkeypatch.setattr(calibrate.pytesseract, "image_to_data", self._fake([]))
+        boxes = read_text_boxes(np.zeros((400, 600, 3), dtype=np.uint8))
+
+        assert boxes, "the line should still be read"
+        left, top, width, _ = boxes[0].bbox
+        assert (left, top) == (100, 200)
+        assert width == pytest.approx(95, abs=2)
+
+    def test_enlargement_is_capped(self):
+        # Interpolation cannot invent strokes that were never sampled: at
+        # three times, the same 30 sheets yielded the same 8 dimensions as
+        # at two. The cap says so rather than trusting a future reader to
+        # rediscover it.
+        assert MAX_OCR_UPSCALE <= 3.0

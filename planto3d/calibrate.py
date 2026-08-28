@@ -13,7 +13,7 @@ a median across every labelled room so a single misread cannot skew it.
 import logging
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from statistics import median
 
 import cv2
@@ -34,10 +34,19 @@ configure_tesseract()
 # difference between a dimension parsing and being discarded.
 FOOT_MARK = r"['’´°]+"
 INCH_MARK = r"[\"”“'’°]*"
+# What may sit between the feet and the inches. Half the drawing offices in
+# the world write 12'-6" and the other half write 12'6", and the hyphenated
+# form was silently unreadable -- every dimension on a US or Indian sheet in
+# that style, thrown away, on the metric that sets the building's size.
+FEET_INCH_JOIN = r"[\s\-‐-―]*"
+
+# Inches are optional. A room written 14' is fourteen feet exactly, and
+# demanding the zero lost the whole pair -- "12'-8\" x 14'" parsed as
+# nothing at all rather than as one dimension it could read.
 DIMENSION_PATTERN = re.compile(
-    rf"(\d{{1,3}})\s*{FOOT_MARK}\s*(\d{{1,2}})\s*{INCH_MARK}"
+    rf"(\d{{1,3}})\s*{FOOT_MARK}{FEET_INCH_JOIN}(\d{{1,2}})?\s*{INCH_MARK}"
     r"\s*[xX×]\s*"
-    rf"(\d{{1,3}})\s*{FOOT_MARK}\s*(\d{{1,2}})"
+    rf"(\d{{1,3}})\s*{FOOT_MARK}{FEET_INCH_JOIN}(\d{{1,2}})?"
 )
 
 # An area printed on the drawing: "2130 SQ.FT.", "600 SQ. FT.", "125 m2",
@@ -71,6 +80,15 @@ MAX_PRINTED_AREA_SQFT = 20000.0
 
 INCHES_PER_FOOT = 12
 MIN_CONFIDENCE = 40.0
+
+# Below this, on its longest side, a sheet is enlarged before OCR reads it.
+# A drawing that fits a house into 600 pixels prints its dimensions at a
+# size Tesseract cannot resolve, and the text is lost rather than misread.
+# 1200 is where the measured gain arrives; the cap is there because
+# interpolation cannot recover strokes that were never sampled, and three
+# times reads no more than two.
+MIN_OCR_LONG_EDGE = 1200
+MAX_OCR_UPSCALE = 2.0
 # Fallback when the drawing carries no readable dimensions. Residential plans
 # are typically drafted around 1:150, so at a known rasterization resolution
 # the scale follows from the ratio rather than being invented: on the
@@ -129,7 +147,10 @@ def parse_dimension_text(text: str) -> tuple[float, float] | None:
     match = DIMENSION_PATTERN.search(text)
     if not match:
         return None
-    feet_a, inches_a, feet_b, inches_b = (int(g) for g in match.groups())
+    # Inches are optional on either side; absent means exactly that many feet.
+    feet_a, inches_a, feet_b, inches_b = (
+        int(group) if group else 0 for group in match.groups()
+    )
     return (
         feet_a + inches_a / INCHES_PER_FOOT,
         feet_b + inches_b / INCHES_PER_FOOT,
@@ -282,9 +303,34 @@ def read_text_boxes(image: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -
 
     Grouping by line matters: Tesseract emits `15'0"` and `X18'0"` as
     separate words, and neither parses as a dimension alone.
+
+    A small sheet is enlarged first. OCR has a resolution floor and a plan
+    that fits a whole house into 600 pixels sits under it: the letters are
+    there and unreadable. Measured over 30 sheets averaging 600 px wide,
+    enlarging to clear the floor takes the dimension pairs recovered from
+    1 to 8, and the sheets yielding any from 1 to 6. Going further buys
+    nothing -- at three times it reads the same 8 -- because interpolation
+    cannot invent strokes that were never sampled.
+
+    Boxes are reported in the original image's coordinates whatever
+    happened here, since callers match them against room polygons drawn in
+    those.
     """
+    height, width = image.shape[:2]
+    longest = max(height, width)
+    factor = 1.0
+    if longest and longest < MIN_OCR_LONG_EDGE:
+        factor = min(MIN_OCR_LONG_EDGE / longest, MAX_OCR_UPSCALE)
+
+    read_from = image
+    if factor > 1.0:
+        read_from = cv2.resize(
+            image, None, fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC
+        )
+        logger.info("sheet is %d px across; reading text at %.1fx", longest, factor)
+
     data = pytesseract.image_to_data(
-        isolate_ink(image), output_type=pytesseract.Output.DICT
+        isolate_ink(read_from), output_type=pytesseract.Output.DICT
     )
 
     lines: dict[tuple[int, int, int], list[int]] = {}
@@ -300,6 +346,15 @@ def read_text_boxes(image: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -
     for indices in lines.values():
         for group in _split_on_gaps(data, indices):
             boxes.append(_to_text_box(data, group))
+
+    if factor > 1.0:
+        boxes = [
+            replace(
+                box,
+                bbox=tuple(int(round(v / factor)) for v in box.bbox),
+            )
+            for box in boxes
+        ]
 
     logger.info("read %d text line(s)", len(boxes))
     return boxes

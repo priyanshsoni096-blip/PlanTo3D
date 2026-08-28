@@ -899,6 +899,53 @@ the same convention as the training set and so measures the thing that
 got slightly worse rather than the thing that got much better. Anyone
 judging a run of this kind on Dice alone would have called it a failure.
 
+## What a corpus of real Indian and American plans found
+
+BRIDGE: ~2,400 plans collected from listing sites, sampled at 60 here.
+Unlike CVC-FP it carries **no structural ground truth** -- its XML holds
+Pascal VOC boxes for symbols and region captions like "master bedroom has
+a double bed, sofa" -- so nothing here can be scored against it. What it
+is good for is finding out whether the pipeline survives contact with the
+drawings people actually publish, and it found three faults in an hour.
+
+**Every one of them crashed.** `.gif` was not in `IMAGE_SUFFIXES`, so the
+pipeline handed each sheet to the PDF rasterizer and got "unable to get
+page count" back -- while `read_image` was reading all 60 perfectly well.
+Every plan in BRIDGE is a GIF. With the suffix added: **60 of 60
+reconstruct, 57 with usable geometry**, median 26 walls and 11 rooms.
+
+**Half the world's dimensions were unreadable.** These sheets write
+`12'-6" x 13'-8"`, and the hyphen between feet and inches was not in the
+pattern, so the pair parsed as nothing. Nor did `12'-8" x 14'` parse,
+because inches were mandatory and a room written `14'` is fourteen feet
+exactly. Both forms are now read, which gained one more pair even on the
+reference sheet, 14 to 15.
+
+**OCR has a resolution floor and these sheets sit under it.** At 600 px
+across, a plan's dimension text is present and unreadable -- Tesseract
+returned `12-6" x 13-8`, losing the foot marks entirely. `read_text_boxes`
+now enlarges a sheet whose longest side is under 1200 px, capped at twice:
+
+| Enlargement | Lines read | Dimension pairs | Sheets with any |
+| --- | --- | --- | --- |
+| none | 103 | 1 | 1/30 |
+| **2x** | 154 | **8** | **6/30** |
+| 3x | 179 | 8 | 6/30 |
+
+Three times reads no more than two, because interpolation cannot invent
+strokes that were never sampled. End to end on the 60 sheets, **7 now take
+their scale from printed dimensions where none did before**, and the
+number reporting a confident size goes from 19 to 24.
+
+CubiCasa is unchanged by all of this at 17.3% median error and 33 of 48
+within a fifth, which is the point: none of it is tuned to anything, and
+the sheets that were already readable read the same.
+
+Worth noting what this is. Reading a drawing's own printed sizes is the
+one route to better scale that does not fit a constant to a dataset, and
+it needed no convention detection at all -- just reading the text that was
+already on the page.
+
 ## A second drafting tradition, at last
 
 CVC-FP: 122 scanned plans in four subsets that differ deliberately in
