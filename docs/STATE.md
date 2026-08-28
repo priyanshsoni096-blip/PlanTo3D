@@ -1,86 +1,94 @@
 # Where the project stands
 
 A handoff note, so work can resume from a fresh session without the
-conversation that produced it. Read alongside the [README](../README.md),
-which covers what the project does and how to run it.
+conversation that produced it. Read alongside the
+[README](../README.md), which covers what the project does and how to run
+it, and **[`docs/PROJECT_GUIDE.md`](PROJECT_GUIDE.md), which is the
+current, verified reference** -- every number in it was reproduced by
+actually running the code on 2026-08-28, not copied from this file.
 
-Last updated after the session that fixed sheet splitting, rebalanced the
-daylight, and found the colour heuristic that was deleting the model's
-windows.
-
-**[`docs/AUDIT.md`](AUDIT.md) is the authority on every measurement.** This
-file is a narrative and parts of it are history; where the two disagree,
-the audit is right, because each of its figures names the script that
-produced it.
+**[`docs/AUDIT.md`](AUDIT.md) is the authority on every measurement.**
+This file is a narrative, and most of it is now history rather than
+status: everything below "Start here" predates the session that produced
+`PROJECT_GUIDE.md` and, in a couple of places named below, recommends
+work that the project has since done the *opposite* of. Where any of the
+three files disagree, trust `AUDIT.md` for numbers and
+`PROJECT_GUIDE.md` for what to do next.
 
 ## Start here
 
 `models/unet_cubicasa.pt` predicts eleven classes, trained 24 epochs on
-augmented data, best at epoch 22 with a validation Dice of 0.7757. A 768px
-run was tried afterwards and was not better -- see the audit.
+augmented data, best at epoch 22 with a validation Dice of 0.7757. A
+768px run and a retrain with an outline-wall augmentation were both tried
+afterwards and neither replaced it -- see the audit.
 
-Where things stand, every figure from the script beside it:
+Where things stand, every figure reproduced live against this checkpoint
+on 2026-08-28 (`docs/PROJECT_GUIDE.md` has the full detail and the script
+behind each row):
 
 | | Result | Script |
 | --- | --- | --- |
 | Sheets split into the right number of plans | **58/60**, 100% precision, 86% recall | `split_accuracy.py` |
 | Wall coverage — annotated wall that gets built | **96.6%** | `wall_accuracy.py` |
 | Wall agreement — built wall that really is wall | **92.2%** | `wall_accuracy.py` |
-| Windows found, as detection | **62.1%** at 43.5% precision | 28 sheets, 190 windows |
+| Windows found, as detection | **62.1%** at 43.5% precision | in-session harness, not yet a tracked script |
 | Scale within a fifth of true | **33/48**, 17.3% median | `scale_accuracy.py` |
 | Room function, from the predicted type | **every plan** | `batch_evaluate.py` |
 | Per-class IoU | wall 0.697, door 0.560, **window 0.089** | `class_accuracy.py` |
-| Tests | **738** | `pytest` |
+| **Correct end to end, every check at once** | **10/30 (33%)** | `output_scorecard.py` |
+| Tests | **748** | `pytest` |
+
+That last-but-one row matters more than any single stage number: it runs
+the whole pipeline per plan and asks how many are right on *every* check
+at once, not just on average. It reorders the priority the per-stage
+numbers alone would suggest -- **scale is the largest end-to-end failure
+(10 of 30), not windows** (which cost 9 of 30, and are substantially a
+property of what CubiCasa's training data looks like rather than of the
+network -- confirmed by a second corpus, CVC-FP, where the same weights
+score 0.239 rather than 0.089).
 
 ### What is worth doing next
 
-1. **A retrain is queued and prepared.** `training/augment.py` gained
-   `unfill_walls`, because outline-drawn walls were much the worst of eight
-   drafting conventions tested -- 0.214 of wall IoU. It changes nothing
-   until something is trained. Section 8b of the training notebook
-   re-measures exactly that.
-2. **Windows remain the largest gap** and are not a resolution problem.
-   Four ways of buying them with pixels have been tried and measured, and
-   the audit records all four so a fifth is not attempted.
-3. **A second drafting corpus is the real unknown.** Eight conventions were
-   simulated and only outline walls hurt, but a simulation is not a corpus.
+In priority order, from `docs/PROJECT_GUIDE.md`'s future-plan section,
+which has the reasoning behind each:
 
-### Running it
+1. **Commit a script for the two numbers that only exist as throwaway
+   session code** -- the CVC-FP measurement and window detection
+   recall/precision. Both are correct (reproduced live) but neither can
+   be re-run by anyone else without rebuilding the code from scratch.
+2. **Read the drawing's own stated convention and switch scale constants
+   accordingly**, rather than trying to find one constant that fits every
+   population. Most of the scale error is now known to be a convention
+   mismatch, not a vision failure: a Finnish door measures 2'3" against
+   the code's assumed 2'6", and a Finnish wall 7.6" against an assumed
+   9". No amount of better segmentation fixes a constant that is simply
+   wrong for the population it's reading.
+3. **Rebalance or supplement window training data.** CVC-FP's 2.7x
+   better window IoU on the same weights is real evidence for this being
+   worth trying, and it hasn't been.
+4. **A milder retrain** with the `unfill_walls` augmentation at a lower
+   probability than the 0.3 that was tried and rejected.
+5. **A fourth ground-truthed corpus**, ideally from a population whose
+   scale constants are known to differ in the *other* direction from
+   CubiCasa's (the Indian villa control already shows +6% wall bias
+   where CubiCasa shows -20%) -- the only way to move past "3½
+   conventions tested" as the standing qualification on every number in
+   the project.
 
-`notebooks/run_on_colab.ipynb` is the one to reach for: upload a plan, get
-the model, six views, the detection overlay and a photoreal render, all on
-a Colab GPU. Smoke tested end to end against a CubiCasa sample.
+Two ideas already tried and explicitly rejected, so they are not
+retried on a hunch: preferring door-based scale estimates *harder* (swept
+across five thresholds; the current one is already the best on every
+measure), and combining the two geometric scale estimates by averaging
+(every blend loses to picking doors alone).
 
-The overlay in section 6 is the most useful thing in it. Red walls and
-green rooms over the original drawing say whether a disappointing model was
-misread or mishandled, and those need different fixes.
+---
 
-### What to do next
-
-Nothing is blocked any more, so the next moves are ordinary work rather
-than one big lever:
-
-1. **A second corpus.** Everything is measured on CubiCasa, which is
-   Finnish apartments, plus one Indian villa. Two drafting conventions is
-   two data points, and the generality claim is thinner than it sounds
-   until there is a third.
-2. **The wall-derived scale**, at 19.7% with a bias of -19.7%, is now the
-   weakest measured stage and carries 12 plans of 24. The bias says a 9
-   inch wall is simply wrong for this population; doors are unbiased and
-   should be preferred harder, or the constant should be fitted per
-   drawing rather than assumed.
-3. **The photoreal pass** has been run once, before any of this. Worth
-   re-running now that the model dresses the geometry properly.
-
-### A prediction that did not hold
-
-Recorded before the run: weighting the loss by class frequency should
-widen the predicted openings and shrink the scale bias. It did not. The
-model predicts *more* openings rather than wider ones, and the door-based
-scale got worse -- 6.7% error at +0.4% bias became 17.6% at -15.7% --
-because the extra detections are slivers. Bounding door widths by the
-drawing's own wall thickness recovered the bias to +1.8%, but not the
-precision.
+*Everything from here down predates the session that produced the table
+above and `docs/PROJECT_GUIDE.md`. Read it as history -- what was true,
+what was tried, what was learned -- not as current status. Two places
+below give advice the code has since done the opposite of, and are
+marked inline where they occur rather than deleted, since the reasoning
+that led there is still worth having on record.*
 
 ## Done and working
 
@@ -101,7 +109,7 @@ The whole pipeline runs end to end: PDF, PNG or JPEG in, a materialled
 | Web app | Gradio, multi-file upload, live 3D viewer |
 | Photoreal guides | Depth, edge and shaded renders ready |
 
-384 tests. Around 4,500 lines.
+384 tests. Around 4,500 lines. *(Stale: 748 tests as of the most recent commit -- pytest, not this line, is the source of truth.)*
 
 ## The photoreal pass has been run once
 
@@ -645,22 +653,38 @@ What remains after that:
   all on 10 of 12. It is a scaffold for clean CAD drawings and should be
   described as one rather than improved.
 - The **colour-driven windows and planting** rarely fire -- windows on 5 of
-  12, planting on 1. These are one drafting office's convention. The honest
-  improvement is to give `refine_windows` a way to tell a sheet that marks
-  windows in colour from one that does not, rather than assuming; the model
-  already finds the openings without help.
+  12, planting on 1. These are one drafting office's convention. ~~The
+  honest improvement is to give `refine_windows` a way to tell a sheet
+  that marks windows in colour from one that does not, rather than
+  assuming; the model already finds the openings without help.~~
+  **SUPERSEDED, and wrongly so: this was tried the other way round.**
+  `refine_windows` was measured against the annotations and found to be
+  *deleting correctly-detected windows* and replacing them with worse
+  colour-heuristic ones on some plans -- worst on exactly the sheets
+  where it decided colour could be trusted (F1 0.509 -> 0.051). It has
+  been removed from the trained model's code path entirely and now
+  survives only in the classical baseline, where there is nothing
+  better to fall back on. Do not re-add it to the trained path without
+  new evidence.
 - **Planting on greyscale plans** has no route at all, since it is colour
   only. The `outdoor` class is the obvious source once a retrained model
   supplies it.
 - **Around five windows per set** are still lost where the host wall was
   never detected.
 
-**2. Splitting a sheet that holds several storeys.** `ingest.split_sheet`
+**2. Splitting a sheet that holds several storeys.** ~~`ingest.split_sheet`
 does this by finding empty gutters and works on ordinary sheets. It cannot
 work on CubiCasa's, where boundary boxes and dimension lines cross every
 column. Detecting the long vertical rules that bound each plan is the
-approach that would, and it is a different algorithm rather than a threshold
-change.
+approach that would, and it is a different algorithm rather than a
+threshold change.~~ **SUPERSEDED by a different fix that shipped.**
+Nobody built vertical-rule detection. Instead: the boundary-rule fallback
+was found to be right once in three tries and was made to require two
+agreeing cuts rather than one, and a check was added that a split piece
+must actually enclose space (which is what separates a floor plan from a
+legend or title block sitting behind the same gutter). Splitting is now
+58/60 exact at 100% precision -- see `docs/AUDIT.md`, "The five sheets
+that split wrong, and why."
 
 **3. The interface still shows a colourless model.** Diagnosed once as
 resolution -- room names drive the finishes, and a screenshot upload names
