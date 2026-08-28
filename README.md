@@ -337,7 +337,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points
-tests/        738 tests
+tests/        748 tests
 docs/         design spec and implementation plan
 ```
 
