@@ -128,10 +128,10 @@ prettiest artefact meant the geometry was never really being looked at.
 | --- | --- | --- | --- | --- |
 | 1 | **Windows weak** | Detection **62.1%** at 43.5% precision; IoU 0.089 | Façades sparser than the drawing, plus openings that are not there. Openings fail on 9 of 30 plans end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
 | 2 | **Scale, 17.3% median error** | 33/48 within a fifth; doors −8.4%, walls −20.1% | Sets the whole building's size, and is the **largest end-to-end failure** at 10 of 30 | No — mostly the drawing's tradition, not the vision. See below |
-| 3 | Sheet splitting misses | Recall **86%**, **57/60** exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
+| 3 | Sheet splitting misses | Recall **86%**, **58/60** exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
 | 4 | **Only 2½ conventions tested** | Now **3½** — CVC-FP added, 122 sheets, 4 styles | Walls hold at 96.7% coverage on an unseen tradition; scale still untestable there | **Yes** |
-| 5 | Storage rooms weak | IoU 0.525 | Storage reads as ordinary rooms | Yes |
-| 6 | Bath rooms weak | IoU 0.586 | Wet floors missed | Yes |
+| 5 | Storage rooms weak | IoU 0.570 | Storage reads as ordinary rooms | Yes |
+| 6 | Bath rooms weak | IoU 0.602 | Wet floors missed | Yes |
 | 7 | ~~Prompt truncated~~ **closed** | 68 tokens, site features preserved | — | — |
 | 8 | OCR reads few names | 12/60 plans | Largely mitigated: types come from the model now | Inherent |
 | 9 | ~~Diagonal walls~~ **not worth building** | Costs **2.7%** of wall pixels, no plan over 10% | See below | — |
