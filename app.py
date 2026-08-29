@@ -147,7 +147,10 @@ def convert_with_details(
 
     The extra detail is what a photoreal pass needs to describe this house
     rather than a generic one -- how many storeys, and which rooms were
-    named. Kept separate so the desktop app's outputs stay as they are.
+    named. Kept separate so app.py's Build button -- whose Gradio outputs
+    are fixed to (render, model, views, summary) -- doesn't have to carry a
+    ``details`` dict it never uses; ``notebooks/app_on_colab.ipynb`` is the
+    caller that does, feeding it straight to its photoreal step.
     """
     if extracted_result is None or workdir is None:
         raise gr.Error("Detect a plan first — click Detect before Build.")
