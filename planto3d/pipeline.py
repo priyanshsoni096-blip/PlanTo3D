@@ -139,6 +139,12 @@ class PipelineResult:
     # out. It says nothing about which was chosen -- only whether the
     # drawing gave consistent evidence about its own size.
     scale_agreement: float | None = None
+    # The cropped sheet's pixel dimensions, needed by ``build_scene`` to
+    # place the site boundary. Computed once in ``extract`` and carried
+    # through so ``build`` does not need to re-read the image; defaulted
+    # so existing callers that construct a ``PipelineResult`` directly
+    # (as the tests do) do not need to supply it.
+    page_size: tuple[int, int] | None = None
 
     @property
     def scale_assumed(self) -> bool:
@@ -386,16 +392,13 @@ def _load_pages(source: Path, pages_dir: Path) -> list[Path]:
     return rasterize_pdf(source, pages_dir)
 
 
-def run(
+def extract(
     source: Path,
     output_dir: Path,
     segmenter: Segmenter = classical_mask,
-    wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
     crop: bool = True,
-    palette: Palette | None = None,
-    site: Landscaping | None = None,
 ) -> PipelineResult:
-    """Convert a floor plan into a stacked 3D model.
+    """Read a floor plan and extract its geometry, scale and room labels.
 
     ``source`` may be a PDF, a single image, or a directory of images -- one
     per storey, in filename order.
@@ -404,6 +407,12 @@ def run(
     that are already just the plan, with no title block to remove: the crop
     looks for borders common to every page, and on a single tight image it
     finds none and can only take away.
+
+    Everything through labeling -- rasterize, crop, segment, extract walls/
+    rooms/openings, calibrate scale, assign labels -- with no scene built
+    yet. This is the pause point: a caller can inspect or edit
+    ``result.floors[i].plan.rooms[j].label`` before calling ``build()``,
+    which is exactly what a human-correction step needs.
     """
     source, output_dir = Path(source), Path(output_dir)
     pages_dir = output_dir / "pages"
@@ -518,32 +527,69 @@ def run(
         # the name and the size, so they can be placed from the text alone.
         floor.plan.labelled_regions = regions_from_labels(floor.text_boxes, scale)
 
-    model_path = None
-    if scale is None:
-        logger.warning("scale could not be determined; skipping 3D export")
-    else:
-        # The cropped sheet is the plot: its frame encloses the whole site,
-        # so the drawing's extent gives the boundary rather than a guess.
-        first = cv2.imread(str(floors[0].image_path))
-        page_size = (first.shape[1], first.shape[0]) if first is not None else None
-
-        scene = build_scene(
-            [floor.plan for floor in floors],
-            wall_height_ft=wall_height_ft,
-            scale=scale,
-            page_size=page_size,
-            palette=palette,
-            site=site,
-        )
-        model_path = export_scene(scene, output_dir / "house.glb")
+    # The cropped sheet is the plot: its frame encloses the whole site, so
+    # the drawing's extent gives the boundary rather than a guess. Computed
+    # here and carried on the result so ``build`` does not need to re-read
+    # the image later.
+    first = cv2.imread(str(floors[0].image_path))
+    page_size = (first.shape[1], first.shape[0]) if first is not None else None
 
     return PipelineResult(
         floors=floors,
         scale=scale,
-        model_path=model_path,
+        model_path=None,
         scale_source=scale_source,
         scale_agreement=agreement,
+        page_size=page_size,
     )
+
+
+def build(
+    result: PipelineResult,
+    output_dir: Path,
+    wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
+    palette: Palette | None = None,
+    site: Landscaping | None = None,
+) -> PipelineResult:
+    """Build and export the 3D scene from an already-extracted result.
+
+    Mutates and returns ``result`` with ``model_path`` set. Split out of
+    what used to be the tail of ``run()`` so a correction step can edit
+    ``result.floors[i].plan.rooms[j].label`` in between extraction and
+    this call -- a correction is just a label that did not come from OCR,
+    and every downstream consumer (``features.feature_for``,
+    ``site.classify_cover``, ``site.has_open_edge``) reads only
+    ``room.label``, so no other code needs to change.
+    """
+    output_dir = Path(output_dir)
+    if result.scale is None:
+        logger.warning("scale could not be determined; skipping 3D export")
+        return result
+
+    scene = build_scene(
+        [floor.plan for floor in result.floors],
+        wall_height_ft=wall_height_ft,
+        scale=result.scale,
+        page_size=result.page_size,
+        palette=palette,
+        site=site,
+    )
+    result.model_path = export_scene(scene, output_dir / "house.glb")
+    return result
+
+
+def run(
+    source: Path,
+    output_dir: Path,
+    segmenter: Segmenter = classical_mask,
+    wall_height_ft: float = DEFAULT_WALL_HEIGHT_FT,
+    crop: bool = True,
+    palette: Palette | None = None,
+    site: Landscaping | None = None,
+) -> PipelineResult:
+    """Convert a floor plan into a stacked 3D model. See ``extract`` + ``build``."""
+    result = extract(source, output_dir, segmenter, crop)
+    return build(result, output_dir, wall_height_ft, palette, site)
 
 
 def draw_overlay(floor: FloorResult) -> np.ndarray:
