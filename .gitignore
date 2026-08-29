@@ -26,3 +26,9 @@ output_*/
 # Trained checkpoints (~98 MB each)
 models/*.pt
 output_unet/
+
+# Superdesign working files (drafts are held server-side)
+.superdesign/tmp/
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
