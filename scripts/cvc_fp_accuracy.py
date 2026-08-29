@@ -41,6 +41,9 @@ from planto3d.segment import load_segmenter
 # comparable side by side.
 MATCH_RATIO = 0.5
 
+# Same as scripts/class_accuracy.py's MIN_SHEETS -- a class has to appear
+# on at least this many sheets to be worth a row; below it the median is
+# one or two drawings rather than a measurement.
 MIN_SHEETS = 3
 
 

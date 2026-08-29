@@ -13,6 +13,7 @@ phase re-runs this and diffs the table -- a regression here means a
 
 import argparse
 import logging
+import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -21,6 +22,12 @@ from planto3d.features import feature_for
 from planto3d.pipeline import run
 from planto3d.segment import load_segmenter
 
+# Five from each corpus -- enough to span both conventions without the
+# script taking long enough that nobody re-runs it. "First five, sorted" is
+# the whole reproducibility rule: no cherry-picking a favourable sample, and
+# anyone can regenerate the same list from a fresh checkout with `sorted(...)
+# [:5]` on the corpus directory, without this script telling them which
+# files to pick.
 CVC_FP_SAMPLE = ["1.png", "2.png", "3.png", "4.png", "5.png"]
 BRIDGE_SAMPLE = [
     "11001.gif", "11041.gif", "110852.gif", "111243.gif", "111662.gif",
@@ -48,16 +55,45 @@ def _row(name: str, source: Path, segmenter) -> dict:
     }
 
 
-def main(checkpoint: Path | None, output: Path) -> None:
+def _escape_for_table(message: str) -> str:
+    """Make an exception's ``str()`` safe to drop into a markdown cell.
+
+    A raw exception message can contain a literal ``|`` (closing a table
+    row early and corrupting every column after it) or newlines (breaking
+    the row onto multiple lines). Both have shown up in real tracebacks, so
+    this is not a hypothetical -- an un-escaped error can silently mangle
+    the very table meant to record that the run failed.
+    """
+    return message.replace("\n", " ").replace("|", "\\|")
+
+
+def main(checkpoint: Path | None, output: Path, root: Path) -> None:
     warnings.filterwarnings("ignore")
     logging.disable(logging.WARNING)
     segmenter = load_segmenter(checkpoint)
 
     rows = []
     for name in CVC_FP_SAMPLE:
-        rows.append(_row(f"cvc_fp/{name}", Path("data/cvc_fp/ImagesGT") / name, segmenter))
+        rows.append(_row(f"cvc_fp/{name}", root / "cvc_fp" / "ImagesGT" / name, segmenter))
     for name in BRIDGE_SAMPLE:
-        rows.append(_row(f"bridge/{name}", Path("data/bridge") / name, segmenter))
+        rows.append(_row(f"bridge/{name}", root / "bridge" / name, segmenter))
+
+    # This file is the branch's declared regression gate -- every later
+    # phase diffs against it. If every row failed, the corpus almost
+    # certainly wasn't found (wrong --root, or data/ not populated), and
+    # writing a table of ERROR rows over a good baseline would be worse
+    # than leaving it untouched: it would report success (exit 0) while
+    # silently destroying the thing being compared against.
+    if rows and all("error" in row for row in rows):
+        print(
+            f"every plan failed under --root {root} -- refusing to overwrite "
+            f"{output}. Check the path (expects {root}/cvc_fp/ImagesGT and "
+            f"{root}/bridge).",
+            file=sys.stderr,
+        )
+        for row in rows:
+            print(f"  {row['plan']}: {row['error']}", file=sys.stderr)
+        sys.exit(1)
 
     lines = [
         "# Diverse mini-set baseline",
@@ -71,7 +107,7 @@ def main(checkpoint: Path | None, output: Path) -> None:
     ]
     for row in rows:
         if "error" in row:
-            lines.append(f"| {row['plan']} | ERROR: {row['error']} | | | | | |")
+            lines.append(f"| {row['plan']} | ERROR: {_escape_for_table(row['error'])} | | | | | |")
             continue
         lines.append(
             f"| {row['plan']} | {row['walls']} | {row['rooms']} | "
@@ -84,7 +120,13 @@ def main(checkpoint: Path | None, output: Path) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path("data"),
+        help="corpus root, expects <root>/cvc_fp/ImagesGT and <root>/bridge (default: data)",
+    )
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--output", type=Path, default=Path("docs/mini_set_baseline.md"))
     arguments = parser.parse_args()
-    main(arguments.checkpoint, arguments.output)
+    main(arguments.checkpoint, arguments.output, arguments.root)
