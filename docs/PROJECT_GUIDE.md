@@ -120,7 +120,8 @@ code that produces it.
 | Lighting/palette | `planto3d/style.py` (261 lines) | `Lighting` (rebalanced defaults today), `Palette`, `parse_colour` |
 | Rendering | `planto3d/preview.py` (669 lines) | `render`, `render_depth`, `render_glb`, `render_views` |
 | Photoreal | `planto3d/photoreal.py` (199 lines) | `build_prompt`, `edge_guide`, `build_guides` |
-| Orchestration | `planto3d/pipeline.py` (577 lines) | `run()` — the single top-level entry point; `PipelineResult`, `FloorResult` dataclasses |
+| Orchestration | `planto3d/pipeline.py` (623 lines) | Three entry points — `extract()` (geometry + labels, up to the correction pause point), `build()` (corrections applied, geometry to a model), `run()` (`extract()` then `build()` with no pause, for callers with no correction step); `PipelineResult`, `FloorResult` dataclasses |
+| Room corrections | `planto3d/corrections.py` (69 lines) | `apply_room_corrections`, `CATEGORY_LABELS` — turns a user's UI override into a `Room.label` change, applied in place between `extract()` and `build()` |
 | CubiCasa5K reader | `planto3d/cubicasa.py` (350 lines) | `svg_to_mask`, `sample_paths`, `ground_truth_scale`, `parse_feet` |
 | CVC-FP reader | `planto3d/cvc_fp.py` (168 lines, **new today**) | `svg_to_mask`, `sample_paths`, `annotation_size` |
 | Misc tooling | `planto3d/tools.py` (88 lines) | `poppler_bin_dir`, `tesseract_exe`, `configure_tesseract` |
@@ -377,10 +378,11 @@ live today, not from memory:
 
 ### Tests — `pytest`, full suite
 
-**748 passed, 0 failed.** This matches `docs/AUDIT.md`'s current figure
+**800 passed, 0 failed.** This matches `docs/AUDIT.md`'s current figure
 exactly. `README.md` and `docs/AUDIT.md` both said 748 as of the last
 commit (`3f674ca`, "docs: the test count again, 748") — both already
-correct at the time of this audit. `docs/STATE.md` line 104 still says
+correct at the time of this audit; the count has since grown to 800 with
+the room-correction work. `docs/STATE.md` line 104 still says
 "384 tests" — see [Doc drift](#doc-drift-found-while-writing-this).
 
 Composition (37 test files, 5,981 lines): the largest suites are
@@ -602,8 +604,8 @@ training/            Dataset, augmentation, loss/metrics, and the training loop
                       for the segmenter. Kept separate from planto3d/ so geometry
                       work doesn't require torch installed (pyproject.toml's
                       `ml` extra is optional).
-scripts/              12 command-line entry points — see table below.
-tests/                37 files, 748 tests, 5,981 lines. pytest, PYTHONPATH=. required.
+scripts/              15 command-line entry points — see table below.
+tests/                37 files, 800 tests, 5,981 lines. pytest, PYTHONPATH=. required.
 notebooks/            5 Colab notebooks:
                         train_on_colab.ipynb   — trains the segmenter (27 cells)
                         run_on_colab.ipynb     — upload a plan, get a house (21 cells)
@@ -750,6 +752,10 @@ document, not about how hard it was to find.
    measurement from scratch, since no file in `scripts/` does it. Not a
    drift (the numbers matched exactly on re-run), but a reproducibility
    gap worth closing — listed as priority 1 in the future plan above.
+   **Update:** `scripts/cvc_fp_accuracy.py` now exists and closes this gap
+   — running it does not reproduce every number it inherited (see the
+   discrepancy notes added to `docs/AUDIT.md`), but the corpus is
+   independently re-runnable now, which is what this entry was about.
 
 No other numeric claim checked in this pass (per-class IoU, wall
 coverage/agreement, scale error and bias, convention-stress table, feature

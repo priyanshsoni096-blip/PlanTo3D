@@ -234,8 +234,10 @@ For the web interface:
 python app.py
 ```
 
-Upload a plan, set the storey height, and the model appears in a viewer you
-can orbit. A checkpoint dropped into `models/` is picked up automatically.
+Upload a plan and click **Detect** to see the extracted geometry and a table
+of predicted room types; correct anything it got wrong, then click **Build &
+render** to get the model in a viewer you can orbit. A checkpoint dropped
+into `models/` is picked up automatically.
 
 ## Training
 
@@ -337,7 +339,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points
-tests/        748 tests
+tests/        800 tests
 docs/         design spec and implementation plan
 ```
 
