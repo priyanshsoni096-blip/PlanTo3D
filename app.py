@@ -3,6 +3,7 @@
 Run with:  python app.py
 """
 
+import copy
 import logging
 import os
 import shutil
@@ -175,7 +176,15 @@ def convert_with_details(
                 f"{NO_CHANGE!r}."
             )
         corrections[(int(floor_number) - 1, int(room_index))] = normalized
-    result = apply_room_corrections(extracted_result, corrections)
+    # apply_room_corrections() mutates its argument's rooms in place, and
+    # extracted_result is the exact object sitting in gr.State -- the same
+    # object every future Build click will start from. Correcting it
+    # directly would make corrections cumulative and unrevertable: clearing
+    # an Override back to "(no change)" would leave the room stuck at
+    # whatever it was last overridden to, since the pristine label is gone.
+    # Deep-copying here keeps the state pristine and makes every Build a
+    # fresh application of exactly the corrections currently in the table.
+    result = apply_room_corrections(copy.deepcopy(extracted_result), corrections)
 
     design = Design(
         style=style,

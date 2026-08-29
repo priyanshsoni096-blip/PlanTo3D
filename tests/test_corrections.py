@@ -8,6 +8,8 @@ code needs to change, which these tests confirm directly by round-
 tripping every canonical label through all three consumers.
 """
 
+import copy
+
 import pytest
 
 from planto3d.corrections import CATEGORY_LABELS, apply_room_corrections
@@ -80,3 +82,23 @@ def test_open_categories_are_also_railed_by_site_py():
 def test_ground_cover_categories_are_recognised_by_site_py():
     assert classify_cover(CATEGORY_LABELS["lawn"]) == "lawn"
     assert classify_cover(CATEGORY_LABELS["paving"]) == "paving"
+
+
+def test_reapplying_to_a_fresh_deepcopy_reverts_a_correction():
+    # apply_room_corrections() mutates in place -- that is correct and
+    # relied upon elsewhere. But app.py's gr.State holds one PipelineResult
+    # object across every Build click, so if a caller corrected that same
+    # object directly, an override could never be undone: clearing it back
+    # to "(no change)" would just skip re-writing the label, leaving it
+    # stuck at whatever it was last overridden to. The fix is for the
+    # caller to deep-copy the pristine result before each correction pass;
+    # this test is that contract, from the corrections side.
+    original = _plan_with_rooms(["BEDROOM"])
+    apply_room_corrections(copy.deepcopy(original), {(0, 0): "open"})
+
+    # A second, independent correction pass -- starting from a fresh
+    # deepcopy of the untouched original, exactly as app.py must -- with no
+    # override this time should reproduce the original label, not the
+    # overridden one.
+    reverted = apply_room_corrections(copy.deepcopy(original), {})
+    assert reverted.floors[0].plan.rooms[0].label == "BEDROOM"
