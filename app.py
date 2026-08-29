@@ -12,8 +12,9 @@ from pathlib import Path
 import cv2
 import gradio as gr
 
+from planto3d.corrections import CATEGORY_LABELS, NO_CHANGE, apply_room_corrections
 from planto3d.extrude import DEFAULT_WALL_HEIGHT_FT
-from planto3d.pipeline import draw_overlay, run
+from planto3d.pipeline import PipelineResult, build, draw_overlay, extract
 from planto3d.preview import render_views
 from planto3d.segment import load_segmenter
 from planto3d.design import (
@@ -57,40 +58,19 @@ SEGMENTER_NAME = (
 )
 
 
-def convert(uploads, wall_height_ft: float, *choices):
-    """Run the pipeline and return the model, views, overlays and a summary."""
-    return convert_with_details(uploads, wall_height_ft, *choices)[:5]
+def detect(uploads, workdir: Path) -> tuple[list, list, PipelineResult]:
+    """Extract geometry and labels, and show what was found for review.
 
-
-def convert_with_details(
-    uploads,
-    wall_height_ft: float,
-    style: str = "modern",
-    colour: str = "warm",
-    time: str = "day",
-    landscaping: str = "basic",
-    creativity: str = "balanced",
-):
-    """As ``convert``, plus what the drawing turned out to contain.
-
-    The extra detail is what a photoreal pass needs to describe this house
-    rather than a generic one -- how many storeys, and which rooms were
-    named. Kept separate so the desktop app's outputs stay as they are.
+    This is everything through labeling -- what ``planto3d.pipeline.
+    extract()`` calls the pause point -- with nothing built yet, so a
+    human can fix up ``result.floors[i].plan.rooms[j].label`` before
+    ``convert()`` turns it into geometry.
     """
     if not uploads:
         raise gr.Error("Upload a floor plan first — a PDF, PNG or JPEG.")
 
     if isinstance(uploads, (str, Path)):
         uploads = [uploads]
-
-    design = Design(
-        style=style,
-        colour=colour,
-        time=time,
-        landscaping=landscaping,
-        creativity=creativity,
-    )
-    workdir = Path(tempfile.mkdtemp(prefix="planto3d_"))
 
     # Several images are one storey each; a single file speaks for itself.
     # Images are collected into a folder so they arrive in upload order.
@@ -103,16 +83,108 @@ def convert_with_details(
         source = Path(uploads[0])
 
     try:
-        result = run(
-            source,
+        result = extract(source, workdir, segmenter=SEGMENTER)
+    except Exception as error:
+        raise gr.Error(f"Could not process this plan: {error}") from error
+
+    overlays = []
+    for floor in result.floors:
+        path = workdir / f"overlay-{floor.index}.png"
+        cv2.imwrite(str(path), draw_overlay(floor))
+        overlays.append((str(path), f"Floor {floor.index + 1}"))
+
+    table_rows = []
+    for floor in result.floors:
+        for room_index, room in enumerate(floor.plan.rooms):
+            table_rows.append(
+                [
+                    floor.index + 1,
+                    room_index,
+                    room.label or "(unlabelled)",
+                    room.category or "(none predicted)",
+                    NO_CHANGE,
+                ]
+            )
+
+    return overlays, table_rows, result
+
+
+def _start_detect(uploads):
+    """Gradio click handler: Detect always gets its own fresh workdir.
+
+    A new ``tempfile.mkdtemp()`` per click -- not one made at import time
+    or reused across clicks -- is what makes a second Detect safe even
+    while the first plan's rows are still sitting in the table: this
+    handler's outputs (overlay, table, state, workdir) are all replaced
+    wholesale, so nothing from the previous detection survives for a
+    stale row to point into.
+    """
+    workdir = Path(tempfile.mkdtemp(prefix="planto3d_"))
+    overlays, table_rows, result = detect(uploads, workdir)
+    return overlays, table_rows, result, workdir
+
+
+def convert(wall_height_ft, correction_table, extracted_result, workdir, *choices):
+    """Apply any corrections and build the model — the second click."""
+    return convert_with_details(
+        wall_height_ft, correction_table, extracted_result, workdir, *choices
+    )[:4]
+
+
+def convert_with_details(
+    wall_height_ft: float,
+    correction_table,
+    extracted_result,
+    workdir,
+    style: str = "modern",
+    colour: str = "warm",
+    time: str = "day",
+    landscaping: str = "basic",
+    creativity: str = "balanced",
+):
+    """As ``convert``, plus what the drawing turned out to contain.
+
+    The extra detail is what a photoreal pass needs to describe this house
+    rather than a generic one -- how many storeys, and which rooms were
+    named. Kept separate so the desktop app's outputs stay as they are.
+    """
+    if extracted_result is None or workdir is None:
+        raise gr.Error("Detect a plan first — click Detect before Build.")
+
+    # Each row identifies its room by (floor, room #), not by position, so
+    # a user deleting or reordering rows in the UI can't misapply an
+    # override to the wrong room -- it just drops that room's correction.
+    corrections = {}
+    for row in correction_table or []:
+        floor_number, room_index, _label, _predicted, override = row
+        if override == NO_CHANGE:
+            continue
+        if override not in CATEGORY_LABELS:
+            raise gr.Error(
+                f"'{override}' isn't a category PlanTo3D knows. Choose one "
+                f"of: {', '.join(CATEGORY_LABELS)}; or leave it as "
+                f"{NO_CHANGE!r}."
+            )
+        corrections[(int(floor_number) - 1, int(room_index))] = override
+    result = apply_room_corrections(extracted_result, corrections)
+
+    design = Design(
+        style=style,
+        colour=colour,
+        time=time,
+        landscaping=landscaping,
+        creativity=creativity,
+    )
+    try:
+        result = build(
+            result,
             workdir,
-            segmenter=SEGMENTER,
             wall_height_ft=wall_height_ft,
             palette=design.palette(),
             site=design.site(),
         )
     except Exception as error:
-        raise gr.Error(f"Could not process this plan: {error}") from error
+        raise gr.Error(f"Could not build this plan: {error}") from error
 
     if result.model_path is None:
         raise gr.Error(
@@ -129,12 +201,6 @@ def convert_with_details(
         for name in ("top", "front", "back", "left", "right", "aerial")
         if name in views
     ]
-
-    overlays = []
-    for floor in result.floors:
-        path = workdir / f"overlay-{floor.index}.png"
-        cv2.imwrite(str(path), draw_overlay(floor))
-        overlays.append((str(path), f"Floor {floor.index + 1}"))
 
     SCALE_SOURCES = {
         "dimensions": "measured from the printed room dimensions",
@@ -203,7 +269,6 @@ def convert_with_details(
         hero,
         str(result.model_path),
         view_gallery,
-        overlays,
         "\n".join(lines),
         details,
     )
@@ -271,7 +336,7 @@ def build_interface() -> gr.Blocks:
                         "shaded model; creative invents.",
                     )
 
-                convert_button = gr.Button("Convert to 3D", variant="primary")
+                convert_button = gr.Button("Detect", variant="primary")
 
             with gr.Column(scale=2):
                 # Two views of the same model, because they do different jobs.
@@ -301,11 +366,47 @@ def build_interface() -> gr.Blocks:
             height=420,
         )
 
+        # column_count/static_columns replace col_count in this Gradio
+        # version (6.24.0); static_columns locks the four identifying
+        # columns and leaves only Override editable. There is no per-
+        # column dropdown datatype here, so Override is free text --
+        # the caption below spells out the valid values.
+        correction_output = gr.Dataframe(
+            headers=["Floor", "Room #", "Detected label", "Predicted type", "Override"],
+            datatype=["number", "number", "str", "str", "str"],
+            label="Review — correct anything the plan reader got wrong",
+            interactive=True,
+            column_count=5,
+            static_columns=[0, 1, 2, 3],
+        )
+        gr.Markdown(
+            "Type into **Override** to relabel a room: "
+            f"{', '.join(f'`{c}`' for c in CATEGORY_LABELS)}, "
+            f"or leave it as `{NO_CHANGE}`."
+        )
+        build_button = gr.Button("Build & render", variant="primary")
+
+        # Detect fills these; Build reads them. Threading workdir through
+        # explicitly (rather than re-deriving it from a floor's image path,
+        # which for a single-image upload is the user's own file, not a
+        # path inside the run's own temp directory) is what keeps Build
+        # writing its .glb into the same place Detect already extracted to.
+        extracted_state = gr.State(value=None)
+        workdir_state = gr.State(value=None)
+
         convert_button.click(
+            fn=_start_detect,
+            inputs=[pdf_input],
+            outputs=[overlay_output, correction_output, extracted_state, workdir_state],
+        )
+
+        build_button.click(
             fn=convert,
             inputs=[
-                pdf_input,
                 height_input,
+                correction_output,
+                extracted_state,
+                workdir_state,
                 style_input,
                 colour_input,
                 time_input,
@@ -316,7 +417,6 @@ def build_interface() -> gr.Blocks:
                 render_output,
                 model_output,
                 view_output,
-                overlay_output,
                 summary_output,
             ],
         )
