@@ -154,18 +154,27 @@ def convert_with_details(
     # Each row identifies its room by (floor, room #), not by position, so
     # a user deleting or reordering rows in the UI can't misapply an
     # override to the wrong room -- it just drops that room's correction.
+    #
+    # Override is free text (this Gradio version has no per-column
+    # dropdown), so it is matched case- and whitespace-insensitively: a
+    # user typing "Open", " open ", or "(No Change)" plainly means the
+    # same thing as "open" or "(no change)", and a blank cell -- clearing
+    # it rather than retyping "(no change)" -- reads just as naturally as
+    # "leave this room alone". Only text that still doesn't match any
+    # known category after normalizing is a genuine mistake worth an error.
     corrections = {}
     for row in correction_table or []:
         floor_number, room_index, _label, _predicted, override = row
-        if override == NO_CHANGE:
+        normalized = str(override).strip().lower()
+        if normalized in ("", NO_CHANGE):
             continue
-        if override not in CATEGORY_LABELS:
+        if normalized not in CATEGORY_LABELS:
             raise gr.Error(
                 f"'{override}' isn't a category PlanTo3D knows. Choose one "
                 f"of: {', '.join(CATEGORY_LABELS)}; or leave it as "
                 f"{NO_CHANGE!r}."
             )
-        corrections[(int(floor_number) - 1, int(room_index))] = override
+        corrections[(int(floor_number) - 1, int(room_index))] = normalized
     result = apply_room_corrections(extracted_result, corrections)
 
     design = Design(
@@ -380,9 +389,10 @@ def build_interface() -> gr.Blocks:
             static_columns=[0, 1, 2, 3],
         )
         gr.Markdown(
-            "Type into **Override** to relabel a room: "
+            "Type into **Override** to relabel a room (case and spacing "
+            "don't matter): "
             f"{', '.join(f'`{c}`' for c in CATEGORY_LABELS)}, "
-            f"or leave it as `{NO_CHANGE}`."
+            f"or leave it blank / `{NO_CHANGE}` to leave the room alone."
         )
         build_button = gr.Button("Build & render", variant="primary")
 
