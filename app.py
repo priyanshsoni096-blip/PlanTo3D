@@ -399,6 +399,12 @@ def build_interface() -> gr.Blocks:
             interactive=True,
             column_count=5,
             static_columns=[0, 1, 2, 3],
+            # Without this, Gradio 6.24.0 defaults to "pandas": the click
+            # handler would receive a DataFrame, and `for row in
+            # correction_table or []` (below) raises ValueError trying to
+            # coerce it to bool. "array" makes preprocess() hand back a
+            # plain list of row-lists, which is what that loop expects.
+            type="array",
         )
         gr.Markdown(
             "Type into **Override** to relabel a room (case and spacing "
