@@ -393,7 +393,7 @@ def build_interface() -> gr.Blocks:
         # column dropdown datatype here, so Override is free text --
         # the caption below spells out the valid values.
         correction_output = gr.Dataframe(
-            headers=["Floor", "Room #", "Detected label", "Predicted type", "Override"],
+            headers=["Floor", "Room #", "Detected label", "Predicted room type", "Override (feature category)"],
             datatype=["number", "number", "str", "str", "str"],
             label="Review — correct anything the plan reader got wrong",
             interactive=True,
@@ -407,8 +407,10 @@ def build_interface() -> gr.Blocks:
             type="array",
         )
         gr.Markdown(
-            "Type into **Override** to relabel a room (case and spacing "
-            "don't matter): "
+            "**Override** uses a different, smaller vocabulary than "
+            "*Predicted room type* above it — typing back what's shown "
+            "there (e.g. `storage`, `outdoor`) will not match. Type one of "
+            "these instead (case and spacing don't matter): "
             f"{', '.join(f'`{c}`' for c in CATEGORY_LABELS)}, "
             f"or leave it blank / `{NO_CHANGE}` to leave the room alone."
         )
