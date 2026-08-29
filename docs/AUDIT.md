@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **800 passing** | — |
+| Tests | **802 passing** | — |
 
 ## What the finished model gets right, end to end
 

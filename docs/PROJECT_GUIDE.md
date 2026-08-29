@@ -378,10 +378,10 @@ live today, not from memory:
 
 ### Tests — `pytest`, full suite
 
-**800 passed, 0 failed.** This matches `docs/AUDIT.md`'s current figure
+**802 passed, 0 failed.** This matches `docs/AUDIT.md`'s current figure
 exactly. `README.md` and `docs/AUDIT.md` both said 748 as of the last
 commit (`3f674ca`, "docs: the test count again, 748") — both already
-correct at the time of this audit; the count has since grown to 800 with
+correct at the time of this audit; the count has since grown to 802 with
 the room-correction work. `docs/STATE.md` line 104 still says
 "384 tests" — see [Doc drift](#doc-drift-found-while-writing-this).
 
@@ -605,7 +605,7 @@ training/            Dataset, augmentation, loss/metrics, and the training loop
                       work doesn't require torch installed (pyproject.toml's
                       `ml` extra is optional).
 scripts/              15 command-line entry points — see table below.
-tests/                37 files, 800 tests, 5,981 lines. pytest, PYTHONPATH=. required.
+tests/                37 files, 802 tests, 5,981 lines. pytest, PYTHONPATH=. required.
 notebooks/            5 Colab notebooks:
                         train_on_colab.ipynb   — trains the segmenter (27 cells)
                         run_on_colab.ipynb     — upload a plan, get a house (21 cells)
