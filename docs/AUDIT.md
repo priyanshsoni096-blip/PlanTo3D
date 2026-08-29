@@ -138,6 +138,12 @@ prettiest artefact meant the geometry was never really being looked at.
 | 10 | Classical baseline | No walls on 10/12 unseen | Scaffold for clean CAD only; the trained model is the contribution | Documented |
 | 11 | Colour heuristics | Windows 5/12, planting 1/12 | One drafting office's convention | Documented |
 
+> **Discrepancy note (row 1):** `scripts/window_detection_accuracy.py` now
+> exists and measures **81.7% recall at 75.7% precision**, not the
+> 62.1%/43.5% above -- the original measurement's method was never recorded
+> and could not be recovered. The figure above is kept as the historical
+> record rather than silently changed; treat the script's output as current.
+
 ## What rendering a random plan turned up
 
 Everything above is scored against the annotations, which says how well
@@ -970,6 +976,14 @@ Over 30 sheets, against the same measurement on CubiCasa:
 | room IoU | 0.530 | 0.717 |
 | **window IoU** | **0.239** | 0.089 |
 | door IoU | 0.136 | 0.560 |
+
+> **Discrepancy note (wall coverage, wall agreement):**
+> `scripts/cvc_fp_accuracy.py` now exists and measures wall coverage at
+> **96.3%** (not 96.7%) and wall agreement at **69.0%** (not 77.5%). The
+> difference is in the painting/dilation method of the original throwaway
+> code, which was not recorded; the script's figures are the reproducible
+> ones. The historical numbers above are kept as measured at the time; the
+> interpretation below still holds directionally.
 
 **Walls generalise, and that is the headline.** Coverage on a drawing
 tradition the model has never seen is 96.7% against 96.6% on the one it
