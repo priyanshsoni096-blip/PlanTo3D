@@ -125,10 +125,13 @@ def _start_detect(uploads):
     return overlays, table_rows, result, workdir
 
 
-def convert(wall_height_ft, correction_table, extracted_result, workdir, *choices):
+def convert(
+    uploads, wall_height_ft, correction_table, extracted_result, workdir, *choices
+):
     """Apply any corrections and build the model — the second click."""
     return convert_with_details(
-        wall_height_ft, correction_table, extracted_result, workdir, *choices
+        wall_height_ft, correction_table, extracted_result, workdir, *choices,
+        uploads=uploads,
     )[:4]
 
 
@@ -142,6 +145,7 @@ def convert_with_details(
     time: str = "day",
     landscaping: str = "basic",
     creativity: str = "balanced",
+    uploads=None,
 ):
     """As ``convert``, plus what the drawing turned out to contain.
 
@@ -152,8 +156,16 @@ def convert_with_details(
     ``details`` dict it never uses; ``notebooks/app_on_colab.ipynb`` is the
     caller that does, feeding it straight to its photoreal step.
     """
+    # Build on its own is allowed to do the detecting too. Two clicks is
+    # the flow when you want to correct something, but "upload and press
+    # the obvious button" has to work -- an interface whose primary action
+    # errors until you find a preliminary one is a bad interface, and the
+    # error it raised said so politely thousands of times before this.
     if extracted_result is None or workdir is None:
-        raise gr.Error("Detect a plan first — click Detect before Build.")
+        if not uploads:
+            raise gr.Error("Upload a floor plan first — a PDF, PNG or JPEG.")
+        workdir = Path(tempfile.mkdtemp(prefix="planto3d_"))
+        _, correction_table, extracted_result = detect(uploads, workdir)
 
     # Each row identifies its room by (floor, room #), not by position, so
     # a user deleting or reordering rows in the UI can't misapply an
@@ -433,6 +445,7 @@ def build_interface() -> gr.Blocks:
         build_button.click(
             fn=convert,
             inputs=[
+                pdf_input,
                 height_input,
                 correction_output,
                 extracted_state,
