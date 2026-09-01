@@ -86,19 +86,18 @@ def test_ground_cover_categories_are_recognised_by_site_py():
 
 def test_reapplying_to_a_fresh_deepcopy_reverts_a_correction():
     # apply_room_corrections() mutates in place -- that is correct and
-    # relied upon elsewhere. But app.py's gr.State holds one PipelineResult
-    # object across every Build click, so if a caller corrected that same
-    # object directly, an override could never be undone: clearing it back
-    # to "(no change)" would just skip re-writing the label, leaving it
-    # stuck at whatever it was last overridden to. The fix is for the
-    # caller to deep-copy the pristine result before each correction pass;
-    # this test is that contract, from the corrections side.
+    # relied upon elsewhere. But it means a caller that holds one
+    # PipelineResult and corrects it repeatedly can never undo an override:
+    # dropping a room back to "(no change)" merely skips re-writing the
+    # label, leaving it stuck at whatever it was last set to. Any caller
+    # applying successive correction passes must therefore deep-copy the
+    # pristine result each time; this test is that contract, from the
+    # corrections side.
     original = _plan_with_rooms(["BEDROOM"])
     apply_room_corrections(copy.deepcopy(original), {(0, 0): "open"})
 
     # A second, independent correction pass -- starting from a fresh
-    # deepcopy of the untouched original, exactly as app.py must -- with no
-    # override this time should reproduce the original label, not the
-    # overridden one.
+    # deepcopy of the untouched original -- with no override this time
+    # should reproduce the original label, not the overridden one.
     reverted = apply_room_corrections(copy.deepcopy(original), {})
     assert reverted.floors[0].plan.rooms[0].label == "BEDROOM"

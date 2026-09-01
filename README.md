@@ -228,17 +228,6 @@ python scripts/run_pipeline.py plan.pdf output --checkpoint models/unet.pt
 storey, in filename order. Writes `house.glb`, six rendered views and a
 detection overlay per floor.
 
-For the web interface:
-
-```bash
-python app.py
-```
-
-Upload a plan and click **Detect** to see the extracted geometry and a table
-of predicted room types; correct anything it got wrong, then click **Build &
-render** to get the model in a viewer you can orbit. A checkpoint dropped
-into `models/` is picked up automatically.
-
 ## Training
 
 [`notebooks/train_on_colab.ipynb`](notebooks/train_on_colab.ipynb) trains the

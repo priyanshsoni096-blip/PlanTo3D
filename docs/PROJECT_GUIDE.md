@@ -611,8 +611,6 @@ notebooks/            5 Colab notebooks:
                         run_on_colab.ipynb     — upload a plan, get a house (21 cells)
                         design_on_colab.ipynb  — the 5-choice design flow (19 cells)
                         photoreal_on_colab.ipynb — the diffusion pass alone (16 cells)
-                        app_on_colab.ipynb     — a Gradio live-viewer app (11 cells,
-                                                  not touched or re-verified this session)
 docs/
   AUDIT.md            The measurement record. Authoritative for numbers — every
                        figure names the script that produced it. 1,259 lines.

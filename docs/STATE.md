@@ -106,7 +106,6 @@ The whole pipeline runs end to end: PDF, PNG or JPEG in, a materialled
 | Vocabulary | 335 feature keywords, 139 floor-finish keywords |
 | Materials | Seventeen surfaces, including per-room floor finishes |
 | Views | Top, front, back, left, right, aerial |
-| Web app | Gradio, multi-file upload, live 3D viewer |
 | Photoreal guides | Depth, edge and shaded renders ready |
 
 384 tests. Around 4,500 lines. *(Stale: 748 tests as of the most recent commit -- pytest, not this line, is the source of truth.)*
@@ -143,11 +142,6 @@ one:
 
 - `photoreal_on_colab.ipynb` -- upload a depth guide, generate, download.
   This produced the good renders and is what to reach for.
-- `app_on_colab.ipynb` -- the whole app on a GPU with the photoreal pass
-  wired in and a public link. Better in principle, but it returned an HTML
-  error page through the share tunnel on first use, which is usually the
-  runtime being reclaimed or running out of memory rather than a code fault.
-  Worth returning to; not worth blocking on.
 
 **Next run:** regenerate the guides and try again, keeping conditioning near
 0.5.
@@ -158,8 +152,8 @@ Two things are known and neither is urgent:
 
 - The interactive viewer washes out masonry and cannot be told not to, so
   the result leads with a rendered view instead. That is settled.
-- The desktop app cannot run the photoreal pass, because diffusion needs a
-  GPU. `app_on_colab.ipynb` is the answer if it can be made reliable.
+- The photoreal pass needs a GPU, so it runs in
+  `photoreal_on_colab.ipynb` rather than anywhere local.
 
 ```bash
 python scripts/run_pipeline.py "data/soni_residence/DOC-20260817-WA0027.PDF" output_unet --checkpoint models/unet_cubicasa.pt
