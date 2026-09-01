@@ -228,6 +228,21 @@ python scripts/run_pipeline.py plan.pdf output --checkpoint models/unet.pt
 storey, in filename order. Writes `house.glb`, six rendered views and a
 detection overlay per floor.
 
+### Correcting what the reader got wrong
+
+Room labels decide what gets built — railings, paving, planting, open-to-sky
+treatment, floor finishes — and they come from OCR, which on real drawings
+frequently reads nothing. See what was found, then fix it:
+
+```bash
+python scripts/correct_and_build.py plan.pdf output --checkpoint models/unet.pt --list
+python scripts/correct_and_build.py plan.pdf output --checkpoint models/unet.pt --correct 1:5=open
+```
+
+`--correct FLOOR:ROOM=CATEGORY` uses the numbers `--list` prints. A
+correction is simply a room label that did not come from OCR, so nothing
+downstream has to know where it came from.
+
 ## Training
 
 [`notebooks/train_on_colab.ipynb`](notebooks/train_on_colab.ipynb) trains the

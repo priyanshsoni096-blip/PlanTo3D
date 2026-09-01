@@ -604,7 +604,7 @@ training/            Dataset, augmentation, loss/metrics, and the training loop
                       for the segmenter. Kept separate from planto3d/ so geometry
                       work doesn't require torch installed (pyproject.toml's
                       `ml` extra is optional).
-scripts/              15 command-line entry points — see table below.
+scripts/              16 command-line entry points — see table below.
 tests/                37 files, 802 tests, 5,981 lines. pytest, PYTHONPATH=. required.
 notebooks/            5 Colab notebooks:
                         train_on_colab.ipynb   — trains the segmenter (27 cells)
