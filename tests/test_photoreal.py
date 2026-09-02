@@ -244,6 +244,31 @@ def test_the_prompt_still_fits_the_token_budget():
                 assert _tokens(prompt) <= MAX_PROMPT_TOKENS, (style, tone, time)
 
 
+def test_every_site_feature_survives_the_budget_for_every_design():
+    # Fitting under MAX_PROMPT_TOKENS is not the same as saying the right
+    # things: a run where the total stays under budget can still have
+    # silently dropped a feature the plan actually shows and filled the
+    # freed space with a generic quality word instead. That happened here:
+    # a longer opening pushed "lit swimming pool" out for 6 of these 36
+    # combinations while "8k" slipped into the space it needed. Assert on
+    # which phrases survive, not just the token count.
+    labels = ["BALCONY", "TERRACE GARDEN", "PARKING", "SWIMMING POOL"]
+    site_phrases = [
+        "parked cars on a paved driveway",  # PARKING
+        "manicured lawn with clipped hedges",  # TERRACE GARDEN (GARDEN)
+        "planted roof terrace",  # TERRACE GARDEN (TERRACE)
+        "balconies with slim metal railings",  # BALCONY
+        "lit swimming pool",  # SWIMMING POOL
+    ]
+    for style in STYLES:
+        for tone in TONES:
+            for time in TIMES:
+                design = _design(style=style, colour=tone, time=time)
+                prompt = build_prompt(3, labels, design=design)
+                for phrase in site_phrases:
+                    assert phrase in prompt, (style, tone, time, phrase)
+
+
 def test_no_design_keeps_the_previous_wording():
     # Every existing caller passes no design and must be unaffected.
     assert "modern luxury residence at dusk" in build_prompt(2, ["BALCONY"])

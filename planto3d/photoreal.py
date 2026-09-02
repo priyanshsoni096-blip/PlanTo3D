@@ -100,11 +100,21 @@ TONE_TINT = {
 # dusk deliberately: Design.lighting() gives that choice the dusk preset --
 # a twilight sky with a low orange sun, not true darkness -- so describing
 # it as plain "night" would contradict the render sitting next to it.
+#
+# "night" costs more than day or sunset because it needs two ideas -- the
+# hour and the interior lights that read it as evening -- kept short on
+# purpose: it is the longest entry in an opening that is never dropped, so
+# every word here is a word the site phrases below cannot have. An earlier
+# draft spent 20 tokens spelling out the sky itself ("deep blue sky glowing
+# warm at the horizon"); that alone was enough to push a real feature of
+# the house -- a swimming pool the plan actually shows -- out of the
+# budget in 6 of 36 style x tone x time combinations, replaced by the
+# generic "8k" behind it. "dusk" already implies that sky; naming it again
+# was flair the budget could not afford.
 TIME_LIGHT = {
     "day": "clear midday daylight, crisp shadows",
     "sunset": "low golden sunset light, long shadows",
-    "night": "dusk, deep blue sky glowing warm at the horizon, "
-    "amber interior lighting in every window",
+    "night": "dusk, amber interior lighting in every window",
 }
 
 # The subject, and nothing that could be dropped without changing what the
@@ -223,12 +233,39 @@ def build_prompt(
     parts = [opening]
     budget = MAX_PROMPT_TOKENS - PROMPT_SAFETY - _tokens(parts[0])
 
-    for phrase in [*site, *style_phrases, *QUALITY_PHRASES]:
+    # Site phrases first, and with a rule the ones below do not get: if any
+    # site phrase does not fit, STYLE_PHRASES and QUALITY_PHRASES are shut
+    # out entirely, not just from the tokens that one phrase needed. A
+    # single "continue past whatever does not fit" loop over the whole
+    # concatenated list does not do this -- concatenation only fixes the
+    # *order* phrases are tried in, and skipping a phrase leaves the budget
+    # exactly where it was, free for the next candidate in line regardless
+    # of its tier. That is how a swimming pool the plan actually shows lost
+    # its place to the generic "8k" one round ago: pool didn't fit, the
+    # loop moved on, and 8k did. The drawing-derived tail is the half
+    # CLIP's 77-token cutoff most threatens (see MAX_PROMPT_TOKENS above)
+    # and the one thing this function exists to protect, so once it can't
+    # all be said, nothing lower-priority is said instead.
+    #
+    # Within the site phrases themselves this stays opportunistic -- they
+    # are all equally "what this house has", so a smaller one skipping
+    # ahead of a larger one that didn't fit costs nothing.
+    site_complete = True
+    for phrase in site:
         cost = _tokens(phrase) + 1
         if cost > budget:
+            site_complete = False
             continue
         parts.append(phrase)
         budget -= cost
+
+    if site_complete:
+        for phrase in [*style_phrases, *QUALITY_PHRASES]:
+            cost = _tokens(phrase) + 1
+            if cost > budget:
+                continue
+            parts.append(phrase)
+            budget -= cost
 
     return ", ".join(parts)
 
