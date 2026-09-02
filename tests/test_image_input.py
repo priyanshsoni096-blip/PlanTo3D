@@ -6,7 +6,7 @@ import pytest
 
 from planto3d.classical import ROOM_FILL, WALL_FILL
 from planto3d.ingest import read_image
-from planto3d.pipeline import IMAGE_SUFFIXES, _load_pages, run
+from planto3d.pipeline import IMAGE_SUFFIXES, _load_pages, extract, run
 
 
 def _plan_image(size=320):
@@ -84,6 +84,35 @@ class TestRunFromImage:
         assert result.scale is not None
         assert result.scale_assumed
         assert result.scale_source in {"doors", "walls", "ratio"}
+
+
+class TestSplitIsIgnoredOnceAlreadyMultiPage:
+    # ``split`` only has a single sheet to act on. A directory of images is
+    # already one file per storey -- there is nothing left for --split N to
+    # cut -- so extract() must not silently pretend it applied.
+    def test_a_directory_of_images_ignores_split_and_warns(self, tmp_path, caplog):
+        folder = tmp_path / "floors"
+        folder.mkdir()
+        for name in ("1-ground.png", "2-first.png"):
+            cv2.imwrite(str(folder / name), _plan_image())
+
+        with caplog.at_level("WARNING"):
+            result = extract(folder, tmp_path / "out", crop=False, split=2)
+
+        assert len(result.floors) == 2  # unaffected: one floor per image
+        assert any("ignored" in record.message for record in caplog.records)
+
+    def test_a_single_image_still_honours_split(self, tmp_path, caplog):
+        # The other half of the contract: split=1 on a lone sheet is
+        # meaningful (nothing to split) and must not warn.
+        source = tmp_path / "plan.png"
+        cv2.imwrite(str(source), _plan_image())
+
+        with caplog.at_level("WARNING"):
+            result = extract(source, tmp_path / "out", crop=False, split=1)
+
+        assert len(result.floors) == 1
+        assert not any("ignored" in record.message for record in caplog.records)
 
 
 class TestReversedPrints:

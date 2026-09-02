@@ -89,6 +89,25 @@ def parse_correction(text: str) -> tuple[tuple[int, int], str]:
             "for example 1:5=open"
         ) from None
 
+    # Floors are printed from 1 and rooms from 0 -- see --list's own output.
+    # Unchecked, ``floor - 1`` on a floor below 1 wraps to a negative index
+    # and silently corrects some other floor (0 -> -1 hits the last one),
+    # and a negative room does the same without even that subtraction. That
+    # was survivable while corrections were only ever typed as flags; the
+    # corrections file this module can also write makes off-by-one on floor
+    # numbering the expected mistake, not a rare one, so it must be caught
+    # here rather than quietly relabelling the wrong room.
+    if floor < 1:
+        raise ValueError(
+            f"floor {floor} in correction {text!r} is not valid; floors are "
+            "numbered from 1, as --list prints them"
+        )
+    if room < 0:
+        raise ValueError(
+            f"room {room} in correction {text!r} is not valid; rooms are "
+            "indexed from 0, as --list prints them"
+        )
+
     category = category.strip().lower()
     if category not in CATEGORY_LABELS:
         raise ValueError(
@@ -96,7 +115,6 @@ def parse_correction(text: str) -> tuple[tuple[int, int], str]:
             + ", ".join(sorted(CATEGORY_LABELS))
         )
 
-    # Floors are printed from 1 and indexed from 0.
     return (floor - 1, room), category
 
 
@@ -193,6 +211,16 @@ def main(
     show(result)
 
     if listing:
+        if corrections or corrections_path is not None or save_path is not None:
+            # --list stops before the corrections block runs at all, so any
+            # of these would otherwise be silently ignored: --correct is
+            # never parsed, --corrections is never read, and --save-corrections
+            # writes nothing -- with --list printing no hint that it did not.
+            print(
+                "\n--list given; --correct/--corrections/--save-corrections "
+                "are not applied or written this run. Drop --list to apply "
+                "and save them."
+            )
         print("\n--list given; stopping before the build.")
         return
 

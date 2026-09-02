@@ -587,14 +587,36 @@ def split_sheet(image: np.ndarray, force: int | None = None) -> list[np.ndarray]
     recovers a sheet whose second floor is too thin to pass them. It cannot
     invent a divide: where no cut was proposed, forcing raises rather than
     cutting a real plan in half.
+
+    Raises ``ValueError`` for ``force < 1`` -- there is no such thing as
+    fewer than one plan -- and whenever ``force >= 2`` cannot be honoured,
+    including a sheet too narrow to look for a split in at all.
     """
+    if force is not None and force < 1:
+        raise ValueError(
+            f"force must be at least 1 (1 keeps the sheet whole); got {force}"
+        )
+
     ink = _ink_mask(image)
     height, width = ink.shape
     if width < MIN_SPLIT_WIDTH:
+        if force is not None and force >= 2:
+            raise ValueError(
+                f"asked for {force} plan(s) but this sheet is only {width}px "
+                f"wide, narrower than the {MIN_SPLIT_WIDTH}px a split is ever "
+                "looked for in. Crop the sheet yourself and pass one image "
+                "per storey."
+            )
         return [image]
 
     if force == 1:
         return [image]
+
+    # The most dividing lines seen on any axis, so a failure can say whether
+    # none were found at all or merely fewer than force asked for -- those
+    # are different problems with different fixes, and the message should
+    # not tell the user to crop for the wrong one.
+    most_divisions_found = 0
 
     # Side by side first, then stacked. Sheets are laid out both ways and
     # looking only for vertical gutters missed every stacked sheet outright.
@@ -633,6 +655,7 @@ def split_sheet(image: np.ndarray, force: int | None = None) -> list[np.ndarray]
         )
         if not divisions:
             continue
+        most_divisions_found = max(most_divisions_found, len(divisions))
 
         # Whatever found them, the pieces have to stand up as plans. The
         # boundary-rule fallback in particular fires readily on dimension
@@ -670,6 +693,16 @@ def split_sheet(image: np.ndarray, force: int | None = None) -> list[np.ndarray]
         return pieces
 
     if force is not None and force > 1:
+        if most_divisions_found:
+            # A line was found, just not enough of them -- telling the user
+            # there is no gutter at all would send them looking for the
+            # wrong problem.
+            raise ValueError(
+                f"asked for {force} plan(s) but only found "
+                f"{most_divisions_found + 1} via dividing lines in this "
+                "sheet. Crop the sheet yourself and pass one image per "
+                "storey."
+            )
         raise ValueError(
             f"asked for {force} plan(s) but found no dividing line in this "
             "sheet. Two plans sharing a wall leave no gutter to cut along. "

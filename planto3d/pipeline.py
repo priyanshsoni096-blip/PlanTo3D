@@ -412,7 +412,10 @@ def extract(
     finds none and can only take away.
 
     ``split`` overrides the sheet splitter: 1 keeps the sheet whole, N forces
-    N plans, None reads it automatically.
+    N plans, None reads it automatically. Only applies when the source
+    collapses to a single sheet -- a multi-page PDF or a directory of images
+    is already one file per storey, with nothing left to split, and
+    ``split`` there is ignored (with a warning) rather than honoured.
 
     Everything through labeling -- rasterize, crop, segment, extract walls/
     rooms/openings, calibrate scale, assign labels -- with no scene built
@@ -431,6 +434,18 @@ def extract(
     # sheet is split before anything else looks at it.
     if len(cropped) == 1:
         cropped = _split_into_storeys(cropped[0], pages_dir, force=split)
+    elif split is not None:
+        # There is no single sheet left for ``split`` to act on: a
+        # multi-page PDF or a directory of images already arrived as one
+        # file per storey. Silently ignoring the argument here previously
+        # made "--split 2" do nothing on exactly the inputs where a user
+        # is most likely to reach for it.
+        logger.warning(
+            "split=%s ignored: %d pages/images were already given as "
+            "separate storeys, so there is no single sheet left to split",
+            split,
+            len(cropped),
+        )
 
     floors = [
         _extract_floor(index, path, segmenter) for index, path in enumerate(cropped)
@@ -597,7 +612,10 @@ def run(
     """Convert a floor plan into a stacked 3D model. See ``extract`` + ``build``.
 
     ``split`` overrides the sheet splitter: 1 keeps the sheet whole, N forces
-    N plans, None reads it automatically.
+    N plans, None reads it automatically. Only applies when the source
+    collapses to a single sheet -- a multi-page PDF or a directory of images
+    is already one file per storey, with nothing left to split, and
+    ``split`` there is ignored (with a warning) rather than honoured.
     """
     result = extract(source, output_dir, segmenter, crop, split=split)
     return build(result, output_dir, wall_height_ft, palette, site)

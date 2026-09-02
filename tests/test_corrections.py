@@ -2,10 +2,10 @@
 
 A correction is not a new concept -- planto3d.features.feature_for()
 already prefers a room's printed label over its predicted category, and
-planto3d.site.classify_cover()/has_open_edge() do the same. So a user's
-override just becomes a label that did not come from OCR: no downstream
-code needs to change, which these tests confirm directly by round-
-tripping every canonical label through all three consumers.
+planto3d.site.classify_cover() does the same. So a user's override just
+becomes a label that did not come from OCR: no downstream code needs to
+change, which these tests confirm directly by round-tripping every
+canonical label through both consumers.
 """
 
 import copy

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from correct_and_build import (  # noqa: E402
     corrections_from_lines,
     corrections_to_lines,
+    parse_correction,
 )
 
 
@@ -43,3 +44,35 @@ def test_an_unknown_category_is_refused_not_guessed():
 def test_a_malformed_line_names_itself():
     with pytest.raises(ValueError, match="oops"):
         corrections_from_lines(["oops"])
+
+
+class TestFloorAndRoomIndicesAreValidated:
+    """Unchecked, ``floor - 1`` on a floor below 1 wraps to a negative
+    Python index and silently corrects a different room than the one
+    named: ``0:5=open`` hit floor index -1, the *last* floor, not floor 0.
+    A negative room index does the same without even the subtraction:
+    ``1:-3=open`` silently hit the third-from-last room. Off-by-one on
+    floor numbering is the expected mistake once corrections live in a
+    hand-editable file (Task 3's whole point), so it must be caught here,
+    not quietly relabel the wrong room.
+    """
+
+    def test_floor_zero_is_rejected(self):
+        with pytest.raises(ValueError, match="floor 0"):
+            parse_correction("0:5=open")
+
+    def test_a_negative_floor_is_rejected(self):
+        with pytest.raises(ValueError, match="floor -2"):
+            parse_correction("-2:5=open")
+
+    def test_a_negative_room_is_rejected(self):
+        with pytest.raises(ValueError, match="room -3"):
+            parse_correction("1:-3=open")
+
+    def test_floor_one_room_zero_are_the_valid_minimum(self):
+        # 1:0 must still work -- the fix must not reject legitimate input.
+        assert parse_correction("1:0=open") == ((0, 0), "open")
+
+    def test_the_same_validation_applies_when_reading_a_corrections_file(self):
+        with pytest.raises(ValueError, match="floor 0"):
+            corrections_from_lines(["0:5=open"])

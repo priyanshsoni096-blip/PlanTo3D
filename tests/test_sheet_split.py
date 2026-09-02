@@ -59,5 +59,50 @@ def test_forcing_a_split_with_no_cut_available_says_so():
 
 
 def test_forcing_more_pieces_than_there_are_cuts_says_so():
-    with pytest.raises(ValueError, match="no dividing line"):
+    # A cut was found here -- just not four of them -- so the message must
+    # say that, not claim there is no dividing line at all (that claim
+    # belongs to the party-wall case above, and would send this user
+    # looking for the wrong problem).
+    with pytest.raises(ValueError, match="only found 2"):
         split_sheet(_two_plans_side_by_side(), force=5)
+
+
+class TestForceIsValidated:
+    """force must mean "at least one plan" and must never be believed past
+    what the detector actually found -- the two bugs a synthetic three-plan
+    sheet reproduced directly: force=0 returned 2 pieces with every
+    acceptance gate skipped and nothing raised, and force=-1 returned 1
+    piece just as silently.
+    """
+
+    def _three_plans_side_by_side(self) -> np.ndarray:
+        sheet = np.full((600, 1900, 3), 255, dtype=np.uint8)
+        for left in (60, 700, 1340):
+            sheet[80:520, left : left + 440] = 0
+            sheet[120:480, left + 40 : left + 400] = 255
+        return sheet
+
+    def test_force_zero_is_rejected(self):
+        with pytest.raises(ValueError, match="at least 1"):
+            split_sheet(self._three_plans_side_by_side(), force=0)
+
+    def test_force_negative_is_rejected(self):
+        with pytest.raises(ValueError, match="at least 1"):
+            split_sheet(self._three_plans_side_by_side(), force=-1)
+
+    def test_force_zero_is_rejected_even_on_a_single_plan_sheet(self):
+        with pytest.raises(ValueError, match="at least 1"):
+            split_sheet(_one_plan(), force=0)
+
+
+def test_a_sheet_narrower_than_the_split_ever_looks_for_raises_when_forced():
+    # Below MIN_SPLIT_WIDTH, split_sheet returns the sheet whole before it
+    # ever looks for a cut -- force must not silently agree with that;
+    # forcing >= 2 there is exactly as unsatisfiable as the party-wall case.
+    narrow = np.full((600, 300, 3), 255, dtype=np.uint8)
+    narrow[80:520, 40:260] = 0
+    narrow[120:480, 80:220] = 255
+
+    assert len(split_sheet(narrow, force=None)) == 1  # unforced: still fine
+    with pytest.raises(ValueError, match="300px"):
+        split_sheet(narrow, force=2)

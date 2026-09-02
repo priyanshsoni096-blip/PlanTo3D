@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from planto3d.classes import BACKGROUND, DOOR, WALL, WINDOW
 from planto3d.classical import refine_windows, window_mask
