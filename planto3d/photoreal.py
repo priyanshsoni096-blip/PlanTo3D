@@ -136,11 +136,29 @@ BASE_PROMPT = (
 # wrong in every frame, while poor light is merely dull. Site features come
 # after both, but before the quality words, which are the least specific
 # thing in the prompt and the right thing to lose first.
-STYLE_PHRASES = (
-    "floor-to-ceiling glazing in slim dark frames",
-    "landscape uplighting",
+
+# True of BASE_PROMPT's one hardcoded house and nothing else: that house is
+# always at dusk under a flat roof, so these two survive from STYLE_PHRASES
+# unfiltered. Named here as data, not repeated as string literals in the
+# filter that drops them for a design (below in build_prompt) -- a filter
+# written as ``phrase not in ("deep blue twilight sky", ...)`` keeps
+# matching only as long as nobody rewords either phrase in STYLE_PHRASES,
+# and nothing would catch it if they did. Referencing the same tuple from
+# both places makes a rename here a rename everywhere at once.
+FIXED_HOUSE_PHRASES = (
     "deep blue twilight sky",
     "flat roof with a stone parapet",
+)
+
+STYLE_PHRASES = (
+    "floor-to-ceiling glazing in slim dark frames",
+    # Uplighting reads as after-dark by definition. With no design this is
+    # still true of the one hardcoded (dusk) house; with a "day" design it
+    # would survive into a prompt that also says "clear midday daylight" --
+    # the same contradiction FIXED_HOUSE_PHRASES exists to avoid, so
+    # build_prompt drops it under the same condition.
+    "landscape uplighting",
+    *FIXED_HOUSE_PHRASES,
 )
 
 QUALITY_PHRASES = (
@@ -164,6 +182,45 @@ NEGATIVE_PROMPT = (
     "flat lighting, daylight, unfinished construction, barren ground"
 )
 
+# Two of the terms above only make sense when the design did not ask for
+# what they suppress:
+#
+# "daylight" is right to avoid for the dusk and golden-hour designs
+# NEGATIVE_PROMPT was written against, but TIME_LIGHT["day"] puts "clear
+# midday daylight" in the positive prompt of the very same call -- asking
+# to both produce and suppress daylight is a fight the model resolves on
+# its own, not necessarily the way the design asked for.
+#
+# "barren ground" is right to avoid when there is a lawn to ask for.
+# landscaping="none" means Design.site().planting is False, so no ground
+# cover is even rendered for ControlNet to condition on (see
+# planto3d.design.Landscaping and the GROUND_COVERS-gated loop in
+# extrude.floors_to_parts) -- the plot is meant to look bare, and telling
+# the model to avoid bareness there just invents the planting the geometry
+# does not have.
+#
+# Kept as data next to what triggers each drop, so a third contradiction is
+# a line added here rather than a new branch in build_negative_prompt.
+_TIME_CONTRADICTIONS: dict[str, tuple[str, ...]] = {"day": ("daylight",)}
+
+
+def build_negative_prompt(design: "Design | None" = None) -> str:
+    """The negative prompt, minus whatever the chosen design asked for.
+
+    ``NEGATIVE_PROMPT`` is the plain default, right when nothing else says
+    otherwise. With no design it is returned unchanged, so existing callers
+    are unaffected.
+    """
+    if design is None:
+        return NEGATIVE_PROMPT
+
+    drop = set(_TIME_CONTRADICTIONS.get(design.time, ()))
+    if not design.site().planting:
+        drop.add("barren ground")
+
+    terms = [term.strip() for term in NEGATIVE_PROMPT.split(",")]
+    return ", ".join(term for term in terms if term not in drop)
+
 
 def build_prompt(
     storeys: int,
@@ -185,20 +242,34 @@ def build_prompt(
     def has(*needles: str) -> bool:
         return any(needle in label for label in labels for needle in needles)
 
+    # Whether the geometry actually has ground cover to show. landscaping=
+    # "none" turns Design.site().planting off, and with it every lawn,
+    # driveway and pool the model would otherwise carry -- extrude.py's
+    # floors_to_parts only builds GROUND_COVERS = {"water", "lawn", "paving"}
+    # when site.planting is set. Describing them anyway would have the
+    # photoreal pass invent a setting the render beside it does not have.
+    # With no design, the old always-on behaviour is kept -- existing
+    # callers must not change.
+    planted = design is None or design.site().planting
+
     # What this house has, ahead of what any house has. These are the only
     # phrases the drawing actually justifies, so they are the last thing
     # that should be dropped for want of room -- and under the old order
     # they were the first.
     site = []
-    if has("PARKING", "GARAGE", "PORCH"):
+    if has("PARKING", "GARAGE", "PORCH") and planted:
         site.append("parked cars on a paved driveway")
-    if has("GARDEN", "LANDSCAPE", "LAWN"):
+    if has("GARDEN", "LANDSCAPE", "LAWN") and planted:
         site.append("manicured lawn with clipped hedges")
     if has("TERRACE"):
-        site.append("planted roof terrace")
+        # Structural -- the terrace itself is unaffected by landscaping --
+        # but "planted" is a planting claim, so it only holds when planted.
+        site.append("planted roof terrace" if planted else "roof terrace")
     if has("BALCONY", "BAL"):
         site.append("balconies with slim metal railings")
-    if has("POOL", "SWIMMING"):
+    if has("POOL", "SWIMMING") and planted:
+        # A pool is water, one of GROUND_COVERS: with no ground cover
+        # rendered, there is no pool for the guide to show either.
         site.append("lit swimming pool")
     if has("TEMPLE", "POOJA"):
         site.append("warm timber detailing")
@@ -222,12 +293,15 @@ def build_prompt(
         # design, TIME_LIGHT and STYLE_SUBJECTS already say what the sky
         # and the roof are -- a midday prompt asking for a twilight sky, or
         # a traditional (pitched-roof) house asking for a flat one,
-        # contradicts the opening that was just built. Drop only those two;
-        # the other two are style-neutral and still earn their place.
+        # contradicts the opening that was just built. Drop those two.
+        excluded_style_phrases = set(FIXED_HOUSE_PHRASES)
+        if design.time == "day":
+            # "landscape uplighting" is the same kind of contradiction: it
+            # only reads as after-dark, and TIME_LIGHT["day"] just put
+            # "clear midday daylight" in the opening.
+            excluded_style_phrases.add("landscape uplighting")
         style_phrases = tuple(
-            phrase
-            for phrase in STYLE_PHRASES
-            if phrase not in ("deep blue twilight sky", "flat roof with a stone parapet")
+            phrase for phrase in STYLE_PHRASES if phrase not in excluded_style_phrases
         )
 
     parts = [opening]

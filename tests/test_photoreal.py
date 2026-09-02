@@ -6,10 +6,13 @@ from planto3d.design import STYLES, TIMES, TONES, Design
 from planto3d.geometry_types import FloorPlan, Opening, Wall
 from planto3d.materials import build_scene, export_scene
 from planto3d.photoreal import (
+    FIXED_HOUSE_PHRASES,
     MAX_PROMPT_TOKENS,
     NEGATIVE_PROMPT,
+    STYLE_PHRASES,
     _tokens,
     build_guides,
+    build_negative_prompt,
     build_prompt,
     edge_guide,
 )
@@ -272,3 +275,92 @@ def test_every_site_feature_survives_the_budget_for_every_design():
 def test_no_design_keeps_the_previous_wording():
     # Every existing caller passes no design and must be unaffected.
     assert "modern luxury residence at dusk" in build_prompt(2, ["BALCONY"])
+
+
+class TestFixedHousePhrasesExclusionIsCoupled:
+    # STYLE_PHRASES' two fixed-house entries are still excluded when a
+    # design is given, because FIXED_HOUSE_PHRASES is the same tuple both
+    # STYLE_PHRASES and the filter in build_prompt draw from -- rewording
+    # an entry in STYLE_PHRASES cannot silently stop the exclusion from
+    # matching, the way it could when the filter re-typed the strings.
+    def test_fixed_house_phrases_are_a_subset_of_style_phrases(self):
+        assert set(FIXED_HOUSE_PHRASES) <= set(STYLE_PHRASES)
+
+    def test_the_fixed_house_phrases_are_actually_excluded_with_a_design(self):
+        prompt = build_prompt(2, ["BALCONY"], design=_design())
+        for phrase in FIXED_HOUSE_PHRASES:
+            assert phrase not in prompt, phrase
+
+    def test_the_fixed_house_phrases_survive_with_no_design(self):
+        # The fallback contract: unchanged from before this branch.
+        prompt = build_prompt(2, ["BALCONY"])
+        for phrase in FIXED_HOUSE_PHRASES:
+            assert phrase in prompt, phrase
+
+
+class TestNegativePromptDoesNotContradictTheDesign:
+    def test_daylight_is_dropped_only_for_a_day_design(self):
+        assert "daylight" not in build_negative_prompt(_design(time="day"))
+        assert "daylight" in build_negative_prompt(_design(time="sunset"))
+        assert "daylight" in build_negative_prompt(_design(time="night"))
+
+    def test_barren_ground_is_dropped_only_when_nothing_is_planted(self):
+        assert "barren ground" not in build_negative_prompt(_design(landscaping="none"))
+        assert "barren ground" in build_negative_prompt(_design(landscaping="basic"))
+        assert "barren ground" in build_negative_prompt(_design(landscaping="premium"))
+
+    def test_no_design_keeps_the_plain_negative_prompt(self):
+        assert build_negative_prompt(None) == NEGATIVE_PROMPT
+        assert build_negative_prompt() == NEGATIVE_PROMPT
+
+    def test_the_rest_of_the_negative_prompt_survives(self):
+        trimmed = build_negative_prompt(_design(time="day", landscaping="none"))
+        for term in ("cartoon", "watermark", "warped walls", "flat lighting"):
+            assert term in trimmed, term
+
+
+class TestLandscapingNoneDropsPlantingClaims:
+    # Design(landscaping="none") strips Design.site().planting, and with
+    # it every lawn, driveway and pool extrude.py actually builds -- the
+    # prompt must stop claiming a setting the model does not have.
+    LABELS = ["PARKING", "TERRACE GARDEN", "LANDSCAPE", "SWIMMING POOL"]
+
+    def test_none_drops_the_planting_dependent_phrases(self):
+        prompt = build_prompt(2, self.LABELS, design=_design(landscaping="none"))
+        for absent in (
+            "parked cars on a paved driveway",
+            "manicured lawn with clipped hedges",
+            "lit swimming pool",
+            "planted roof terrace",
+        ):
+            assert absent not in prompt, absent
+
+    def test_none_still_names_the_terrace_structure(self):
+        # The terrace itself is not landscaping -- only "planted" is.
+        prompt = build_prompt(2, self.LABELS, design=_design(landscaping="none"))
+        assert "roof terrace" in prompt
+
+    def test_basic_and_premium_keep_the_planting_phrases(self):
+        for landscaping in ("basic", "premium"):
+            prompt = build_prompt(2, self.LABELS, design=_design(landscaping=landscaping))
+            for present in (
+                "parked cars on a paved driveway",
+                "manicured lawn with clipped hedges",
+                "lit swimming pool",
+                "planted roof terrace",
+            ):
+                assert present in prompt, (landscaping, present)
+
+    def test_balconies_are_unaffected_by_landscaping(self):
+        # Balcony railings are a building feature, not ground cover.
+        prompt = build_prompt(2, ["BALCONY"], design=_design(landscaping="none"))
+        assert "balconies with slim metal railings" in prompt
+
+
+def test_landscape_uplighting_is_dropped_only_for_a_day_design():
+    # Uplighting only reads as after-dark; keeping it for a midday design
+    # is the same contradiction FIXED_HOUSE_PHRASES exists to avoid.
+    day = build_prompt(2, ["BALCONY"], design=_design(time="day"))
+    night = build_prompt(2, ["BALCONY"], design=_design(time="night"))
+    assert "landscape uplighting" not in day
+    assert "landscape uplighting" in night
