@@ -521,6 +521,32 @@ def scale_from_gauge(gauge: float, typical_thickness_ft: float = TYPICAL_WALL_FT
     return scale
 
 
+def scale_from_known_room(room, width_ft: float, height_ft: float) -> float | None:
+    """Pixels per foot, from a room whose real size the user states.
+
+    The only route to scale with no assumption in it. Every other route
+    rests on a standard element -- a 2'6" door, a 9" wall -- and the
+    residual error is largely those standards not holding: measured
+    against ground truth over 30 sheets, real wall thickness runs 0.478
+    to 1.176 ft around a median of 0.648, so no constant fits every
+    building. A stated size has no such spread.
+
+    Taken from area rather than an edge because a room is rarely drawn
+    as the clean rectangle its printed size implies -- a bay, a wardrobe
+    recess or a chamfered corner all make one edge disagree with the
+    stated width while the area stays close.
+    """
+    if width_ft <= 0 or height_ft <= 0:
+        raise ValueError(
+            f"a room's stated size must be positive, got {width_ft} x {height_ft} ft"
+        )
+
+    area_px = abs(_polygon_area_px(room))
+    if area_px <= 0:
+        return None
+    return math.sqrt(area_px / (width_ft * height_ft))
+
+
 def assumed_scale(dpi: int, ratio: float = ASSUMED_DRAWING_RATIO) -> float:
     """Pixels per foot implied by a drafting ratio at a known resolution.
 

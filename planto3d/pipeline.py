@@ -73,8 +73,10 @@ MIN_ROOM_SQFT = 12.0
 
 # Scale sources that are the drawing's own statement of its size rather
 # than something inferred from it. Everything else means the proportions
-# are right and the absolute size is an estimate.
-PRINTED_SCALE_SOURCES = frozenset({"dimensions", "areas"})
+# are right and the absolute size is an estimate. "stated" is a user's own
+# measurement of a room -- stronger evidence than anything printed on the
+# sheet, since it needs no OCR and no assumption about the drawing at all.
+PRINTED_SCALE_SOURCES = frozenset({"dimensions", "areas", "stated"})
 
 # How far the two geometric scale estimates may sit apart before the
 # drawing is treated as having given inconsistent evidence about its size.
@@ -400,6 +402,7 @@ def extract(
     segmenter: Segmenter = classical_mask,
     crop: bool = True,
     split: int | None = None,
+    scale_override: float | None = None,
 ) -> PipelineResult:
     """Read a floor plan and extract its geometry, scale and room labels.
 
@@ -416,6 +419,10 @@ def extract(
     collapses to a single sheet -- a multi-page PDF or a directory of images
     is already one file per storey, with nothing left to split, and
     ``split`` there is ignored (with a warning) rather than honoured.
+
+    ``scale_override`` is pixels per foot stated by the caller. It takes
+    precedence over every inferred source, because a stated size has no
+    assumption in it to be wrong.
 
     Everything through labeling -- rasterize, crop, segment, extract walls/
     rooms/openings, calibrate scale, assign labels -- with no scene built
@@ -524,6 +531,16 @@ def extract(
             ASSUMED_DRAWING_RATIO,
         )
 
+    # Ahead of everything inferred. A caller who has measured a room knows
+    # something no estimate can recover.
+    if scale_override is not None:
+        if scale_override <= 0:
+            raise ValueError(
+                f"scale_override must be positive, got {scale_override}"
+            )
+        scale, scale_source = scale_override, "stated"
+        logger.info("scale %.2f px/ft stated by the caller", scale)
+
     # With a scale in hand, drop regions too small to be rooms. A pixel
     # threshold cannot tell a cupboard from a bathroom without knowing how
     # big a pixel is, so specks of segmentation noise survive extraction as
@@ -608,6 +625,7 @@ def run(
     palette: Palette | None = None,
     site: Landscaping | None = None,
     split: int | None = None,
+    scale_override: float | None = None,
 ) -> PipelineResult:
     """Convert a floor plan into a stacked 3D model. See ``extract`` + ``build``.
 
@@ -616,8 +634,14 @@ def run(
     collapses to a single sheet -- a multi-page PDF or a directory of images
     is already one file per storey, with nothing left to split, and
     ``split`` there is ignored (with a warning) rather than honoured.
+
+    ``scale_override`` is pixels per foot stated by the caller. It takes
+    precedence over every inferred source, because a stated size has no
+    assumption in it to be wrong.
     """
-    result = extract(source, output_dir, segmenter, crop, split=split)
+    result = extract(
+        source, output_dir, segmenter, crop, split=split, scale_override=scale_override
+    )
     return build(result, output_dir, wall_height_ft, palette, site)
 
 

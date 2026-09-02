@@ -51,6 +51,24 @@ occasionally cut in two. ``--split N`` and ``--no-split`` settle it by hand:
 ``--split`` uses the dividing line the splitter already found and skips only
 the checks that reject it; it cannot invent a division where none was
 proposed, and raises rather than guess when that happens.
+
+Every inferred scale rests on an assumption about a standard element -- a
+2'6" door, a 9" wall -- that does not hold on every building. ``--scale-room``
+sidesteps all of that: read one room's real size off the drawing or off the
+building itself, and the whole model is sized from it instead.
+
+    # 1. see which room is which
+    python scripts/correct_and_build.py plan.pdf out --checkpoint models/unet_cubicasa.pt --list
+
+    # 2. state room 5 on floor 1 is 12ft x 10ft, and build at that scale
+    python scripts/correct_and_build.py plan.pdf out --checkpoint models/unet_cubicasa.pt \
+        --scale-room 1:5=12x10
+
+``--scale-room`` takes ``FLOOR:ROOM=WxH``, the same floor/room numbering
+``--list`` prints and ``--correct`` uses, with W and H the room's real width
+and height in feet. Because the scale gates room filtering and label
+placement inside ``extract``, the sheet is read a second time once the
+stated scale is known, rather than patching the first result's number.
 """
 
 import argparse
@@ -60,6 +78,7 @@ from pathlib import Path
 
 import cv2
 
+from planto3d.calibrate import scale_from_known_room
 from planto3d.corrections import CATEGORY_LABELS, apply_room_corrections
 from planto3d.features import feature_for
 from planto3d.pipeline import build, draw_overlay, extract
@@ -116,6 +135,27 @@ def parse_correction(text: str) -> tuple[tuple[int, int], str]:
         )
 
     return (floor - 1, room), category
+
+
+def parse_scale_room(text: str) -> tuple[tuple[int, int], float, float]:
+    """Turn ``FLOOR:ROOM=WxH`` into the room to measure and its real size."""
+    try:
+        where, size = text.split("=", 1)
+        floor_text, room_text = where.split(":", 1)
+        width_text, height_text = size.lower().split("x", 1)
+        floor, room = int(floor_text), int(room_text)
+        width, height = float(width_text), float(height_text)
+    except ValueError:
+        raise ValueError(
+            f"could not read {text!r}; expected FLOOR:ROOM=WxH in feet, "
+            "for example 1:5=12x10"
+        ) from None
+
+    if floor < 1:
+        raise ValueError(f"floor {floor} is not valid; floors are numbered from 1")
+    if room < 0:
+        raise ValueError(f"room {room} is not valid; rooms are indexed from 0")
+    return (floor - 1, room), width, height
 
 
 # The file format is the flag's own syntax, one per line. A user who can
@@ -178,25 +218,14 @@ def show(result) -> None:
         )
 
 
-def main(
-    source: str,
-    output_dir: str,
-    checkpoint: Path | None,
-    corrections: list[str],
-    listing: bool,
-    wall_height_ft: float,
-    crop: bool,
-    corrections_path: Path | None,
-    save_path: Path | None,
-    split: int | None = None,
-) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    out = Path(output_dir)
+def _print_extraction(result, out: Path) -> None:
+    """Summarize an extraction, write its overlays, and list its rooms.
 
-    result = extract(
-        Path(source), out, segmenter=load_segmenter(checkpoint), crop=crop, split=split
-    )
-
+    Pulled out so the summary can be printed twice in one run: once for the
+    initial read, and again after a ``--scale-room`` override re-reads the
+    sheet, since the room count, opening count and "inferred" warning can
+    all change once the real scale is known.
+    """
     scale = f"{result.scale:.2f} px/ft" if result.scale else "unknown"
     print(
         f"\n{len(result.floors)} storey(s), {result.wall_count} walls, "
@@ -209,6 +238,69 @@ def main(
     print(f"overlay(s) written to {out}")
 
     show(result)
+
+
+def main(
+    source: str,
+    output_dir: str,
+    checkpoint: Path | None,
+    corrections: list[str],
+    listing: bool,
+    wall_height_ft: float,
+    crop: bool,
+    corrections_path: Path | None,
+    save_path: Path | None,
+    split: int | None = None,
+    scale_room: str | None = None,
+) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    out = Path(output_dir)
+
+    result = extract(
+        Path(source), out, segmenter=load_segmenter(checkpoint), crop=crop, split=split
+    )
+    _print_extraction(result, out)
+
+    if scale_room is not None:
+        (floor_index, room_index), width, height = parse_scale_room(scale_room)
+        try:
+            floor = result.floors[floor_index]
+        except IndexError:
+            raise ValueError(
+                f"floor {floor_index + 1} does not exist; this plan has "
+                f"{len(result.floors)} floor(s)"
+            ) from None
+        try:
+            room = floor.plan.rooms[room_index]
+        except IndexError:
+            raise ValueError(
+                f"room {room_index} does not exist on floor {floor_index + 1}; "
+                f"it has {len(floor.plan.rooms)} room(s)"
+            ) from None
+
+        stated = scale_from_known_room(room, width, height)
+        if stated is None:
+            raise ValueError(
+                f"room {floor_index + 1}:{room_index} has no measurable area; "
+                "pick a different room"
+            )
+
+        print(
+            f"\nroom {floor_index + 1}:{room_index} stated as {width}x{height} ft "
+            f"-> {stated:.2f} px/ft (was {result.scale:.2f}); re-reading the sheet"
+        )
+        # A patched result.scale would leave room filtering (MIN_ROOM_SQFT)
+        # and labelled-region placement computed against the old number, so
+        # the sheet is read again rather than the number swapped in place.
+        result = extract(
+            Path(source),
+            out,
+            segmenter=load_segmenter(checkpoint),
+            crop=crop,
+            split=split,
+            scale_override=stated,
+        )
+        _print_extraction(result, out)
 
     if listing:
         if corrections or corrections_path is not None or save_path is not None:
@@ -321,6 +413,11 @@ if __name__ == "__main__":
         action="store_true",
         help="force the sheet to be read as a single plan",
     )
+    parser.add_argument(
+        "--scale-room",
+        metavar="FLOOR:ROOM=WxH",
+        help="set the scale from one room's real size in feet, e.g. 1:5=12x10",
+    )
     arguments = parser.parse_args()
     if arguments.no_split and arguments.split is not None:
         parser.error("--split and --no-split contradict each other")
@@ -335,4 +432,5 @@ if __name__ == "__main__":
         corrections_path=arguments.corrections,
         save_path=arguments.save_corrections,
         split=1 if arguments.no_split else arguments.split,
+        scale_room=arguments.scale_room,
     )
