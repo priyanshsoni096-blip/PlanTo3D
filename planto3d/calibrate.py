@@ -104,6 +104,82 @@ TYPICAL_WALL_FT = 0.75  # 9 inches
 # Too few of either and the median means nothing.
 MIN_DOORS_FOR_SCALE = 3
 
+# Room names that place a drawing in a drafting tradition. Only the Nordic
+# set is listed, because it is the only tradition whose element sizes can
+# be checked: CubiCasa is Finnish residential and carries metric ground
+# truth. These words are already recognised by planto3d/features.py, which
+# is where they came from.
+CONVENTION_KEYWORDS = {
+    "nordic": (
+        "PARVEKE",
+        "TERASSI",
+        "KATTOTERASSI",
+        "BALKONG",
+        "TERRASS",
+        "KYLPYHUONE",
+        "PESUHUONE",
+        "KODINHOITOHUONE",
+        "KEITTIO",
+        "OLOHUONE",
+        "MAKUUHUONE",
+        "ETEINEN",
+    ),
+}
+
+# How many of those words must appear before a sheet is claimed for a
+# tradition. One is a misread waiting to happen -- OCR turns "BEDROOM 2"
+# into all sorts of things -- and a tradition is a property of the whole
+# drawing rather than of one label.
+MIN_CONVENTION_HITS = 2
+
+# Element sizes per tradition, as (door_ft, wall_ft).
+#
+# Nordic's wall thickness is the measured median implied by CubiCasa's own
+# ground truth over 30 sheets -- 0.648 ft against the 0.75 assumed
+# worldwide. Substituting it alone moves the pooled error from 17.7% to
+# 9.9% and the sheets within a fifth from 20/30 to 23/30.
+#
+# The door stays at the shipped 2.5 ft deliberately. Correcting it to
+# CubiCasa's own 2'3" was measured and made things worse -- 20.1% median,
+# 15/30 -- because the detector measures an opening span rather than the
+# leaf the annotation records.
+CONVENTIONS: dict[str, tuple[float, float]] = {
+    "nordic": (TYPICAL_DOOR_FT, 0.648),
+}
+
+
+def detect_convention(text_boxes: list) -> str | None:
+    """Which drafting tradition a drawing announces, or None if it does not.
+
+    Deliberately conservative. Claiming a tradition changes how big the
+    finished building is, so an unrecognised drawing keeps the defaults
+    rather than being assigned a best guess.
+    """
+    words = {
+        word
+        for box in text_boxes
+        for word in "".join(
+            character if character.isalnum() else " "
+            for character in getattr(box, "text", "").upper()
+        ).split()
+    }
+
+    for convention, keywords in CONVENTION_KEYWORDS.items():
+        hits = len(words & set(keywords))
+        if hits >= MIN_CONVENTION_HITS:
+            logger.info("drawing reads as %s (%d matching name(s))", convention, hits)
+            return convention
+    return None
+
+
+def element_sizes(text_boxes: list) -> tuple[float, float]:
+    """The (door_ft, wall_ft) to measure this drawing with."""
+    convention = detect_convention(text_boxes)
+    if convention is None:
+        return TYPICAL_DOOR_FT, TYPICAL_WALL_FT
+    return CONVENTIONS[convention]
+
+
 # How wide a door is, in multiples of the drawing's own wall thickness.
 # A 2'6" door against a 9" wall is three and a third; a 2'0" door against
 # a 12" wall is two; a double door against a thin partition is six or

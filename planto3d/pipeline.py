@@ -24,6 +24,7 @@ from planto3d.calibrate import (
     TextBox,
     assumed_scale,
     corroborated,
+    element_sizes,
     estimate_scale,
     read_text_boxes,
     scale_from_areas,
@@ -464,14 +465,26 @@ def extract(
     gauges = [floor.wall_gauge_px for floor in floors if floor.wall_gauge_px]
     gauge = float(median(gauges)) if gauges else None
 
+    boxes = [box for floor in floors for box in floor.text_boxes]
+
+    # Element sizes differ by drafting tradition, and the drawing often
+    # says which one it belongs to. An unrecognised sheet keeps the
+    # defaults; see calibrate.CONVENTIONS for why only the wall value
+    # moves.
+    door_ft, wall_ft = element_sizes(boxes)
+
     from_doors = scale_from_doors(
         [opening for floor in floors for opening in floor.plan.openings],
+        typical_width_ft=door_ft,
         gauge=gauge,
     )
     from_walls = (
-        scale_from_gauge(gauge)
+        scale_from_gauge(gauge, typical_thickness_ft=wall_ft)
         if gauge
-        else scale_from_walls([wall for floor in floors for wall in floor.drawn_walls])
+        else scale_from_walls(
+            [wall for floor in floors for wall in floor.drawn_walls],
+            typical_thickness_ft=wall_ft,
+        )
     )
 
     reference, reference_source = (
@@ -502,7 +515,6 @@ def extract(
     # the set's shared scale: the reference terrace sheet yields one
     # dimension on its own against eight from its ground floor.
     rooms = [room for floor in floors for room in floor.plan.rooms]
-    boxes = [box for floor in floors for box in floor.text_boxes]
 
     printed = estimate_scale(rooms, boxes)
     printed_source = "dimensions"
