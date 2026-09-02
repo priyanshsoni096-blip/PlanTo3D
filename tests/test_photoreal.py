@@ -192,6 +192,18 @@ def test_every_style_changes_the_prompt():
     assert len(set(prompts.values())) == len(STYLES), prompts
 
 
+def test_the_style_subject_matches_its_own_material_not_a_swapped_one():
+    # Pairwise-distinct is not the same as correct -- that would still pass
+    # if two styles' entries were swapped. traditional renders in brick with
+    # a pitched roof (STYLES["traditional"] in design.py); minimalist is
+    # near-white with no roof material named, so it must not claim brick.
+    traditional = build_prompt(2, ["BALCONY"], design=_design(style="traditional")).lower()
+    minimalist = build_prompt(2, ["BALCONY"], design=_design(style="minimalist")).lower()
+
+    assert "brick" in traditional or "pitched" in traditional
+    assert "brick" not in minimalist
+
+
 def test_every_time_of_day_changes_the_prompt():
     prompts = {
         time: build_prompt(2, ["BALCONY"], design=_design(time=time))
@@ -208,10 +220,16 @@ def test_every_tone_changes_the_prompt():
     assert len(set(prompts.values())) == len(TONES), prompts
 
 
-def test_night_is_not_described_as_dusk():
+def test_night_matches_the_dusk_lighting_the_renderer_actually_uses():
+    # design.py's TIMES maps "night" to the "dusk" lighting preset -- a
+    # twilight sky with a low orange sun, not true darkness (Design.lighting
+    # picks LIGHTING_PRESETS["dusk"] for this choice). The prompt must agree
+    # with what the render beside it actually shows, not with the label the
+    # user picked, so it describes dusk and keeps the interior lights that
+    # make the hour read.
     night = build_prompt(2, None, design=_design(time="night"))
-    assert "dusk" not in night
-    assert "night" in night
+    assert "dusk" in night
+    assert "amber" in night
 
 
 def test_the_prompt_still_fits_the_token_budget():

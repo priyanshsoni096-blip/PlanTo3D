@@ -18,6 +18,14 @@ would break it on a machine that has no reason to hold a mesh library.
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the type hint on build_prompt's design parameter. A runtime
+    # import is harmless here too (design.py pulls in nothing heavier than
+    # colorsys), but keeping it type-checking-only means this module's
+    # "no 3D stack required" guarantee never depends on that staying true.
+    from planto3d.design import Design
 
 logger = logging.getLogger(__name__)
 
@@ -61,25 +69,42 @@ PROMPT_SAFETY = 4
 #
 # Kept short deliberately. Every word here is spent out of a 77-token
 # budget that the drawing-derived detail also has to fit inside.
+
+# The material axis. This mirrors STYLES in design.py, where each style's
+# own wall colour is the material that actually renders:
+#   modern       (216,213,207) pale grey
+#   luxury       (206,178,138) sandstone / honey
+#   traditional  (176,124,96) brick red, roof (146,84,62) pitched
+#   minimalist   (234,233,230) near white
+# TONES (below) only tints whatever material is named here -- it names no
+# material of its own -- so material belongs to style, not to tone.
 STYLE_SUBJECTS = {
-    "modern": "modern residence, clean rectilinear massing",
-    "luxury": "luxury residence, generous proportions and deep reveals",
-    "traditional": "traditional residence, pitched roofs and punched windows",
-    "minimalist": "minimalist residence, unadorned planes and hidden detail",
+    "modern": "modern residence, clean rectilinear massing, pale grey render",
+    "luxury": "luxury residence, honey-toned limestone, deep reveals",
+    "traditional": "traditional residence, red brick with a pitched tiled roof",
+    "minimalist": "minimalist residence, unadorned white planes",
 }
 
-TONE_CLADDING = {
-    "light": "pale limestone and white render",
-    "dark": "charcoal brick and dark stained timber",
-    "warm": "warm honey-toned limestone",
+# The tint axis. This mirrors TONES in design.py: light lifts lightness,
+# dark lowers it, warm rotates the hue towards orange -- a shift applied to
+# whatever material STYLE_SUBJECTS names, not a cladding in its own right.
+TONE_TINT = {
+    "light": "bright pale tones",
+    "dark": "deep shadowed tones",
+    "warm": "warm golden tones",
 }
 
-# Paired with the lighting the renderer uses for the same choice, so the
-# render beside it and the diffusion image agree about the hour.
+# Paired with the lighting preset design.py's TIMES maps each choice to
+# (day -> "midday", sunset -> "golden hour", night -> "dusk"), so the render
+# beside it and the diffusion image agree about the hour. "night" reads as
+# dusk deliberately: Design.lighting() gives that choice the dusk preset --
+# a twilight sky with a low orange sun, not true darkness -- so describing
+# it as plain "night" would contradict the render sitting next to it.
 TIME_LIGHT = {
     "day": "clear midday daylight, crisp shadows",
     "sunset": "low golden sunset light, long shadows",
-    "night": "night, warm amber interior lighting in every window",
+    "night": "dusk, deep blue sky glowing warm at the horizon, "
+    "amber interior lighting in every window",
 }
 
 # The subject, and nothing that could be dropped without changing what the
@@ -133,7 +158,7 @@ NEGATIVE_PROMPT = (
 def build_prompt(
     storeys: int,
     room_labels: list[str] | None = None,
-    design=None,
+    design: "Design | None" = None,
 ) -> str:
     """Compose the prompt, naming what the plan actually contains.
 
@@ -170,21 +195,35 @@ def build_prompt(
 
     if design is None:
         opening = BASE_PROMPT.format(storeys=storeys)
+        style_phrases = STYLE_PHRASES
     else:
-        # Subject, cladding and light, in that order and never dropped: a
+        # Subject, tint and light, in that order and never dropped: a
         # building of the wrong material is wrong in every frame, and an
         # hour that contradicts the render beside it is worse than plain.
         opening = (
             f"professional architectural visualization of a {storeys}-storey "
             f"{STYLE_SUBJECTS.get(design.style, STYLE_SUBJECTS['modern'])}, "
-            f"{TONE_CLADDING.get(design.colour, TONE_CLADDING['warm'])} cladding, "
+            f"{TONE_TINT.get(design.colour, TONE_TINT['warm'])}, "
             f"{TIME_LIGHT.get(design.time, TIME_LIGHT['day'])}"
+        )
+
+        # With no design, STYLE_PHRASES' fixed twilight sky and flat roof
+        # were always true of BASE_PROMPT's one hardcoded house. With a
+        # design, TIME_LIGHT and STYLE_SUBJECTS already say what the sky
+        # and the roof are -- a midday prompt asking for a twilight sky, or
+        # a traditional (pitched-roof) house asking for a flat one,
+        # contradicts the opening that was just built. Drop only those two;
+        # the other two are style-neutral and still earn their place.
+        style_phrases = tuple(
+            phrase
+            for phrase in STYLE_PHRASES
+            if phrase not in ("deep blue twilight sky", "flat roof with a stone parapet")
         )
 
     parts = [opening]
     budget = MAX_PROMPT_TOKENS - PROMPT_SAFETY - _tokens(parts[0])
 
-    for phrase in [*site, *STYLE_PHRASES, *QUALITY_PHRASES]:
+    for phrase in [*site, *style_phrases, *QUALITY_PHRASES]:
         cost = _tokens(phrase) + 1
         if cost > budget:
             continue
