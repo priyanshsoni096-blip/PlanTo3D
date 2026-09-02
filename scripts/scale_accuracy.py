@@ -125,15 +125,22 @@ def main() -> None:
     # constant alone moved the pooled figure from 17.7% to 9.9% while
     # correcting the door constant alone moved it to 20.1%. A change that
     # helps one source and harms the other nets out to nothing here.
+    # Median absolute error says a source is wrong; bias -- the signed
+    # median, taken before abs() -- says which way. The next task picks an
+    # element constant to correct, and doing that from the magnitude alone
+    # means guessing whether to raise or lower it.
     print()
-    print(f"{'source':12}{'plans':>7}{'median err':>12}{'within 20%':>12}")
+    print(f"{'source':12}{'plans':>7}{'median err':>12}{'within 20%':>12}{'bias':>9}")
     for source in sorted(by_source):
-        magnitudes = sorted(abs(error) for error in by_source[source])
+        signed = by_source[source]
+        magnitudes = sorted(abs(error) for error in signed)
         within = sum(1 for error in magnitudes if error <= ACCEPTABLE_ERROR)
+        bias = statistics.median(signed)
         print(
             f"{source:12}{len(magnitudes):>7}"
             f"{statistics.median(magnitudes):>11.1%}"
             f"{within:>8}/{len(magnitudes)}"
+            f"{bias:>+9.1%}"
         )
 
 
