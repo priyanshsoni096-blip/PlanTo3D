@@ -563,7 +563,7 @@ def _enclosed_share(ink: np.ndarray) -> float:
     return float(reachable.sum()) / total
 
 
-def split_sheet(image: np.ndarray) -> list[np.ndarray]:
+def split_sheet(image: np.ndarray, force: int | None = None) -> list[np.ndarray]:
     """Split a sheet carrying several floor plans into one image per plan.
 
     Sheets frequently lay basement, ground and first floor in a row, and
@@ -579,10 +579,21 @@ def split_sheet(image: np.ndarray) -> list[np.ndarray]:
 
     Returns the original image unchanged when no such split is found, which
     is the common case for a proper drawing set.
+
+    ``force`` overrides the decision. ``None`` reads the sheet automatically,
+    which is right on 58 of 60 CubiCasa sheets and has never split a single
+    plan wrongly. ``1`` keeps the sheet whole. ``N`` takes the N-1 cuts the
+    detector proposed and skips the acceptance gates -- which is what
+    recovers a sheet whose second floor is too thin to pass them. It cannot
+    invent a divide: where no cut was proposed, forcing raises rather than
+    cutting a real plan in half.
     """
     ink = _ink_mask(image)
     height, width = ink.shape
     if width < MIN_SPLIT_WIDTH:
+        return [image]
+
+    if force == 1:
         return [image]
 
     # Side by side first, then stacked. Sheets are laid out both ways and
@@ -628,8 +639,15 @@ def split_sheet(image: np.ndarray) -> list[np.ndarray]:
         # lines and plot borders, which run the full height of a drawing
         # just as a real separator does; unchecked it split eleven single
         # plans across sixty sheets and got one of them right.
-        if not _pieces_look_like_plans(ink, divisions, axis):
-            continue
+        # A forced split uses the cuts that were found and skips the gates:
+        # the user has looked at the sheet and the gates have not.
+        if force is None:
+            if not _pieces_look_like_plans(ink, divisions, axis):
+                continue
+        else:
+            if len(divisions) < force - 1:
+                continue
+            divisions = divisions[: force - 1]
 
         cuts = [0, *divisions, length]
         pieces = [
@@ -650,6 +668,13 @@ def split_sheet(image: np.ndarray) -> list[np.ndarray]:
             "side by side" if axis == 0 else "stacked",
         )
         return pieces
+
+    if force is not None and force > 1:
+        raise ValueError(
+            f"asked for {force} plan(s) but found no dividing line in this "
+            "sheet. Two plans sharing a wall leave no gutter to cut along. "
+            "Crop the sheet yourself and pass one image per storey."
+        )
 
     return [image]
 

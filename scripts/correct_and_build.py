@@ -38,6 +38,19 @@ ramp, dome, glazed, pitched, stairs, wet. They are different vocabularies
 and share no words -- a room the model calls "outdoor" is corrected with
 "open", not "outdoor". ``--list`` prints both so the difference is visible,
 and an unknown category is refused with the full set rather than guessed at.
+
+A sheet carrying two floors is sometimes read as one, or a single plan is
+occasionally cut in two. ``--split N`` and ``--no-split`` settle it by hand:
+
+    # the automatic splitter missed the second floor -- force two plans
+    python scripts/correct_and_build.py plan.pdf out --split 2
+
+    # the automatic splitter wrongly cut one plan in half -- keep it whole
+    python scripts/correct_and_build.py plan.pdf out --no-split
+
+``--split`` uses the dividing line the splitter already found and skips only
+the checks that reject it; it cannot invent a division where none was
+proposed, and raises rather than guess when that happens.
 """
 
 import argparse
@@ -157,11 +170,14 @@ def main(
     crop: bool,
     corrections_path: Path | None,
     save_path: Path | None,
+    split: int | None = None,
 ) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     out = Path(output_dir)
 
-    result = extract(Path(source), out, segmenter=load_segmenter(checkpoint), crop=crop)
+    result = extract(
+        Path(source), out, segmenter=load_segmenter(checkpoint), crop=crop, split=split
+    )
 
     scale = f"{result.scale:.2f} px/ft" if result.scale else "unknown"
     print(
@@ -265,7 +281,21 @@ if __name__ == "__main__":
         action="store_true",
         help="skip title-block cropping, for images that are already just the plan",
     )
+    parser.add_argument(
+        "--split",
+        type=int,
+        default=None,
+        metavar="N",
+        help="force the sheet into N plans, overriding the splitter",
+    )
+    parser.add_argument(
+        "--no-split",
+        action="store_true",
+        help="force the sheet to be read as a single plan",
+    )
     arguments = parser.parse_args()
+    if arguments.no_split and arguments.split is not None:
+        parser.error("--split and --no-split contradict each other")
     main(
         arguments.source,
         arguments.output_dir,
@@ -276,4 +306,5 @@ if __name__ == "__main__":
         crop=not arguments.no_crop,
         corrections_path=arguments.corrections,
         save_path=arguments.save_corrections,
+        split=1 if arguments.no_split else arguments.split,
     )

@@ -183,7 +183,9 @@ class PipelineResult:
         return sum(len(f.plan.openings) for f in self.floors)
 
 
-def _split_into_storeys(page: Path, output_dir: Path) -> list[Path]:
+def _split_into_storeys(
+    page: Path, output_dir: Path, force: int | None = None
+) -> list[Path]:
     """Split a sheet carrying several plans, writing one image per storey.
 
     Left in sheet order, which reads basement to top floor on the drawings
@@ -193,7 +195,7 @@ def _split_into_storeys(page: Path, output_dir: Path) -> list[Path]:
     if image is None:
         return [page]
 
-    pieces = split_sheet(image)
+    pieces = split_sheet(image, force=force)
     if len(pieces) < 2:
         return [page]
 
@@ -397,6 +399,7 @@ def extract(
     output_dir: Path,
     segmenter: Segmenter = classical_mask,
     crop: bool = True,
+    split: int | None = None,
 ) -> PipelineResult:
     """Read a floor plan and extract its geometry, scale and room labels.
 
@@ -407,6 +410,9 @@ def extract(
     that are already just the plan, with no title block to remove: the crop
     looks for borders common to every page, and on a single tight image it
     finds none and can only take away.
+
+    ``split`` overrides the sheet splitter: 1 keeps the sheet whole, N forces
+    N plans, None reads it automatically.
 
     Everything through labeling -- rasterize, crop, segment, extract walls/
     rooms/openings, calibrate scale, assign labels -- with no scene built
@@ -424,7 +430,7 @@ def extract(
     # storey it reconstructs several buildings as one flat floor, so each
     # sheet is split before anything else looks at it.
     if len(cropped) == 1:
-        cropped = _split_into_storeys(cropped[0], pages_dir)
+        cropped = _split_into_storeys(cropped[0], pages_dir, force=split)
 
     floors = [
         _extract_floor(index, path, segmenter) for index, path in enumerate(cropped)
@@ -586,9 +592,14 @@ def run(
     crop: bool = True,
     palette: Palette | None = None,
     site: Landscaping | None = None,
+    split: int | None = None,
 ) -> PipelineResult:
-    """Convert a floor plan into a stacked 3D model. See ``extract`` + ``build``."""
-    result = extract(source, output_dir, segmenter, crop)
+    """Convert a floor plan into a stacked 3D model. See ``extract`` + ``build``.
+
+    ``split`` overrides the sheet splitter: 1 keeps the sheet whole, N forces
+    N plans, None reads it automatically.
+    """
+    result = extract(source, output_dir, segmenter, crop, split=split)
     return build(result, output_dir, wall_height_ft, palette, site)
 
 
