@@ -1,18 +1,16 @@
 """Turn a user's room correction into a Room.label change.
 
-planto3d.features.feature_for() and planto3d.site.classify_cover()/
-has_open_edge() already prefer a room's printed label over its predicted
-category -- that precedence exists because a printed label is what the
-architect actually wrote, and OCR is only one way that text gets there.
-A user typing "this is a balcony" is the same kind of evidence, so a
-correction is just a label that did not come from OCR: no new downstream
-logic, only a new way to set Room.label.
+planto3d.features.feature_for() and planto3d.site.classify_cover() already
+prefer a room's printed label over its predicted category -- that precedence
+exists because a printed label is what the architect actually wrote, and OCR
+is only one way that text gets there. A user typing "this is a balcony" is
+the same kind of evidence, so a correction is just a label that did not come
+from OCR: no new downstream logic, only a new way to set Room.label.
 
-CATEGORY_LABELS gives one canonical, verified keyword per
-planto3d.features category, so the correction UI can offer clean names
-("open" rather than making a user guess a magic word) while guaranteeing
-each one round-trips correctly through classify(), classify_cover() and
-has_open_edge().
+CATEGORY_LABELS gives one canonical, verified keyword per planto3d.features
+category, so the correction UI can offer clean names ("open" rather than
+making a user guess a magic word) while guaranteeing each one round-trips
+correctly through classify() and classify_cover().
 """
 
 from dataclasses import replace

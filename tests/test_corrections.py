@@ -16,7 +16,7 @@ from planto3d.corrections import CATEGORY_LABELS, apply_room_corrections
 from planto3d.features import classify
 from planto3d.geometry_types import FloorPlan, Room
 from planto3d.pipeline import FloorResult, PipelineResult
-from planto3d.site import classify_cover, has_open_edge
+from planto3d.site import classify_cover
 from pathlib import Path
 
 
@@ -71,12 +71,18 @@ def test_plain_room_clears_an_existing_label():
     assert corrected.floors[0].plan.rooms[0].label == ""
 
 
-def test_open_categories_are_also_railed_by_site_py():
-    # site.py has its own separate, narrower keyword set for railings
-    # (OPEN_EDGE_KEYWORDS); confirm the canonical "open" label triggers it
-    # too, since that is the mechanism the correction relies on for
-    # balconies actually getting a railing built.
-    assert has_open_edge(CATEGORY_LABELS["open"])
+def test_the_open_category_is_what_earns_a_railing():
+    # Railings are built from features.get("open") in extrude.py, so the
+    # canonical "open" label has to classify to exactly that -- this is
+    # the property the correction relies on for a balcony to get a rail.
+    from planto3d.features import feature_for
+    from planto3d.geometry_types import Room
+
+    room = Room(
+        polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        label=CATEGORY_LABELS["open"],
+    )
+    assert feature_for(room) == "open"
 
 
 def test_ground_cover_categories_are_recognised_by_site_py():

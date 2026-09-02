@@ -5,7 +5,6 @@ from planto3d.classes import BACKGROUND, DOOR, WALL, WINDOW
 from planto3d.classical import refine_windows, window_mask
 from planto3d.extrude import floors_to_parts
 from planto3d.geometry_types import FloorPlan, Room, Wall
-from planto3d.site import has_open_edge, railed_rooms
 
 SCALE = 20.0
 FOOTPRINT = [(0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)]
@@ -122,22 +121,6 @@ class TestRefineWindows:
 
 
 class TestRailings:
-    @pytest.mark.parametrize("label", ["BALCONY", "BALCONY 20'6\"X6'6\"", "TERRACE GARDEN"])
-    def test_open_edged_rooms_are_recognised(self, label):
-        assert has_open_edge(label)
-
-    @pytest.mark.parametrize("label", ["BEDROOM", "KITCHEN", "", "STORE"])
-    def test_enclosed_rooms_need_no_railing(self, label):
-        assert not has_open_edge(label)
-
-    def test_only_open_edged_rooms_are_railed(self):
-        rooms = [
-            Room(polygon=FOOTPRINT, label="BALCONY"),
-            Room(polygon=FOOTPRINT, label="BEDROOM"),
-        ]
-
-        assert [room.label for room in railed_rooms(rooms)] == ["BALCONY"]
-
     def _floor(self, rooms=None):
         walls = [
             Wall(start=FOOTPRINT[i], end=FOOTPRINT[(i + 1) % 4], thickness=10.0)

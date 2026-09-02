@@ -558,8 +558,8 @@ def build(
     ``result.floors[i].plan.rooms[j].label`` in between extraction and
     this call -- a correction is just a label that did not come from OCR,
     and every downstream consumer (``features.feature_for``,
-    ``site.classify_cover``, ``site.has_open_edge``) reads only
-    ``room.label``, so no other code needs to change.
+    ``site.classify_cover``) reads only ``room.label``, so no other code
+    needs to change.
     """
     output_dir = Path(output_dir)
     if result.scale is None:

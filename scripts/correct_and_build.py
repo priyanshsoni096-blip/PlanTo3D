@@ -8,10 +8,10 @@ the drawing deserves, because nothing told it which spaces are terraces.
 
 A correction is a room label that did not come from OCR. Everything
 downstream already prefers a printed label over the segmenter's predicted
-type -- ``features.feature_for``, ``site.classify_cover``,
-``site.has_open_edge`` all read ``room.label`` first -- so saying "room 5 is
-a balcony" needs no new machinery, only somewhere to say it. That place is
-the seam between ``pipeline.extract`` and ``pipeline.build``.
+type -- ``features.feature_for`` and ``site.classify_cover`` both read
+``room.label`` first -- so saying "room 5 is a balcony" needs no new
+machinery, only somewhere to say it. That place is the seam between
+``pipeline.extract`` and ``pipeline.build``.
 
 Two steps, the same two the pipeline itself has:
 
