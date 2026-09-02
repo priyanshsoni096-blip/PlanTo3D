@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from planto3d.design import STYLES, TIMES, TONES, Design
 from planto3d.geometry_types import FloorPlan, Opening, Wall
 from planto3d.materials import build_scene, export_scene
 from planto3d.photoreal import (
@@ -171,3 +172,60 @@ class TestThePromptFitsWhatTheEncoderReads:
 
     def test_the_storey_count_comes_through(self):
         assert "4-storey" in build_prompt(4, [])
+
+
+def _design(**overrides):
+    base = dict(
+        style="modern", colour="warm", time="day",
+        landscaping="basic", creativity="balanced",
+    )
+    base.update(overrides)
+    return Design(**base)
+
+
+def test_every_style_changes_the_prompt():
+    # A traditional house described as "modern" is the wrong building.
+    prompts = {
+        style: build_prompt(2, ["BALCONY"], design=_design(style=style))
+        for style in STYLES
+    }
+    assert len(set(prompts.values())) == len(STYLES), prompts
+
+
+def test_every_time_of_day_changes_the_prompt():
+    prompts = {
+        time: build_prompt(2, ["BALCONY"], design=_design(time=time))
+        for time in TIMES
+    }
+    assert len(set(prompts.values())) == len(TIMES), prompts
+
+
+def test_every_tone_changes_the_prompt():
+    prompts = {
+        tone: build_prompt(2, ["BALCONY"], design=_design(colour=tone))
+        for tone in TONES
+    }
+    assert len(set(prompts.values())) == len(TONES), prompts
+
+
+def test_night_is_not_described_as_dusk():
+    night = build_prompt(2, None, design=_design(time="night"))
+    assert "dusk" not in night
+    assert "night" in night
+
+
+def test_the_prompt_still_fits_the_token_budget():
+    # CLIP reads 77 tokens and silently drops the rest, tail first -- which
+    # is where the drawing-derived detail lives. Every combination must fit.
+    labels = ["BALCONY", "TERRACE GARDEN", "PARKING", "SWIMMING POOL"]
+    for style in STYLES:
+        for tone in TONES:
+            for time in TIMES:
+                design = _design(style=style, colour=tone, time=time)
+                prompt = build_prompt(3, labels, design=design)
+                assert _tokens(prompt) <= MAX_PROMPT_TOKENS, (style, tone, time)
+
+
+def test_no_design_keeps_the_previous_wording():
+    # Every existing caller passes no design and must be unaffected.
+    assert "modern luxury residence at dusk" in build_prompt(2, ["BALCONY"])

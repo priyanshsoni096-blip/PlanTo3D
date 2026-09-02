@@ -51,6 +51,37 @@ MAX_PROMPT_TOKENS = 77
 TOKENS_PER_WORD = 1.35
 PROMPT_SAFETY = 4
 
+# What each design choice means to a diffusion model, in its own words.
+#
+# The 3D model already honours these choices through Design.palette() and
+# Design.lighting(); until now the photoreal pass did not see them at all,
+# so a traditional house at night was still described as a modern one at
+# dusk. Two outputs of the same pipeline disagreeing about what building
+# they show is worse than either being plain.
+#
+# Kept short deliberately. Every word here is spent out of a 77-token
+# budget that the drawing-derived detail also has to fit inside.
+STYLE_SUBJECTS = {
+    "modern": "modern residence, clean rectilinear massing",
+    "luxury": "luxury residence, generous proportions and deep reveals",
+    "traditional": "traditional residence, pitched roofs and punched windows",
+    "minimalist": "minimalist residence, unadorned planes and hidden detail",
+}
+
+TONE_CLADDING = {
+    "light": "pale limestone and white render",
+    "dark": "charcoal brick and dark stained timber",
+    "warm": "warm honey-toned limestone",
+}
+
+# Paired with the lighting the renderer uses for the same choice, so the
+# render beside it and the diffusion image agree about the hour.
+TIME_LIGHT = {
+    "day": "clear midday daylight, crisp shadows",
+    "sunset": "low golden sunset light, long shadows",
+    "night": "night, warm amber interior lighting in every window",
+}
+
 # The subject, and nothing that could be dropped without changing what the
 # picture is of.
 # Never dropped: the subject, what it is made of, and the light. A
@@ -99,12 +130,20 @@ NEGATIVE_PROMPT = (
 )
 
 
-def build_prompt(storeys: int, room_labels: list[str] | None = None) -> str:
+def build_prompt(
+    storeys: int,
+    room_labels: list[str] | None = None,
+    design=None,
+) -> str:
     """Compose the prompt, naming what the plan actually contains.
 
     Grounding the description in extracted labels keeps the model from
     inventing features the house does not have -- a pool, a pitched roof --
     which is the usual way a stylization stops resembling its subject.
+
+    ``design`` is the same ``planto3d.design.Design`` the renderer uses. Passing
+    it makes the prompt describe the house the user asked for; omitting it
+    keeps the original wording, so existing callers are unaffected.
     """
     labels = {label.upper() for label in room_labels or []}
 
@@ -129,7 +168,20 @@ def build_prompt(storeys: int, room_labels: list[str] | None = None) -> str:
     if has("TEMPLE", "POOJA"):
         site.append("warm timber detailing")
 
-    parts = [BASE_PROMPT.format(storeys=storeys)]
+    if design is None:
+        opening = BASE_PROMPT.format(storeys=storeys)
+    else:
+        # Subject, cladding and light, in that order and never dropped: a
+        # building of the wrong material is wrong in every frame, and an
+        # hour that contradicts the render beside it is worse than plain.
+        opening = (
+            f"professional architectural visualization of a {storeys}-storey "
+            f"{STYLE_SUBJECTS.get(design.style, STYLE_SUBJECTS['modern'])}, "
+            f"{TONE_CLADDING.get(design.colour, TONE_CLADDING['warm'])} cladding, "
+            f"{TIME_LIGHT.get(design.time, TIME_LIGHT['day'])}"
+        )
+
+    parts = [opening]
     budget = MAX_PROMPT_TOKENS - PROMPT_SAFETY - _tokens(parts[0])
 
     for phrase in [*site, *STYLE_PHRASES, *QUALITY_PHRASES]:
