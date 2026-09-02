@@ -22,6 +22,12 @@ Two steps, the same two the pipeline itself has:
     python scripts/correct_and_build.py plan.pdf out --checkpoint models/unet_cubicasa.pt \
         --correct 1:5=open --correct 1:6=paving
 
+    # 3. save the corrections, and reuse them on every later run
+    python scripts/correct_and_build.py plan.pdf out --checkpoint models/unet_cubicasa.pt \
+        --correct 1:5=open --save-corrections plan-corrections.txt
+    python scripts/correct_and_build.py plan.pdf out --checkpoint models/unet_cubicasa.pt \
+        --corrections plan-corrections.txt
+
 ``--correct`` takes ``FLOOR:ROOM=CATEGORY``, using the floor and room
 numbers ``--list`` prints. Floors are numbered from 1 because that is how
 the listing reads them out; rooms from 0 because that is their index.
@@ -81,6 +87,41 @@ def parse_correction(text: str) -> tuple[tuple[int, int], str]:
     return (floor - 1, room), category
 
 
+# The file format is the flag's own syntax, one per line. A user who can
+# type a correction can read the file without being taught anything new,
+# and the file can be edited by hand or produced by another tool.
+CORRECTIONS_HEADER = (
+    "# PlanTo3D room corrections. One FLOOR:ROOM=CATEGORY per line.\n"
+    "# Floor numbers are the ones --list prints; rooms are indexed from 0.\n"
+)
+
+
+def corrections_to_lines(corrections: dict[tuple[int, int], str]) -> list[str]:
+    """Render corrections as the same text ``--correct`` accepts."""
+    return [
+        f"{floor + 1}:{room}={category}"
+        for (floor, room), category in sorted(corrections.items())
+    ]
+
+
+def corrections_from_lines(lines: list[str]) -> dict[tuple[int, int], str]:
+    """Read corrections back, ignoring comments and blank lines.
+
+    Reuses ``parse_correction`` so the file and the flag can never drift
+    apart, and so a bad line is refused with the whole vocabulary rather
+    than silently skipped -- a correction that quietly does nothing is
+    worse than one that stops you.
+    """
+    corrections = {}
+    for line in lines:
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        where, category = parse_correction(text)
+        corrections[where] = category
+    return corrections
+
+
 def show(result) -> None:
     """Print every room, so a correction can be aimed at one."""
     print(f"\n{'floor':>5} {'room':>4}  {'detected label':{LABEL_WIDTH}} "
@@ -114,6 +155,8 @@ def main(
     listing: bool,
     wall_height_ft: float,
     crop: bool,
+    corrections_path: Path | None,
+    save_path: Path | None,
 ) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     out = Path(output_dir)
@@ -137,8 +180,25 @@ def main(
         print("\n--list given; stopping before the build.")
         return
 
-    if corrections:
-        parsed = dict(parse_correction(text) for text in corrections)
+    parsed = dict(parse_correction(text) for text in corrections)
+    if corrections_path is not None:
+        # The file first, the flags second, so a one-off --correct can
+        # override a saved annotation without editing the file.
+        from_file = corrections_from_lines(
+            corrections_path.read_text(encoding="utf-8").splitlines()
+        )
+        print(f"\nread {len(from_file)} correction(s) from {corrections_path}")
+        parsed = {**from_file, **parsed}
+
+    if save_path is not None:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(
+            CORRECTIONS_HEADER + "\n".join(corrections_to_lines(parsed)) + "\n",
+            encoding="utf-8",
+        )
+        print(f"wrote {len(parsed)} correction(s) to {save_path}")
+
+    if parsed:
         # Corrected off a copy, so the extraction stays pristine. Applying
         # successive passes to one result makes an override impossible to
         # undo: dropping a room back to no correction only skips re-writing
@@ -180,6 +240,20 @@ if __name__ == "__main__":
         help="override one room's feature, e.g. 1:5=open; repeatable",
     )
     parser.add_argument(
+        "--corrections",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="read corrections from a file written by --save-corrections",
+    )
+    parser.add_argument(
+        "--save-corrections",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write the corrections given on this run to a file, to reuse later",
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         dest="listing",
@@ -200,4 +274,6 @@ if __name__ == "__main__":
         arguments.listing,
         arguments.wall_height_ft,
         crop=not arguments.no_crop,
+        corrections_path=arguments.corrections,
+        save_path=arguments.save_corrections,
     )

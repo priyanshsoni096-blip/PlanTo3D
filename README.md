@@ -243,6 +243,14 @@ python scripts/correct_and_build.py plan.pdf output --checkpoint models/unet.pt 
 correction is simply a room label that did not come from OCR, so nothing
 downstream has to know where it came from.
 
+Corrections can be saved and reused, so a plan is annotated once rather than
+once per run:
+
+```bash
+python scripts/correct_and_build.py plan.pdf output --correct 1:5=open --save-corrections plan.txt
+python scripts/correct_and_build.py plan.pdf output --corrections plan.txt
+```
+
 ## Training
 
 [`notebooks/train_on_colab.ipynb`](notebooks/train_on_colab.ipynb) trains the
