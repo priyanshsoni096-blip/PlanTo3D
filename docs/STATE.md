@@ -36,7 +36,7 @@ behind each row):
 | Room function, from the predicted type | **every plan** | `batch_evaluate.py` |
 | Per-class IoU | wall 0.697, door 0.560, **window 0.089** | `class_accuracy.py` |
 | **Correct end to end, every check at once** | **10/30 (33%)** | `output_scorecard.py` |
-| Tests | **802** | `pytest` |
+| Tests | **835** | `pytest` |
 
 That last-but-one row matters more than any single stage number: it runs
 the whole pipeline per plan and asks how many are right on *every* check

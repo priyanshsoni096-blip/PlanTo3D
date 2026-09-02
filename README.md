@@ -251,6 +251,18 @@ python scripts/correct_and_build.py plan.pdf output --correct 1:5=open --save-co
 python scripts/correct_and_build.py plan.pdf output --corrections plan.txt
 ```
 
+A sheet carrying several plans is sometimes read as one, or a single plan is
+occasionally cut in two. `--split N` and `--no-split` settle it by hand:
+
+```bash
+python scripts/correct_and_build.py plan.pdf output --split 2    # force N plans
+python scripts/correct_and_build.py plan.pdf output --no-split   # keep it whole
+```
+
+`--split` uses the dividing line the splitter already found and only skips
+the checks that reject it; it cannot invent a division where none was
+proposed, and raises rather than guess when that happens.
+
 ## Training
 
 [`notebooks/train_on_colab.ipynb`](notebooks/train_on_colab.ipynb) trains the
@@ -266,11 +278,11 @@ runs the model through depth-conditioned ControlNet to produce an
 architectural visualization.
 
 This stage **invents rather than measures**. Everything before it traces back
-to the drawing; this adds stone coursing, dusk lighting and reflections that
-no floor plan contains. ControlNet pins the invention to our real depth and
-edges, so the result is this house rendered convincingly rather than a
-plausible house that resembles it — but it is an impression of the design,
-not a measurement of it.
+to the drawing; this adds stone coursing, lighting for whichever hour you
+chose and reflections that no floor plan contains. ControlNet pins the
+invention to our real depth and edges, so the result is this house rendered
+convincingly rather than a plausible house that resembles it — but it is an
+impression of the design, not a measurement of it.
 
 ## What it recognises
 
@@ -351,7 +363,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points
-tests/        802 tests
+tests/        835 tests
 docs/         design spec and implementation plan
 ```
 

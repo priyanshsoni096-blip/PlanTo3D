@@ -113,15 +113,15 @@ code that produces it.
 | Room labelling | `planto3d/label_rooms.py` (67 lines) | `assign_labels` — OCR label wins over predicted type when both exist |
 | Feature vocabulary | `planto3d/features.py` (1068 lines) | `classify`, `finish_for`, `regions_from_labels`, `group_by_feature`, `is_open_to_sky` — 460 keywords / 15 categories |
 | Scale calibration | `planto3d/calibrate.py` (533 lines) | `parse_dimension_text`, `parse_area_text`, `estimate_scale`, `scale_from_doors`, `scale_from_gauge`, `assumed_scale`, `corroborated`, `read_text_boxes` (now upscales sub-1200px sheets before OCR) |
-| Site / outdoor | `planto3d/site.py` (165 lines) | `classify_cover`, `outdoor_rooms`, `site_outline`, `railed_rooms`, `boundary_walls` |
+| Site / outdoor | `planto3d/site.py` (143 lines) | `classify_cover`, `outdoor_rooms`, `site_outline`, `boundary_walls` |
 | 3D extrusion | `planto3d/extrude.py` (1931 lines — largest file) | `floors_to_parts` (top-level), `slab_mesh`, `_wall_parts`, `open_to_sky`, `_railing_parts` (`_guarded_edges`), `_stair_parts`, roof-form builders |
 | Materials | `planto3d/materials.py` (182 lines) | `Surface` dataclass, `build_scene`, `export_scene` |
 | Design choices | `planto3d/design.py` (236 lines) | `Design`, `Tone`, `Landscaping`, `apply_tone` |
 | Lighting/palette | `planto3d/style.py` (261 lines) | `Lighting` (rebalanced defaults today), `Palette`, `parse_colour` |
 | Rendering | `planto3d/preview.py` (669 lines) | `render`, `render_depth`, `render_glb`, `render_views` |
-| Photoreal | `planto3d/photoreal.py` (199 lines) | `build_prompt`, `edge_guide`, `build_guides` |
+| Photoreal | `planto3d/photoreal.py` (401 lines) | `build_prompt`, `build_negative_prompt`, `edge_guide`, `build_guides` |
 | Orchestration | `planto3d/pipeline.py` (623 lines) | Three entry points — `extract()` (geometry + labels, up to the correction pause point), `build()` (corrections applied, geometry to a model), `run()` (`extract()` then `build()` with no pause, for callers with no correction step); `PipelineResult`, `FloorResult` dataclasses |
-| Room corrections | `planto3d/corrections.py` (69 lines) | `apply_room_corrections`, `CATEGORY_LABELS` — turns a user's UI override into a `Room.label` change, applied in place between `extract()` and `build()` |
+| Room corrections | `planto3d/corrections.py` (67 lines) | `apply_room_corrections`, `CATEGORY_LABELS` — turns a user's UI override into a `Room.label` change, applied in place between `extract()` and `build()` |
 | CubiCasa5K reader | `planto3d/cubicasa.py` (350 lines) | `svg_to_mask`, `sample_paths`, `ground_truth_scale`, `parse_feet` |
 | CVC-FP reader | `planto3d/cvc_fp.py` (168 lines, **new today**) | `svg_to_mask`, `sample_paths`, `annotation_size` |
 | Misc tooling | `planto3d/tools.py` (88 lines) | `poppler_bin_dir`, `tesseract_exe`, `configure_tesseract` |
@@ -378,14 +378,15 @@ live today, not from memory:
 
 ### Tests — `pytest`, full suite
 
-**802 passed, 0 failed.** This matches `docs/AUDIT.md`'s current figure
+**835 passed, 0 failed.** This matches `docs/AUDIT.md`'s current figure
 exactly. `README.md` and `docs/AUDIT.md` both said 748 as of the last
 commit (`3f674ca`, "docs: the test count again, 748") — both already
-correct at the time of this audit; the count has since grown to 802 with
-the room-correction work. `docs/STATE.md` line 104 still says
+correct at the time of this audit; the count has since grown to 835 with
+the room-correction work and the photoreal/open-air design and
+splitter-validation work that followed. `docs/STATE.md` line 104 still says
 "384 tests" — see [Doc drift](#doc-drift-found-while-writing-this).
 
-Composition (37 test files, 5,981 lines): the largest suites are
+Composition (40 test files, 6,627 lines): the largest suites are
 `test_roof_forms.py` (30 tests), `test_windows_railings.py` (17),
 `test_style.py` (16), `test_stairs.py` (16), `test_site.py` (20). 6 test
 files were touched by today's commits (`test_calibrate.py`,
@@ -605,7 +606,7 @@ training/            Dataset, augmentation, loss/metrics, and the training loop
                       work doesn't require torch installed (pyproject.toml's
                       `ml` extra is optional).
 scripts/              16 command-line entry points — see table below.
-tests/                37 files, 802 tests, 5,981 lines. pytest, PYTHONPATH=. required.
+tests/                40 files, 835 tests, 6,627 lines. pytest, PYTHONPATH=. required.
 notebooks/            5 Colab notebooks:
                         train_on_colab.ipynb   — trains the segmenter (27 cells)
                         run_on_colab.ipynb     — upload a plan, get a house (21 cells)
