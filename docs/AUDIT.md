@@ -127,7 +127,7 @@ prettiest artefact meant the geometry was never really being looked at.
 | # | Gap | Measured | Why it matters | General? |
 | --- | --- | --- | --- | --- |
 | 1 | **Windows weak** | Detection **62.1%** at 43.5% precision; IoU 0.089 | Façades sparser than the drawing, plus openings that are not there. Openings fail on 9 of 30 plans end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
-| 2 | **Scale, 17.3% median error** | 33/48 within a fifth; doors −8.4%, walls −20.1% | Sets the whole building's size, and is the **largest end-to-end failure** at 10 of 30 | No — mostly the drawing's tradition, not the vision. See below |
+| 2 | **Scale, 17.3% median error** | 33/48 within a fifth; **doors 10.4% error / +0.9% bias, walls 20.2% error / −20.2% bias** (30 sheets) | Sets the whole building's size, and is the **largest end-to-end failure** at 10 of 30. The error is concentrated in the wall-derived half of the population — doors are already accurate | No — wall thickness genuinely varies (IQR ±16% of median); no single constant repairs it. See below |
 | 3 | Sheet splitting misses | Recall **86%**, **58/60** exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
 | 4 | **Only 2½ conventions tested** | Now **3½** — CVC-FP added, 122 sheets, 4 styles | Walls hold at 96.7% coverage on an unseen tradition; scale still untestable there | **Yes** |
 | 5 | Storage rooms weak | IoU 0.570 | Storage reads as ordinary rooms | Yes |
@@ -1254,6 +1254,82 @@ advantage exactly. Recorded so it is not tried again.
 
 **The wall-thickness constant stays at 9 inches.** See above -- the two
 populations disagree by 26 points and fitting either breaks the other.
+
+## Scale error, broken down by source, and four routes tried that did not close it
+
+`scripts/scale_accuracy.py` gained a per-source table on this branch. Over
+the same 30 ground-truthed CubiCasa sheets used throughout this section, it
+shows the two inferred sources fail in opposite ways:
+
+```
+source        plans  median err  within 20%     bias
+doors            15      10.4%      14/15    +0.9%
+walls            15      20.2%       6/15   -20.2%
+```
+
+Pooled: **17.7% median, 20/30 within a fifth — unchanged by this branch.**
+The population splits evenly, and the pooled figure had been hiding that
+**doors are essentially unbiased and accurate, while walls are
+systematically undersized by a fifth.** The `bias` column is what makes it
+legible: walls' bias (−20.2%) very nearly equals their median error
+(20.2%), meaning almost all of it points one way — a mis-centred constant,
+not scatter. Doors' bias (+0.9%) against a 10.4% median is scatter without
+direction, which is a different problem and not one a constant can fix.
+
+Four things were tried against this picture. Three made it worse or did
+nothing; one works and was deliberately not taken.
+
+**Correcting the door constant alone makes things worse.** Substituting
+CubiCasa's own 2'3" for the assumed 2'6" moves the pooled figure from
+17.7% to **20.1%**, and sheets within a fifth from 20/30 to **15/30**. The
+bias table explains why: doors were already right. The plausible
+mechanism is that the detector measures an opening span while the
+annotation records the door leaf — different things, coincidentally close
+at the shipped constant. **Do not retry this.**
+
+**Widening the door-width acceptance band does not help.** The 15 sheets
+that fall back to walls are not short of openings — they carry 6 to 17
+each against a minimum of 3. Sweeping `MIN_DOOR_GAUGES`/`MAX_DOOR_GAUGES`
+from (1.5, 8.0) through (1.0, 10.0), (0.8, 12.0) and (0.5, 16.0) moves only
+15→17 sheets onto the door route and makes the pooled figure *worse*,
+17.7% → 18.1%. **Do not retry this.**
+
+**Wall gauge is a structurally poor scale estimator, and no constant
+repairs it.** The wall-derived error tracks the measured gauge almost
+exactly — gauge 16 px gives about −33%, gauge 20 px about −19%, gauge 28
+px about +20% — while the true scale on those same sheets stays near
+31–33 px/ft. So the drawings share a scale and their *real wall
+thicknesses differ*. Implied real wall thickness across the 30 sheets:
+
+| | ft |
+| --- | --- |
+| min | 0.478 |
+| p25 | 0.598 |
+| median | 0.648 |
+| p75 | 0.803 |
+| max | 1.176 |
+
+The interquartile spread is **±16% of the median**, which is the floor
+under any single constant — it cannot be tuned away, only lived with.
+
+**Element sizes can now vary by drafting tradition, and the detector
+never fires here.** `planto3d/calibrate.py` gained `CONVENTIONS`,
+`detect_convention` and `element_sizes`, selecting per-tradition door and
+wall values from Finnish/Swedish room names. It fired on **0 of 30**
+CubiCasa sheets, because these rasters carry almost no readable text —
+consistent with the OCR yield already recorded above. Pooled accuracy is
+therefore byte-for-byte unchanged. The mechanism is unit-tested and
+correct; it is simply unexercised by any corpus currently available.
+
+**The one measured route to the spec's gate was deliberately not taken.**
+Substituting 0.633 ft for the assumed 0.75 ft wall thickness *globally*
+moves the pooled figure from 17.7% to **9.9%** and sheets within a fifth
+from 20/30 to **23/30**. It is available and unspent. It was rejected
+because it fits the constant to the only corpus with metric ground truth,
+and would silently degrade the Indian and Spanish plans that cannot be
+checked — the same standing rule recorded above under "the one that is a
+trap". The number is recorded so the decision stays visible rather than
+lost.
 
 ## The ceiling
 
