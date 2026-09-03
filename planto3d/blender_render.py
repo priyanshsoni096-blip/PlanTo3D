@@ -125,9 +125,15 @@ def _add_camera(scene, centre, radius, azimuth: float, elevation: float) -> None
 
     az, el = math.radians(azimuth), math.radians(elevation)
     distance = radius * CAMERA_DISTANCE
+    # The glTF importer remaps axes on the way in: X_blender = X_gltf,
+    # Y_blender = -Z_gltf, Z_blender = Y_gltf. Against that remap the X
+    # term needs a leading minus to keep azimuth increasing clockwise as
+    # preview.VIEWS intends -- without it "right" shows the model's left
+    # side and vice versa. Front, back and top are unaffected because
+    # they don't depend on sin(az)'s sign.
     offset = mathutils.Vector(
         (
-            distance * math.cos(el) * math.sin(az),
+            -distance * math.cos(el) * math.sin(az),
             -distance * math.cos(el) * math.cos(az),
             distance * math.sin(el),
         )
