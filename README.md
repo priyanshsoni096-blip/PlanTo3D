@@ -279,6 +279,25 @@ result — combine `--scale-room` with `--correct` or `--corrections` and aim
 the correction using the listing printed *after* the re-read, not one from
 an earlier, unscaled run.
 
+### Deterministic rendering
+
+`preview.py`'s numpy rasterizer is what every script above uses, and it
+is fast and plain. `planto3d/blender_render.py` is the slower, prettier
+alternative: real materials, soft shadows and global illumination via
+headless Blender Cycles, with no generative step, so every surface in
+the image is one the drawing supports rather than an invention. It needs
+the `render` extra, which pulls a 659 MB `bpy` install:
+
+```bash
+pip install -e ".[render]"
+python scripts/render_blender.py house.glb output
+```
+
+Reach for it over `preview.py` when the image itself needs to stand as
+evidence -- a client-facing render, a figure in a report -- rather than
+just a quick look at what got built; for that quick look, `preview.py`'s
+six views in a couple of seconds are the better tool.
+
 ## Training
 
 [`notebooks/train_on_colab.ipynb`](notebooks/train_on_colab.ipynb) trains the

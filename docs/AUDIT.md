@@ -122,6 +122,99 @@ This is the risk that was flagged when the end-to-end scorecard was
 proposed and it went unaddressed for a while: judging the pipeline by its
 prettiest artefact meant the geometry was never really being looked at.
 
+## A third renderer, and it is the answer to the paragraph above
+
+`planto3d/blender_render.py` drives Blender Cycles headlessly through
+`bpy`. It sits next to `preview.py` (fast, numpy, plain) and
+`photoreal.py` (the diffusion pass above, which invents by construction)
+as a third option, and it is the only one of the three where the picture
+is also the proof: every surface it paints is one the drawing supports,
+because there is no generative step anywhere in the path. That is the
+direct answer to the previous section -- the photoreal image can never be
+scored because nothing says what it should look like, and this renderer
+exists so a plan can still get a convincing image that *is* checkable,
+because it was built from the same geometry everything else in this
+document is checked against.
+
+**Cycles against EEVEE: 7.7 s versus 57.3 s**, for the same 640×480
+frame, measured twice in both engine orders so neither run got the
+warm-cache advantage. The gap looks backwards -- Cycles is usually the
+slower, better-looking option -- but headless changes what each engine
+actually is: EEVEE is a rasteriser that wants a GL context, and with no
+display and no GPU it falls back to software; Cycles is a CPU path
+tracer and never needed a context in the first place. There is no
+trade-off to weigh here, because Cycles also renders the better image.
+
+Samples are close to free: doubling 32 to 64 on that same frame costs
+**1.8 s** (7.7 s to 9.5 s), so the default sits above the floor rather
+than on it and there is little reason to render at the floor.
+
+The real cost is the six-view set a model actually ships with, at the
+resolution it actually ships at:
+
+| Resolution | Samples | Six views |
+| --- | --- | --- |
+| 800×600 | 64 | **4 m 33 s** |
+| 1200×900 (default) | 64 | **5 m 19 s** |
+
+Both measured end to end with `blender_render.render_views` against the
+same model, not extrapolated from the single-frame figures above.
+Resolution alone does not explain the gap either way: 1200×900 has
+2.25× the pixels of 800×600 but only costs 1.16× the time, because a
+fixed per-frame overhead -- glTF re-import, scene teardown and rebuild,
+material assignment -- is paid six times regardless of resolution and
+dominates at these sizes more than the pixel count does.
+
+**Determinism.** Rendered the same view twice, same model, same
+arguments, into separate files, and hashed the output:
+
+```
+a 0d903750345e656c
+b e624dc0943e81a32
+IDENTICAL: False
+```
+
+The hashes disagree, but not because the picture changed. Every one of
+the 20 differing bytes sits inside PNG `tEXt` metadata chunks Blender
+writes into the file -- `tEXtDate`, `tEXtTime`, `RenderTime`, and two
+Cycles timing chunks -- which carry the wall-clock time the frame was
+rendered and necessarily differ between two runs two seconds apart. The
+pixel data itself, decoded and compared channel by channel, is
+byte-identical: mean absolute difference **0.0**, max absolute
+difference **0**, across all 120,000 pixels. Cycles' own path tracing is
+therefore fully deterministic here -- same seed, same thread count, same
+result down to the last bit of the image -- and the only thing that
+varies run to run is a timestamp nobody looks at. Two renders of the
+same view are the same evidence twice.
+
+**`bpy` is 659 MB**, which is why it lives behind its own `render` extra
+(`pip install -e ".[render]"`) rather than in the base install --
+`preview.py` needs nothing but numpy, and most runs of the pipeline
+should not have to pull two-thirds of a gigabyte to get a picture out.
+
+**All 24 surfaces `materials.py` can produce map to a physical shader**,
+not the 13 one demo plan's `.glb` happened to contain -- see the
+derivation in `blender_render.SURFACE_SHADERS`, built from
+`materials.SURFACES` rather than hand-copied, so a surface added to one
+file cannot silently fall back to plaster in the other. Colour is left
+alone: the `.glb` already carries the palette the user chose through
+`design.py`, and the shaders here set only metallic, roughness and
+transmission, never a colour that would override it.
+
+Two things this renderer does honestly rather than hides:
+
+- At the standard `aerial` view (45° elevation, the angle `preview.py`
+  also uses) **no sky is visible at all**. The camera pitch exceeds the
+  lens's vertical half-FOV at that elevation, so the frame sits entirely
+  below the horizon. The sky gradient itself is correct -- it shows at
+  lower elevations -- this is a framing consequence of an angle shared
+  with the fast renderer, not a bug in the sky.
+- Dusk renders close to monochrome. The model's own palette is beige and
+  the dusk key light is warm, so the two multiply into a render with
+  little colour separation. That is the light and the building agreeing
+  with each other, not a defect -- but it is a real limitation of the
+  preset, not just of this one house.
+
 ## Gaps, worst first
 
 | # | Gap | Measured | Why it matters | General? |
