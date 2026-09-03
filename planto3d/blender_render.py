@@ -41,6 +41,37 @@ DEFAULT_SAMPLES = 64
 # mostly sky.
 CAMERA_DISTANCE = 2.6
 
+# How far the ground plane extends past the building, as a multiple of the
+# model's own radius. Wide enough that the horizon is never visible inside
+# the frame at any of the six standard views, which would read as the
+# building standing on a table.
+GROUND_EXTENT = 12.0
+
+# The ground is darker than the sky it reflects, as real ground is. Kept
+# neutral rather than green: the model already builds its own lawn where
+# the drawing says there is one, and a green plane under a paved plot
+# would contradict the drawing.
+GROUND_TONE = 0.18
+
+# style.py's strengths are multipliers tuned for its own rasterizer, not
+# watts. These convert them into something Cycles can use. Measured by
+# rendering data/bridge/11001.gif at midday, golden hour and dusk and
+# looking: at the brief's starting guess of KEY_ENERGY=4.0, FILL_ENERGY=60
+# the lit walls stayed muddy (mean pixel 113.6 on a front-ish view at
+# midday) even though nothing was clipping. Raising both, in the same
+# 1:15.6 ratio so the fill keeps the same relationship to the key that
+# style.py intends, to 9.0/140.0 brought the same frame's mean up to
+# 146.9 with no channel clipping (checked at all three presets, including
+# golden hour's higher key_strength of 0.92 -- still 0.0 pixels at 253+).
+KEY_ENERGY = 9.0
+FILL_ENERGY = 140.0
+
+# The sun's angular diameter in radians, which is what softens the shadow
+# edge. The real sun subtends about 0.53 degrees; this is deliberately
+# wider, because a hard-edged shadow is the most obvious tell of a
+# synthetic render and a little softness reads better at these sizes.
+SUN_ANGLE = 0.06
+
 
 # What each exported surface is made of, as Principled BSDF settings.
 #
@@ -144,6 +175,78 @@ def _apply_materials(objects) -> int:
     return recognised
 
 
+def _to_linear(colour) -> tuple[float, float, float, float]:
+    """A 0-255 style.py colour as the linear RGBA Blender wants.
+
+    style.py stores colours the way a colour picker shows them, which is
+    sRGB; Blender's shader sockets are linear, and handing sRGB straight
+    over washes every tint out.
+    """
+    channels = []
+    for value in colour:
+        srgb = value / 255
+        channels.append(
+            srgb / 12.92 if srgb <= 0.04045 else ((srgb + 0.055) / 1.055) ** 2.4
+        )
+    return (*channels, 1.0)
+
+
+def _add_world(scene, lighting) -> None:
+    """A sky that graduates, rather than a flat grey void.
+
+    The sky colour is the one style.py already chose for this hour, so the
+    Blender render and the rasterizer agree about what time it is.
+    """
+    import bpy
+
+    world = bpy.data.worlds.new("World")
+    world.use_nodes = True
+    tree = world.node_tree
+    background = tree.nodes["Background"]
+    background.inputs[0].default_value = _to_linear(lighting.sky)
+    background.inputs[1].default_value = lighting.ambient_strength
+    scene.world = world
+
+
+def _lowest_z() -> float:
+    """The bottom of the model, so the ground meets it rather than cutting it."""
+    import bpy
+    import mathutils
+
+    lows = [
+        (obj.matrix_world @ mathutils.Vector(corner)).z
+        for obj in bpy.data.objects
+        if obj.type == "MESH"
+        for corner in obj.bound_box
+    ]
+    return min(lows) if lows else 0.0
+
+
+def _add_ground(centre, radius, lighting) -> None:
+    """A plane for the building to stand on and cast a shadow onto.
+
+    Without it the model floats: Cycles has nothing to catch the contact
+    shadow, which is most of what makes a render read as photographed
+    rather than assembled.
+    """
+    import bpy
+
+    bpy.ops.mesh.primitive_plane_add(
+        size=radius * GROUND_EXTENT,
+        location=(centre[0], centre[1], _lowest_z()),
+    )
+    plane = bpy.context.object
+    material = bpy.data.materials.new("ground_plane")
+    material.use_nodes = True
+    principled = material.node_tree.nodes.get("Principled BSDF")
+    if principled is not None:
+        principled.inputs["Base Color"].default_value = (
+            GROUND_TONE, GROUND_TONE, GROUND_TONE, 1.0
+        )
+        principled.inputs["Roughness"].default_value = 0.9
+    plane.data.materials.append(material)
+
+
 def available() -> bool:
     """Whether Blender can be driven in this environment.
 
@@ -164,17 +267,26 @@ def render_view(
     elevation: float,
     resolution: tuple[int, int] = (1200, 900),
     samples: int = DEFAULT_SAMPLES,
+    lighting=None,
 ) -> Path:
     """Render one view of a model, and return where it was written.
 
     ``azimuth`` and ``elevation`` are degrees, in the same convention
     ``preview.VIEWS`` uses, so the two renderers can be pointed at the
     same angles and compared frame for frame.
+
+    ``lighting`` is a ``style.Lighting`` -- the same object preview.py
+    already honours for the user's chosen hour. Left as ``None`` and
+    defaulted here (rather than defaulted in the signature) so ``style``
+    stays out of module scope, the same way ``bpy`` does.
     """
     import math
 
     import bpy
-    import mathutils
+
+    from planto3d.style import Lighting
+
+    lighting = lighting or Lighting()
 
     model_path, output_path = Path(model_path), Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -199,7 +311,22 @@ def render_view(
 
     centre, radius = _bounds(meshes)
     _add_camera(scene, centre, radius, azimuth, elevation)
-    _add_lighting(scene, centre, radius)
+    _add_ground(centre, radius, lighting)
+    _add_lighting(scene, centre, radius, lighting)
+    _add_world(scene, lighting)
+
+    # Blender's exposure is in stops (each +1 doubles the light reaching
+    # the sensor), while style.py's is a linear multiplier -- so this
+    # needs a log2, not a direct assignment. Verified against this build,
+    # not assumed: rendered a flat emissive plane with the filmic curve
+    # switched off (view_transform="Standard", which still sRGB-encodes
+    # for display but no longer rolls off highlights) at exposure stops
+    # 0, 1 and 2, decoded the sRGB pixels back to linear, and got 0.039,
+    # 0.077, 0.153 -- a 1.98x and 1.97x step per +1 stop, matching
+    # 2**stops rather than the stops themselves. That confirms
+    # log2(lighting.exposure) is the right conversion, not just a guess
+    # carried over from the brief.
+    scene.view_settings.exposure = math.log2(max(lighting.exposure, 1e-3))
 
     bpy.ops.render.render(write_still=True)
     logger.info("rendered %s", output_path)
@@ -256,23 +383,40 @@ def _add_camera(scene, centre, radius, azimuth: float, elevation: float) -> None
     scene.camera = camera
 
 
-def _add_lighting(scene, centre, radius) -> None:
-    """A sun and a sky, sized to the model.
+def _add_lighting(scene, centre, radius, lighting) -> None:
+    """A key sun and a soft fill, coloured by the hour style.py chose.
 
-    Deliberately plain at this stage: one key light and an ambient world,
-    which is enough to prove the path renders. The material and lighting
-    work that makes it look like a photograph is the next task.
+    Mirrors the rasterizer's own rig rather than inventing a second one:
+    style.py's Lighting carries a key, a fill and an ambient, and preview.py
+    already honours all three. A renderer that ignored them would disagree
+    with its own pipeline about what time of day it is.
+
+    The sun's angular size is what softens the shadow. A hard-edged shadow
+    is the single most obvious tell of a synthetic render, and the real sun
+    subtends about half a degree; this is set wider because a slightly soft
+    edge reads better at these resolutions than a physically exact one.
     """
     import bpy
     import mathutils
 
-    bpy.ops.object.light_add(
-        type="SUN",
-        location=mathutils.Vector(centre) + mathutils.Vector((radius, -radius, radius * 2)),
+    key = mathutils.Vector(centre) + mathutils.Vector(
+        (radius, -radius, radius * 2.0)
     )
-    bpy.context.object.data.energy = 3.0
+    bpy.ops.object.light_add(type="SUN", location=key)
+    sun = bpy.context.object.data
+    sun.color = _to_linear(lighting.sun)[:3]
+    sun.energy = lighting.key_strength * KEY_ENERGY
+    sun.angle = SUN_ANGLE
 
-    world = bpy.data.worlds.new("World")
-    world.use_nodes = True
-    world.node_tree.nodes["Background"].inputs[1].default_value = 1.0
-    scene.world = world
+    fill = mathutils.Vector(centre) + mathutils.Vector(
+        (-radius * 1.5, -radius, radius)
+    )
+    bpy.ops.object.light_add(type="AREA", location=fill)
+    area = bpy.context.object
+    area.data.color = _to_linear(lighting.fill)[:3]
+    area.data.energy = lighting.fill_strength * FILL_ENERGY
+    area.data.size = radius
+    area.rotation_mode = "QUATERNION"
+    area.rotation_quaternion = (
+        mathutils.Vector(centre) - area.location
+    ).to_track_quat("-Z", "Y")

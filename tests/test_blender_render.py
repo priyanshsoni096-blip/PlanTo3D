@@ -34,8 +34,8 @@ def test_the_sample_default_is_the_measured_one():
     assert blender_render.DEFAULT_SAMPLES >= 32
 
 
-@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
-def test_a_model_renders_to_a_real_image(tmp_path):
+def _tiny_model(out_dir):
+    """A minimal one-room glb, for tests that just need something to render."""
     from planto3d.geometry_types import FloorPlan, Room, Wall
     from planto3d.materials import build_scene, export_scene
 
@@ -50,7 +50,12 @@ def test_a_model_renders_to_a_real_image(tmp_path):
         openings=[],
         footprint=outline,
     )
-    model = export_scene(build_scene([plan], scale=20.0), tmp_path / "house.glb")
+    return export_scene(build_scene([plan], scale=20.0), out_dir / "house.glb")
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_a_model_renders_to_a_real_image(tmp_path):
+    model = _tiny_model(tmp_path)
 
     out = blender_render.render_view(
         model, tmp_path / "aerial.png", azimuth=38.0, elevation=45.0,
@@ -61,18 +66,61 @@ def test_a_model_renders_to_a_real_image(tmp_path):
     assert out.stat().st_size > 5_000
 
 
+def test_lighting_is_optional_and_defaults_to_the_shared_preset():
+    # Every existing caller passes no lighting and must keep working.
+    import inspect
+
+    from planto3d.style import Lighting
+
+    signature = inspect.signature(blender_render.render_view)
+    parameter = signature.parameters["lighting"]
+    assert parameter.default is None
+    # Keyword-optional and last, so positional callers are unaffected.
+    assert list(signature.parameters)[-1] == "lighting"
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_the_time_of_day_changes_the_image():
+    # style.py already maps the user's choice onto a Lighting preset and
+    # preview.py honours it. If this renderer ignores it, the two outputs
+    # disagree about what hour it is -- the same defect the photoreal
+    # prompt had before it was given the design.
+    import tempfile
+    from pathlib import Path
+
+    from planto3d.style import LIGHTING_PRESETS
+
+    with tempfile.TemporaryDirectory() as workdir:
+        out = Path(workdir)
+        model = _tiny_model(out)
+        rendered = {}
+        for name in ("midday", "dusk"):
+            path = blender_render.render_view(
+                model, out / f"{name}.png", azimuth=38.0, elevation=45.0,
+                resolution=(160, 120), samples=16,
+                lighting=LIGHTING_PRESETS[name],
+            )
+            rendered[name] = path.read_bytes()
+        assert rendered["midday"] != rendered["dusk"]
+
+
 def _silhouette(path, size: int = 64) -> np.ndarray:
     """A cropped, size-normalised black/white mask of the rendered content.
 
-    Thresholding against the most common pixel value (the background,
-    whatever it happens to be lit as) and cropping to the content's own
-    bounding box makes the comparison indifferent to exact framing and
-    shading, so it isolates shape rather than incidental pixel noise.
+    Thresholding against the most common pixel value used to be enough
+    when the world was a flat grey void. Task 5 gave the renderer a sky
+    and a ground plane, which are now the two dominant flat regions in
+    any low-elevation frame (measured on this fixture: together over 60%
+    of pixels) -- masking out only one of them leaves the other counted
+    as "content" and swamps the building's own silhouette. Masking out
+    the two most common values instead excludes sky and ground and keeps
+    the building plus its contact shadow, which is what this test means
+    by content.
     """
     img = np.array(Image.open(path).convert("L"))
     values, counts = np.unique(img, return_counts=True)
-    background = values[np.argmax(counts)]
-    mask = img != background
+    backgrounds = values[np.argsort(-counts)[:2]]
+    mask = ~np.isin(img, backgrounds)
     ys, xs = np.nonzero(mask)
     if len(xs) == 0:
         return np.zeros((size, size), dtype=bool)
