@@ -69,6 +69,15 @@ building itself, and the whole model is sized from it instead.
 and height in feet. Because the scale gates room filtering and label
 placement inside ``extract``, the sheet is read a second time once the
 stated scale is known, rather than patching the first result's number.
+
+That second read means room numbering can itself change: ``MIN_ROOM_SQFT``
+filtering runs at the new scale, so a different set of small regions
+survives and room indices shift (24 -> 28 rooms, observed on one plan).
+Combine ``--scale-room`` with ``--correct``/``--corrections`` and the
+numbers that command consumes are the **post-override** numbering -- the
+listing printed after the re-read, not the one before it, and not one from
+an earlier run without ``--scale-room``. The safe sequence is to run
+``--scale-room ... --list`` first and take room numbers from that listing.
 """
 
 import argparse
@@ -301,6 +310,24 @@ def main(
             scale_override=stated,
         )
         _print_extraction(result, out)
+
+        if corrections or corrections_path is not None:
+            # MIN_ROOM_SQFT filtering ran again at the new scale above, so
+            # the set of surviving rooms -- and therefore their indices --
+            # can differ from any listing taken before --scale-room. The
+            # room listing just printed, from THIS re-read, is the only one
+            # --correct/--corrections below are safe to be aimed with.
+            print(
+                "\nWARNING: --scale-room changes room numbering. --correct and "
+                "--corrections below are applied against the listing just "
+                "printed (after the --scale-room re-read), not against any "
+                "listing from a run without --scale-room -- room counts and "
+                "indices can shift once the stated scale changes which small "
+                "regions clear MIN_ROOM_SQFT. Numbers taken from an earlier, "
+                "un-scaled run may now point at a different room. The safe "
+                "sequence is to run '--scale-room ... --list' first and take "
+                "room numbers from that listing."
+            )
 
     if listing:
         if corrections or corrections_path is not None or save_path is not None:
