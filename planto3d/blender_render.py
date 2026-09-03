@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 
 from planto3d import materials
+from planto3d.preview import VIEWS as STANDARD_VIEWS  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -211,18 +212,27 @@ def _add_world(scene, lighting) -> None:
     background = tree.nodes["Background"]
 
     # The standard Cycles recipe for a world gradient: a Geometry node's
-    # "Incoming" output is the world-space direction of the camera ray --
-    # its Z component is 0 at the horizon and +/-1 at zenith/nadir.
-    # Separating out Z and feeding it straight into a colour ramp's
-    # Factor -- clamped to [0, 1] by default -- puts sky_bottom exactly at
-    # the horizon and sky_top exactly at the zenith with no remapping
-    # needed, and clamps anything below the horizon to sky_bottom rather
-    # than extrapolating a colour that was never meant to be seen there.
+    # "Incoming" output is the world-space direction *entering* the shading
+    # point, i.e. from the point back towards the camera -- the opposite of
+    # the direction the camera is actually looking. Fix round 2: the first
+    # attempt fed Incoming.Z straight into the ramp on the assumption that
+    # it was 0 at the horizon and +1 looking up, which is backwards -- it
+    # is -1 looking up and +1 looking down. Checked directly, not assumed a
+    # second time: pointed a bare camera at the dusk world straight up and
+    # straight down and read the pixel back. Straight up (should be
+    # sky_top, deep blue) came back (143,103,85), the warm sky_bottom
+    # colour; straight down came back (11,35,65), sky_top's blue. Negating
+    # Z before the ramp is what makes "up" map to sky_top and "down" map
+    # to sky_bottom, which is what the eye expects a sky to do.
     geometry = tree.nodes.new("ShaderNodeNewGeometry")
     separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+    negate = tree.nodes.new("ShaderNodeMath")
+    negate.operation = "MULTIPLY"
+    negate.inputs[1].default_value = -1.0
     ramp = tree.nodes.new("ShaderNodeValToRGB")
     tree.links.new(geometry.outputs["Incoming"], separate.inputs["Vector"])
-    tree.links.new(separate.outputs["Z"], ramp.inputs["Factor"])
+    tree.links.new(separate.outputs["Z"], negate.inputs[0])
+    tree.links.new(negate.outputs["Value"], ramp.inputs["Factor"])
     tree.links.new(ramp.outputs["Color"], background.inputs["Color"])
 
     elements = ramp.color_ramp.elements
@@ -368,6 +378,46 @@ def render_view(
     bpy.ops.render.render(write_still=True)
     logger.info("rendered %s", output_path)
     return output_path
+
+
+def render_views(
+    model_path: Path,
+    output_dir: Path,
+    views: dict[str, tuple[float, float]] | None = None,
+    resolution: tuple[int, int] = (1200, 900),
+    prefix: str = "blender",
+    samples: int = DEFAULT_SAMPLES,
+    lighting=None,
+) -> dict[str, Path]:
+    """Render every standard view, the same six ``preview.py`` produces.
+
+    Named to mirror ``preview.render_views`` so the two can be swapped
+    and compared frame for frame. The prefix differs by default so both
+    sets can sit in one directory without overwriting each other.
+
+    Unlike ``preview.render_views``, this re-imports the ``.glb`` on
+    every call to ``render_view`` rather than loading the model once and
+    reusing it. That is deliberate, not an oversight: bpy holds one
+    global scene for the life of the process, and
+    ``read_factory_settings`` inside ``render_view`` is what stops one
+    frame's camera and lights leaking into the next. At roughly 8 seconds
+    a frame the re-import is not where the time goes, so there is no real
+    saving to give up -- do not "optimise" this into loading once, or the
+    views will start contaminating each other's scene state.
+    """
+    output_dir = Path(output_dir)
+    rendered = {}
+    for name, (azimuth, elevation) in (views or STANDARD_VIEWS).items():
+        rendered[name] = render_view(
+            Path(model_path),
+            output_dir / f"{prefix}-{name}.png",
+            azimuth=azimuth,
+            elevation=elevation,
+            resolution=resolution,
+            samples=samples,
+            lighting=lighting,
+        )
+    return rendered
 
 
 def _bounds(meshes) -> tuple[tuple[float, float, float], float]:

@@ -14,6 +14,53 @@ from PIL import Image
 from planto3d import blender_render, materials
 
 
+def test_the_view_set_matches_the_rasterizer():
+    # The two renderers must answer to the same view names, or comparing
+    # them frame for frame means renaming files by hand.
+    from planto3d.preview import VIEWS
+
+    assert set(blender_render.STANDARD_VIEWS) == set(VIEWS)
+    for name, angles in VIEWS.items():
+        assert blender_render.STANDARD_VIEWS[name] == angles
+
+
+def test_standard_views_cover_the_named_angles_and_aerial_is_oblique():
+    # STANDARD_VIEWS == preview.VIEWS by construction (it is that dict,
+    # imported under a second name) -- asserting so would just be
+    # asserting X == X. What is actually worth guarding is that
+    # preview.py itself still defines the six named views this renderer's
+    # framing assumes, and that "aerial" is genuinely oblique rather than
+    # top-down or level: _add_camera's dominant-axis test only covers the
+    # five axis-aligned views, so aerial's obliqueness is what makes it a
+    # meaningful third viewpoint rather than a duplicate of "top".
+    from planto3d.preview import VIEWS
+
+    assert set(VIEWS) == {"top", "front", "back", "left", "right", "aerial"}
+    _, aerial_elevation = VIEWS["aerial"]
+    assert 0.0 < aerial_elevation < 90.0
+
+
+def test_render_views_produces_one_path_per_standard_view(tmp_path, monkeypatch):
+    # render_views loops render_view once per name; this checks the loop
+    # and the naming/prefix contract without paying for six real renders.
+    calls = []
+
+    def fake_render_view(model_path, output_path, azimuth, elevation, **kwargs):
+        calls.append((output_path, azimuth, elevation))
+        output_path.write_bytes(b"fake")
+        return output_path
+
+    monkeypatch.setattr(blender_render, "render_view", fake_render_view)
+
+    rendered = blender_render.render_views(tmp_path / "house.glb", tmp_path, prefix="blender")
+
+    assert set(rendered) == set(blender_render.STANDARD_VIEWS)
+    for name, path in rendered.items():
+        assert path == tmp_path / f"blender-{name}.png"
+        assert path.is_file()
+    assert len(calls) == len(blender_render.STANDARD_VIEWS)
+
+
 def test_availability_is_reported_not_guessed():
     # Callers need to know whether the Blender path can run at all, and
     # a bare ImportError deep inside a render is a poor way to find out.
