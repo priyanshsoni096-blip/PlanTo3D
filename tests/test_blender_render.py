@@ -171,7 +171,7 @@ def test_camera_positions_match_the_named_views():
     #
     #   top   -> +Y      front -> +Z      back -> -Z
     #   right -> -X      left  -> +X
-    expected = {
+    expected_dominant = {
         "top": ("Y", 1),
         "front": ("Z", 1),
         "back": ("Z", -1),
@@ -179,11 +179,19 @@ def test_camera_positions_match_the_named_views():
         "right": ("X", -1),
     }
 
+    # aerial (azimuth=38, elevation=45) is oblique, so its single dominant
+    # axis is simply "up" -- checking that only proves the camera is above
+    # the model, and would not catch a flipped sin(az) term the way the
+    # five axis-aligned views above do. Its full three-axis sign pattern
+    # is checked instead, which does catch that: measured directly on the
+    # fixed code as gltf = (X -1.05, Y +1.84, Z +1.51) -> signs (-, +, +).
+    aerial_signs = {"X": -1, "Y": 1, "Z": 1}
+
     import bpy
 
     from planto3d.preview import VIEWS
 
-    for name, (axis, sign) in expected.items():
+    def gltf_position(name):
         azimuth, elevation = VIEWS[name]
         bpy.ops.wm.read_factory_settings(use_empty=True)
         blender_render._add_camera(
@@ -191,10 +199,21 @@ def test_camera_positions_match_the_named_views():
             azimuth=azimuth, elevation=elevation,
         )
         loc = bpy.context.scene.camera.location
-        gltf = {"X": loc.x, "Y": loc.z, "Z": -loc.y}
+        return {"X": loc.x, "Y": loc.z, "Z": -loc.y}
+
+    for name, (axis, sign) in expected_dominant.items():
+        gltf = gltf_position(name)
         value = gltf[axis]
         assert value * sign > 0.5, (
             f"{name}: expected the dominant axis to be "
             f"{'+' if sign > 0 else '-'}{axis} in glTF space, got "
             f"gltf=({gltf['X']:.2f}, {gltf['Y']:.2f}, {gltf['Z']:.2f})"
+        )
+
+    gltf = gltf_position("aerial")
+    for axis, sign in aerial_signs.items():
+        assert gltf[axis] * sign > 0.1, (
+            f"aerial: expected {'+' if sign > 0 else '-'}{axis} in glTF "
+            f"space, got gltf=({gltf['X']:.2f}, {gltf['Y']:.2f}, "
+            f"{gltf['Z']:.2f})"
         )
