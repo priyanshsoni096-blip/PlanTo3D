@@ -217,3 +217,34 @@ def test_camera_positions_match_the_named_views():
             f"space, got gltf=({gltf['X']:.2f}, {gltf['Y']:.2f}, "
             f"{gltf['Z']:.2f})"
         )
+
+
+def test_every_exported_surface_has_a_shader():
+    # These are the material names planto3d/materials.py actually writes
+    # into the glb -- confirmed by importing one and reading them back.
+    # A surface with no entry falls back to a default and quietly looks
+    # like plaster, which on glass or a railing is very obvious.
+    exported = {
+        "boundary", "coping", "floor", "frame", "glass", "ground",
+        "plinth", "railing", "roof", "stone", "timber", "wall", "wet",
+    }
+    assert exported <= set(blender_render.SURFACE_SHADERS)
+
+
+def test_glass_is_actually_transmissive():
+    # The one surface where a wrong material is unmistakable.
+    glass = blender_render.SURFACE_SHADERS["glass"]
+    assert glass["transmission"] > 0.5
+    assert glass["roughness"] < 0.2
+
+
+def test_railings_and_frames_read_as_metal():
+    for surface in ("railing", "frame"):
+        assert blender_render.SURFACE_SHADERS[surface]["metallic"] > 0.5
+
+
+def test_masonry_is_rough_and_not_metal():
+    for surface in ("wall", "stone", "plinth", "coping"):
+        shader = blender_render.SURFACE_SHADERS[surface]
+        assert shader["roughness"] > 0.5
+        assert shader["metallic"] == 0.0

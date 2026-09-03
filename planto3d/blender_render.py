@@ -40,6 +40,90 @@ DEFAULT_SAMPLES = 64
 CAMERA_DISTANCE = 2.6
 
 
+# What each exported surface is made of, as Principled BSDF settings.
+#
+# The names are the ones planto3d/materials.py writes into the glb and
+# that glTF import brings back intact -- verified by importing a model
+# and reading the material names off it. Every entry here is justified by
+# something the pipeline decided from the drawing: "glass" is a surface
+# extrude.py built as glazing, "railing" one it built as a balustrade.
+# Nothing is invented, which is the whole difference between this and the
+# diffusion pass.
+#
+# Colour is deliberately absent: the glb already carries the palette the
+# user chose through design.py, and overriding it here would silently
+# discard that choice. Only the physical character is set.
+SURFACE_SHADERS: dict[str, dict] = {
+    "glass":    {"metallic": 0.0, "roughness": 0.05, "transmission": 0.95},
+    "railing":  {"metallic": 0.9, "roughness": 0.35, "transmission": 0.0},
+    "frame":    {"metallic": 0.8, "roughness": 0.40, "transmission": 0.0},
+    "wall":     {"metallic": 0.0, "roughness": 0.85, "transmission": 0.0},
+    "stone":    {"metallic": 0.0, "roughness": 0.90, "transmission": 0.0},
+    "plinth":   {"metallic": 0.0, "roughness": 0.90, "transmission": 0.0},
+    "coping":   {"metallic": 0.0, "roughness": 0.80, "transmission": 0.0},
+    "boundary": {"metallic": 0.0, "roughness": 0.90, "transmission": 0.0},
+    "roof":     {"metallic": 0.0, "roughness": 0.75, "transmission": 0.0},
+    # Polished indoors, so it catches the light a wall does not.
+    "floor":    {"metallic": 0.0, "roughness": 0.35, "transmission": 0.0},
+    # Tiled wet areas -- glossier again than a room floor.
+    "wet":      {"metallic": 0.0, "roughness": 0.20, "transmission": 0.0},
+    "timber":   {"metallic": 0.0, "roughness": 0.55, "transmission": 0.0},
+    "ground":   {"metallic": 0.0, "roughness": 0.95, "transmission": 0.0},
+}
+
+# Anything the table does not name. Plaster-like, and deliberately dull
+# so an unmapped surface looks wrong rather than plausible.
+DEFAULT_SHADER = {"metallic": 0.0, "roughness": 0.80, "transmission": 0.0}
+
+# Our key -> the socket Blender actually calls it. Blender 5.2 renamed
+# "Transmission" to "Transmission Weight", and the obvious shortcut of
+# title-casing our own key silently misses it: inputs.get() returns None,
+# the setting is skipped, and glass renders as opaque plaster with no
+# error anywhere. Indexing by an explicit name raises a KeyError instead,
+# which is the failure we want on a version that renames a socket again.
+#
+# Confirmed on this build (Blender 5.2.1) by probing a fresh Principled
+# BSDF's inputs directly: "Metallic" and "Roughness" are present,
+# "Transmission" is absent, "Transmission Weight" is present.
+SOCKET_NAMES = {
+    "metallic": "Metallic",
+    "roughness": "Roughness",
+    "transmission": "Transmission Weight",
+}
+
+
+def _apply_materials(objects) -> int:
+    """Give every imported surface its physical character.
+
+    Returns how many materials were recognised, so a rename in
+    materials.py shows up as a number rather than as a render that
+    quietly looks like plaster.
+    """
+    recognised = 0
+    for material in {slot.material for obj in objects for slot in obj.material_slots}:
+        if material is None:
+            continue
+        surface = material.name.split("_")[0].split(".")[0].lower()
+        settings = SURFACE_SHADERS.get(surface)
+        recognised += settings is not None
+        settings = settings or DEFAULT_SHADER
+
+        material.use_nodes = True
+        principled = material.node_tree.nodes.get("Principled BSDF")
+        if principled is None:
+            continue
+        for key, value in settings.items():
+            socket = principled.inputs[SOCKET_NAMES[key]]
+            socket.default_value = value
+
+    logger.info(
+        "mapped %d of %d material(s) to a known surface",
+        recognised,
+        len({slot.material for obj in objects for slot in obj.material_slots}),
+    )
+    return recognised
+
+
 def available() -> bool:
     """Whether Blender can be driven in this environment.
 
@@ -84,6 +168,8 @@ def render_view(
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
     if not meshes:
         raise ValueError(f"no geometry imported from {model_path}")
+
+    _apply_materials(meshes)
 
     scene = bpy.context.scene
     scene.render.engine = ENGINE
