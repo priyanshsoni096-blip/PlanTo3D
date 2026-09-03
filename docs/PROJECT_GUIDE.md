@@ -104,7 +104,7 @@ code that produces it.
 
 | Stage | Primary file | Key entry points |
 | --- | --- | --- |
-| Ingestion | `planto3d/ingest.py` (687 lines) | `rasterize_pdf`, `read_image` (auto-corrects reversed prints), `split_sheet`, `crop_pages`, `detect_drawing_region` |
+| Ingestion | `planto3d/ingest.py` (745 lines) | `rasterize_pdf`, `read_image` (auto-corrects reversed prints), `split_sheet`, `crop_pages`, `detect_drawing_region` |
 | Segmentation | `planto3d/segment.py` (164 lines) | `Segmenter` class, `load_segmenter(checkpoint_path)` — `None` falls back to the classical baseline |
 | Segmentation (baseline) | `planto3d/classical.py` (253 lines) | `classical_mask`, `wall_mask`, `room_mask`, `window_mask`, `vegetation_regions`, `refine_windows` (colour heuristic — **only used by the baseline now**, see Rejected) |
 | Geometry extraction | `planto3d/extract.py` (928 lines) | `wall_gauge`, `extract_walls`, `close_envelope`, `extract_openings`, `extract_footprint`, `extract_rooms`, `_rectilinear`, `_collapse_steps` |
@@ -112,7 +112,7 @@ code that produces it.
 | Class scheme | `planto3d/classes.py` (72 lines) | 11 class indices, `CLASS_NAMES`, `ROOM_CLASSES`, `WET_CLASSES` |
 | Room labelling | `planto3d/label_rooms.py` (67 lines) | `assign_labels` — OCR label wins over predicted type when both exist |
 | Feature vocabulary | `planto3d/features.py` (1068 lines) | `classify`, `finish_for`, `regions_from_labels`, `group_by_feature`, `is_open_to_sky` — 460 keywords / 15 categories |
-| Scale calibration | `planto3d/calibrate.py` (635 lines) | `parse_dimension_text`, `parse_area_text`, `estimate_scale`, `scale_from_doors`, `scale_from_gauge`, `assumed_scale`, `corroborated`, `read_text_boxes` (now upscales sub-1200px sheets before OCR), `scale_from_known_room` (exact scale from a user-measured room, gates `--scale-room`), `detect_convention`, `element_sizes`, `CONVENTIONS` (per-tradition door/wall sizes; fires on 0/30 CubiCasa sheets, see `docs/AUDIT.md`) |
+| Scale calibration | `planto3d/calibrate.py` (637 lines) | `parse_dimension_text`, `parse_area_text`, `estimate_scale`, `scale_from_doors`, `scale_from_gauge`, `assumed_scale`, `corroborated`, `read_text_boxes` (now upscales sub-1200px sheets before OCR), `scale_from_known_room` (exact scale from a user-measured room, gates `--scale-room`), `detect_convention`, `element_sizes`, `CONVENTIONS` (per-tradition door/wall sizes; fires on 0/30 CubiCasa sheets, see `docs/AUDIT.md`) |
 | Site / outdoor | `planto3d/site.py` (143 lines) | `classify_cover`, `outdoor_rooms`, `site_outline`, `boundary_walls` |
 | 3D extrusion | `planto3d/extrude.py` (1931 lines — largest file) | `floors_to_parts` (top-level), `slab_mesh`, `_wall_parts`, `open_to_sky`, `_railing_parts` (`_guarded_edges`), `_stair_parts`, roof-form builders |
 | Materials | `planto3d/materials.py` (182 lines) | `Surface` dataclass, `build_scene`, `export_scene` |
@@ -120,7 +120,7 @@ code that produces it.
 | Lighting/palette | `planto3d/style.py` (261 lines) | `Lighting` (rebalanced defaults today), `Palette`, `parse_colour` |
 | Rendering | `planto3d/preview.py` (669 lines) | `render`, `render_depth`, `render_glb`, `render_views` |
 | Photoreal | `planto3d/photoreal.py` (401 lines) | `build_prompt`, `build_negative_prompt`, `edge_guide`, `build_guides` |
-| Orchestration | `planto3d/pipeline.py` (623 lines) | Three entry points — `extract()` (geometry + labels, up to the correction pause point), `build()` (corrections applied, geometry to a model), `run()` (`extract()` then `build()` with no pause, for callers with no correction step); `PipelineResult`, `FloorResult` dataclasses |
+| Orchestration | `planto3d/pipeline.py` (688 lines) | Three entry points — `extract()` (geometry + labels, up to the correction pause point), `build()` (corrections applied, geometry to a model), `run()` (`extract()` then `build()` with no pause, for callers with no correction step); `PipelineResult`, `FloorResult` dataclasses |
 | Room corrections | `planto3d/corrections.py` (67 lines) | `apply_room_corrections`, `CATEGORY_LABELS` — turns a user's UI override into a `Room.label` change, applied in place between `extract()` and `build()` |
 | CubiCasa5K reader | `planto3d/cubicasa.py` (350 lines) | `svg_to_mask`, `sample_paths`, `ground_truth_scale`, `parse_feet` |
 | CVC-FP reader | `planto3d/cvc_fp.py` (168 lines, **new today**) | `svg_to_mask`, `sample_paths`, `annotation_size` |
