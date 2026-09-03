@@ -20,6 +20,11 @@ ml = [
     "segmentation-models-pytorch>=0.3",
 ]
 dev = ["pytest>=8.0"]
+# The Blender path in blender_render.py, driven headlessly through bpy.
+# This one pulls 659 MB, which is why it stays its own extra rather than
+# living in the base install -- most machines running the pipeline will
+# never need it.
+render = ["bpy>=5.2,<6"]
 
 [build-system]
 requires = ["setuptools>=68"]
