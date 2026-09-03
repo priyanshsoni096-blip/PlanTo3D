@@ -80,11 +80,18 @@ def _silhouette(path, size: int = 64) -> np.ndarray:
 
 
 @pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
-def test_left_and_right_views_are_not_mirrored(tmp_path):
-    # Regression for a sign error in _add_camera's X offset: it put the
-    # "right" camera where "left" belonged and vice versa. A file-size
-    # check can't catch this -- a mirrored render is exactly as large as
-    # a correct one -- so this checks the rendered content itself.
+def test_left_and_right_views_produce_real_differing_content(tmp_path):
+    # NOT a mirroring regression guard -- see
+    # test_camera_positions_match_the_named_views for that. A bug that
+    # swaps which camera position is called "left" and which is called
+    # "right" exchanges the two views wholesale (buggy_left renders
+    # exactly what correct_right would have), and any difference(left,
+    # right) metric is symmetric under swapping its own arguments, so it
+    # cannot see a pure swap: it was tried, and proven blind to it, in an
+    # earlier round -- see the fix report. What this test does check is
+    # that the two views are live renders with real, non-trivial content
+    # rather than e.g. both being blank or both showing the same frame
+    # twice by accident.
     #
     # The two blocks sit far apart along plan X, which is the axis the
     # left/right cameras look straight down. Orthographically the two
@@ -140,3 +147,54 @@ def test_left_and_right_views_are_not_mirrored(tmp_path):
     assert (left != mirrored_right).mean() > 0.02, (
         "left is a mirror image of right -- the camera-side bug is back"
     )
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_camera_positions_match_the_named_views():
+    # This is the actual regression guard for the left/right camera-sign
+    # bug. A left-versus-right content comparison is symmetric under
+    # swapping which camera is called "left" and which is called "right"
+    # -- that swap is exactly the bug that shipped, so a relative
+    # comparison is mathematically blind to it (proven directly: a
+    # reviewer monkeypatched the sign back and the difference metrics in
+    # the test above came back bit-identical). Asserting each named
+    # view's camera position against what the name is supposed to mean
+    # does not have that blind spot, needs no render at all -- so it is
+    # fast and free of path-tracer noise -- and fails on the very first
+    # assertion the moment the sign is wrong.
+    #
+    # Expected dominant axis and sign in glTF space, using the remap
+    # documented in _add_camera (X_gltf = X_blender, Y_gltf = Z_blender,
+    # Z_gltf = -Y_blender). Measured directly against the fixed code and
+    # independently confirmed to match what preview.py means by the same
+    # names (its own yaw convention, inverted).
+    #
+    #   top   -> +Y      front -> +Z      back -> -Z
+    #   right -> -X      left  -> +X
+    expected = {
+        "top": ("Y", 1),
+        "front": ("Z", 1),
+        "back": ("Z", -1),
+        "left": ("X", 1),
+        "right": ("X", -1),
+    }
+
+    import bpy
+
+    from planto3d.preview import VIEWS
+
+    for name, (axis, sign) in expected.items():
+        azimuth, elevation = VIEWS[name]
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        blender_render._add_camera(
+            bpy.context.scene, (0.0, 0.0, 0.0), radius=1.0,
+            azimuth=azimuth, elevation=elevation,
+        )
+        loc = bpy.context.scene.camera.location
+        gltf = {"X": loc.x, "Y": loc.z, "Z": -loc.y}
+        value = gltf[axis]
+        assert value * sign > 0.5, (
+            f"{name}: expected the dominant axis to be "
+            f"{'+' if sign > 0 else '-'}{axis} in glTF space, got "
+            f"gltf=({gltf['X']:.2f}, {gltf['Y']:.2f}, {gltf['Z']:.2f})"
+        )
