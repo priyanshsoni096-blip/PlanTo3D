@@ -18,6 +18,8 @@ not a replacement.
 import logging
 from pathlib import Path
 
+from planto3d import materials
+
 logger = logging.getLogger(__name__)
 
 # Cycles, not EEVEE -- measured on this project, twice, in both orders:
@@ -42,37 +44,42 @@ CAMERA_DISTANCE = 2.6
 
 # What each exported surface is made of, as Principled BSDF settings.
 #
-# The names are the ones planto3d/materials.py writes into the glb and
-# that glTF import brings back intact -- verified by importing a model
-# and reading the material names off it. Every entry here is justified by
-# something the pipeline decided from the drawing: "glass" is a surface
-# extrude.py built as glazing, "railing" one it built as a balustrade.
-# Nothing is invented, which is the whole difference between this and the
-# diffusion pass.
+# Fix round 1: this used to be a hand-written table of 13 entries, sized
+# by importing one demo plan's glb and reading back what materials it
+# happened to contain. planto3d/materials.py actually defines 24 named
+# surfaces, and the missing eleven -- including "water", which
+# materials.py already treats as essentially glass -- silently fell back
+# to DEFAULT_SHADER on any plan that produced them. A hand-copied table
+# is duplicated data, and duplicated data drifts; this one already had.
+#
+# So this is now a derivation, not a second table: every entry in
+# materials.SURFACES maps straight across. roughness and metallic carry
+# through unchanged. materials.py has no "transmission" concept -- it
+# expresses translucency as glTF opacity instead -- so transmission is
+# derived as 1 - opacity: fully opaque (1.0) means zero transmission,
+# and near-transparent surfaces (glass at 0.35 opacity, water at 0.72)
+# come out transmissive without a second hand-tuned number to keep in
+# sync. This makes the Blender render, the rasterizer preview and the
+# .glb itself all read from the one source of truth in materials.py, and
+# makes this specific kind of drift impossible rather than just unlikely.
 #
 # Colour is deliberately absent: the glb already carries the palette the
 # user chose through design.py, and overriding it here would silently
 # discard that choice. Only the physical character is set.
 SURFACE_SHADERS: dict[str, dict] = {
-    "glass":    {"metallic": 0.0, "roughness": 0.05, "transmission": 0.95},
-    "railing":  {"metallic": 0.9, "roughness": 0.35, "transmission": 0.0},
-    "frame":    {"metallic": 0.8, "roughness": 0.40, "transmission": 0.0},
-    "wall":     {"metallic": 0.0, "roughness": 0.85, "transmission": 0.0},
-    "stone":    {"metallic": 0.0, "roughness": 0.90, "transmission": 0.0},
-    "plinth":   {"metallic": 0.0, "roughness": 0.90, "transmission": 0.0},
-    "coping":   {"metallic": 0.0, "roughness": 0.80, "transmission": 0.0},
-    "boundary": {"metallic": 0.0, "roughness": 0.90, "transmission": 0.0},
-    "roof":     {"metallic": 0.0, "roughness": 0.75, "transmission": 0.0},
-    # Polished indoors, so it catches the light a wall does not.
-    "floor":    {"metallic": 0.0, "roughness": 0.35, "transmission": 0.0},
-    # Tiled wet areas -- glossier again than a room floor.
-    "wet":      {"metallic": 0.0, "roughness": 0.20, "transmission": 0.0},
-    "timber":   {"metallic": 0.0, "roughness": 0.55, "transmission": 0.0},
-    "ground":   {"metallic": 0.0, "roughness": 0.95, "transmission": 0.0},
+    name: {
+        "metallic": surface.metallic,
+        "roughness": surface.roughness,
+        "transmission": 1.0 - surface.opacity,
+    }
+    for name, surface in materials.SURFACES.items()
 }
 
 # Anything the table does not name. Plaster-like, and deliberately dull
-# so an unmapped surface looks wrong rather than plausible.
+# so an unmapped surface looks wrong rather than plausible. Reaching this
+# is meant to be a real anomaly now that the table above tracks
+# materials.SURFACES automatically -- see the warning log in
+# _apply_materials, which is how that anomaly gets noticed.
 DEFAULT_SHADER = {"metallic": 0.0, "roughness": 0.80, "transmission": 0.0}
 
 # Our key -> the socket Blender actually calls it. Blender 5.2 renamed
@@ -105,8 +112,21 @@ def _apply_materials(objects) -> int:
             continue
         surface = material.name.split("_")[0].split(".")[0].lower()
         settings = SURFACE_SHADERS.get(surface)
-        recognised += settings is not None
-        settings = settings or DEFAULT_SHADER
+        if settings is None:
+            # SURFACE_SHADERS is derived from materials.SURFACES, so
+            # reaching here means a name materials.py can produce has no
+            # entry -- the exact failure mode round 1 hit, just moved
+            # from "silent" to "loud". It renders as plaster either way;
+            # the warning is what lets someone notice and fix it.
+            logger.warning(
+                "material %r (surface %r) has no entry in SURFACE_SHADERS "
+                "-- rendering as plaster",
+                material.name,
+                surface,
+            )
+            settings = DEFAULT_SHADER
+        else:
+            recognised += 1
 
         material.use_nodes = True
         principled = material.node_tree.nodes.get("Principled BSDF")

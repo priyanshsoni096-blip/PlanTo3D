@@ -5,11 +5,13 @@ that does not have it, so everything here either avoids importing it or
 skips explicitly -- never silently.
 """
 
+import logging
+
 import numpy as np
 import pytest
 from PIL import Image
 
-from planto3d import blender_render
+from planto3d import blender_render, materials
 
 
 def test_availability_is_reported_not_guessed():
@@ -219,16 +221,46 @@ def test_camera_positions_match_the_named_views():
         )
 
 
-def test_every_exported_surface_has_a_shader():
-    # These are the material names planto3d/materials.py actually writes
-    # into the glb -- confirmed by importing one and reading them back.
-    # A surface with no entry falls back to a default and quietly looks
-    # like plaster, which on glass or a railing is very obvious.
-    exported = {
-        "boundary", "coping", "floor", "frame", "glass", "ground",
-        "plinth", "railing", "roof", "stone", "timber", "wall", "wet",
-    }
-    assert exported <= set(blender_render.SURFACE_SHADERS)
+def test_every_surface_materials_py_can_produce_has_a_shader():
+    # planto3d/materials.py -- not one demo plan's glb -- is the source of
+    # truth for what surface names can occur. Fix round 1: the previous
+    # version of this test hardcoded 13 names taken from importing
+    # data/bridge/11001.gif's glb and reading its materials back, which
+    # only proves the table covers what that one plan happens to contain.
+    # materials.SURFACES has 24 entries; a plan with a dome, a water
+    # feature or a pitched roof exercises the other eleven, and any of
+    # them missing here falls back to DEFAULT_SHADER -- plaster -- with
+    # no error anywhere.
+    assert set(materials.SURFACES) <= set(blender_render.SURFACE_SHADERS)
+
+
+def test_no_surface_falls_back_to_default():
+    # Same guard as above, phrased the way the drift actually bites:
+    # each name individually, so a future addition to materials.py that
+    # is not yet reflected here fails on that one name rather than as
+    # a set-difference someone has to decode.
+    for name in materials.SURFACES:
+        assert name in blender_render.SURFACE_SHADERS, (
+            f"{name!r} has no shader entry and would render as plaster"
+        )
+
+
+def test_shader_settings_are_derived_from_materials_surfaces():
+    # SURFACE_SHADERS must be a derivation of materials.SURFACES, not a
+    # second, hand-copied table -- a hand-written copy already drifted
+    # once (round 1: 13 entries vs materials.py's 24). Checking every
+    # field against the source, for every surface, is what makes a
+    # second drift structurally impossible rather than just unlikely.
+    for name, surface in materials.SURFACES.items():
+        shader = blender_render.SURFACE_SHADERS[name]
+        assert shader["metallic"] == surface.metallic
+        assert shader["roughness"] == surface.roughness
+        # materials.py expresses translucency as glTF opacity; Cycles
+        # expresses it as transmission. Opaque (opacity 1.0) must derive
+        # to zero transmission, and the two near-transparent surfaces
+        # (glass at 0.35 opacity, water at 0.72) must derive to visibly
+        # transmissive settings rather than a second hand-tuned number.
+        assert shader["transmission"] == pytest.approx(1.0 - surface.opacity)
 
 
 def test_glass_is_actually_transmissive():
@@ -238,9 +270,34 @@ def test_glass_is_actually_transmissive():
     assert glass["roughness"] < 0.2
 
 
-def test_railings_and_frames_read_as_metal():
+def test_water_is_actually_transmissive():
+    # Round 1's worst case: water was missing from the hand-written table
+    # entirely, so it would have rendered as opaque plaster with metallic
+    # 0.0 and roughness 0.8 -- flat and dull, nothing like a pool. It was
+    # not in data/bridge/11001.gif, which is exactly how that slipped
+    # past a render-based check. materials.py gives it roughness 0.04
+    # (near-mirror) and opacity 0.72 (partly see-through, less so than
+    # glass's 0.35), deriving to transmission 0.28: some, and glossy --
+    # a materially different, correct surface, not the fallback.
+    water = blender_render.SURFACE_SHADERS["water"]
+    assert water["transmission"] > 0.2
+    assert water["roughness"] < blender_render.DEFAULT_SHADER["roughness"]
+    assert water["metallic"] == blender_render.DEFAULT_SHADER["metallic"]
+
+
+def test_railings_and_frames_are_more_metallic_than_masonry():
+    # Not an absolute ">0.5" threshold: materials.py gives frame a
+    # metallic of 0.4, which a hand-picked ">0.5" bar (round 1's table
+    # used a hand-tuned 0.8) would fail even though frame is correctly
+    # more metallic than any masonry surface. The comparison that
+    # actually matters, and that survives the source data changing, is
+    # relative: railings and frames read as metal, masonry does not.
+    masonry_metallic = max(
+        blender_render.SURFACE_SHADERS[name]["metallic"]
+        for name in ("wall", "stone", "plinth", "coping")
+    )
     for surface in ("railing", "frame"):
-        assert blender_render.SURFACE_SHADERS[surface]["metallic"] > 0.5
+        assert blender_render.SURFACE_SHADERS[surface]["metallic"] > masonry_metallic
 
 
 def test_masonry_is_rough_and_not_metal():
@@ -248,3 +305,81 @@ def test_masonry_is_rough_and_not_metal():
         shader = blender_render.SURFACE_SHADERS[surface]
         assert shader["roughness"] > 0.5
         assert shader["metallic"] == 0.0
+
+
+class _FakeSocket:
+    """Stands in for a bpy NodeSocket: nothing but a settable value."""
+
+    def __init__(self):
+        self.default_value = None
+
+
+class _FakePrincipled:
+    """Stands in for a bpy Principled BSDF node's ``.inputs``.
+
+    Keyed by the same socket names _apply_materials indexes by, so this
+    exercises the real SOCKET_NAMES lookup -- including the
+    ``KeyError``-on-miss behaviour -- without needing bpy installed.
+    """
+
+    def __init__(self):
+        self.inputs = {name: _FakeSocket() for name in blender_render.SOCKET_NAMES.values()}
+
+
+class _FakeNodeTree:
+    def __init__(self, principled):
+        self.nodes = {"Principled BSDF": principled}
+
+
+class _FakeMaterial:
+    def __init__(self, name):
+        self.name = name
+        self.use_nodes = False
+        self.principled = _FakePrincipled()
+        self.node_tree = _FakeNodeTree(self.principled)
+
+
+class _FakeSlot:
+    def __init__(self, material):
+        self.material = material
+
+
+class _FakeObject:
+    def __init__(self, *material_names):
+        self.material_slots = [_FakeSlot(_FakeMaterial(name)) for name in material_names]
+
+
+def test_apply_materials_recognises_every_materials_py_surface_without_bpy():
+    # _apply_materials only ever touches duck-typed attributes
+    # (material_slots / material / name / use_nodes / node_tree / inputs),
+    # so its recognition logic is testable without bpy at all -- this is
+    # a stronger guarantee than the dict-membership tests above because
+    # it runs the actual lookup-and-assign code path, including the
+    # SOCKET_NAMES indexing.
+    objects = [_FakeObject(name) for name in materials.SURFACES]
+    recognised = blender_render._apply_materials(objects)
+    assert recognised == len(materials.SURFACES)
+    for obj in objects:
+        material = obj.material_slots[0].material
+        surface = materials.SURFACES[material.name]
+        principled = material.principled
+        assert principled.inputs["Metallic"].default_value == surface.metallic
+        assert principled.inputs["Roughness"].default_value == surface.roughness
+        assert principled.inputs["Transmission Weight"].default_value == pytest.approx(
+            1.0 - surface.opacity
+        )
+
+
+def test_apply_materials_warns_on_an_unrecognised_surface(caplog):
+    # DEFAULT_SHADER is meant to be a genuine anomaly now, not the
+    # routine path an unmapped name quietly takes -- so a miss must be
+    # loud. This is the regression guard for exactly the failure mode
+    # round 1 hit: a name with no entry, discovered only by luck if
+    # anyone happens to look at a render.
+    obj = _FakeObject("wall", "some_future_surface_nobody_added_yet")
+    with caplog.at_level(logging.WARNING, logger="planto3d.blender_render"):
+        recognised = blender_render._apply_materials([obj])
+    assert recognised == 1
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "some_future_surface_nobody_added_yet" in warnings[0].message
