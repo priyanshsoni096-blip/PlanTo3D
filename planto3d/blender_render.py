@@ -73,6 +73,26 @@ FILL_ENERGY = 140.0
 # synthetic render and a little softness reads better at these sizes.
 SUN_ANGLE = 0.06
 
+# Where sky_glow and sky_top sit on the world gradient's 0-1 ramp -- not
+# 0.12/1.0, which is what a "standard" full-sky-dome gradient would use.
+# _add_camera always points at the model, so a view's pitch is
+# -elevation; even the most upward-tilted standard view (elevation=0)
+# only sees Factor up to sin(half the vertical FOV) =~ 0.26 at its very
+# top edge, nowhere near 1.0. With sky_top pinned to the true zenith,
+# every standard view's visible sky sat entirely in the sky_bottom/
+# sky_glow portion of the ramp and never showed a trace of blue --
+# measured on the dusk preset at elevation=0: top-row RGB (150,116,91),
+# still warm however far the camera looked. Pulling both stops down
+# puts the full blue-to-warm transition inside the range these cameras
+# can actually see: same preset, same view, the top row came back
+# (42,45,67) -- clearly blue -- fading to (148,115,90) approaching the
+# horizon. A ColorRamp holds its last stop's colour flat beyond that
+# stop's position, so anything looking up steeper than this (the
+# aerial-adjacent views) simply saturates to pure sky_top rather than
+# extrapolating past it.
+SKY_GLOW_POSITION = 0.06
+SKY_TOP_POSITION = 0.35
+
 
 # What each exported surface is made of, as Principled BSDF settings.
 #
@@ -238,17 +258,10 @@ def _add_world(scene, lighting) -> None:
     elements = ramp.color_ramp.elements
     elements[0].position = 0.0
     elements[0].color = _to_linear(lighting.sky_bottom)
-    elements[1].position = 1.0
+    elements[1].position = SKY_TOP_POSITION
     elements[1].color = _to_linear(lighting.sky_top)
 
-    # sky_glow is the warm band near the sun that style.py's own gradient
-    # uses; tried as a third stop low in the ramp (position 0.12, so it
-    # sits just above the horizon rather than washing across the whole
-    # sky) and kept -- on all three presets it reads as a warm horizon
-    # band without muddying the blue above it, most visibly at dusk where
-    # it is what makes the twilight recognisable rather than just "sky
-    # gets darker at the top".
-    glow = elements.new(0.12)
+    glow = elements.new(SKY_GLOW_POSITION)
     glow.color = _to_linear(lighting.sky_glow)
 
     background.inputs["Strength"].default_value = lighting.ambient_strength
