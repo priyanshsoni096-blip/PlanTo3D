@@ -56,13 +56,20 @@ which has the reasoning behind each:
    session code** -- the CVC-FP measurement and window detection
    recall/precision. Both are correct (reproduced live) but neither can
    be re-run by anyone else without rebuilding the code from scratch.
-2. **Read the drawing's own stated convention and switch scale constants
-   accordingly**, rather than trying to find one constant that fits every
-   population. Most of the scale error is now known to be a convention
-   mismatch, not a vision failure: a Finnish door measures 2'3" against
-   the code's assumed 2'6", and a Finnish wall 7.6" against an assumed
-   9". No amount of better segmentation fixes a constant that is simply
-   wrong for the population it's reading.
+2. ~~Read the drawing's own stated convention and switch scale constants
+   accordingly.~~ **Tried, on `scale-accuracy`, and shipped dormant.**
+   `planto3d/calibrate.py` gained `CONVENTIONS`, `detect_convention` and
+   `element_sizes`; it is correct and unit-tested but fires on 0 of 30
+   CubiCasa sheets, because those rasters carry almost no readable
+   room-name text. **Correcting the door constant to the Finnish 2'3" was
+   also tried and measured worse, not better** -- pooled error moves from
+   17.7% to 20.1% and sheets within a fifth from 20/30 to 15/30 (the
+   detector measures an opening span, not the leaf the annotation
+   records). The wall-thickness half of the same idea is real but was
+   deliberately not shipped globally, since it fits the one corpus with
+   metric ground truth. `docs/AUDIT.md`, "Scale error, broken down by
+   source, and four routes tried that did not close it" has the numbers;
+   do not restate them here.
 3. **Rebalance or supplement window training data.** CVC-FP's 2.7x
    better window IoU on the same weights is real evidence for this being
    worth trying, and it hasn't been.

@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **835 passing** | — |
+| Tests | **850 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -1330,6 +1330,14 @@ and would silently degrade the Indian and Spanish plans that cannot be
 checked — the same standing rule recorded above under "the one that is a
 trap". The number is recorded so the decision stays visible rather than
 lost.
+
+0.633 ft and the 0.648 ft in `CONVENTIONS["nordic"]` are not the same
+quantity, though they are close: 0.633 is the value that *minimises pooled
+scale error* over the 30 sheets (found by search, the number above), while
+0.648 is the plain *median* of the implied-wall-thickness table earlier in
+this section. `CONVENTIONS["nordic"]` uses the median deliberately — a
+raw, defensible statistic of the corpus, not a constant fitted against the
+error metric it would then be judged by.
 
 ## The ceiling
 

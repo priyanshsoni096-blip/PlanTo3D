@@ -107,8 +107,10 @@ MIN_DOORS_FOR_SCALE = 3
 # Room names that place a drawing in a drafting tradition. Only the Nordic
 # set is listed, because it is the only tradition whose element sizes can
 # be checked: CubiCasa is Finnish residential and carries metric ground
-# truth. These words are already recognised by planto3d/features.py, which
-# is where they came from.
+# truth. Most of these words are already recognised by planto3d/features.py,
+# which is where they came from; OLOHUONE, MAKUUHUONE and ETEINEN are not
+# in that file's keyword lists but are legitimate Finnish room names
+# (living room, bedroom, hall) added for this detector specifically.
 CONVENTION_KEYWORDS = {
     "nordic": (
         "PARVEKE",

@@ -263,6 +263,22 @@ python scripts/correct_and_build.py plan.pdf output --no-split   # keep it whole
 the checks that reject it; it cannot invent a division where none was
 proposed, and raises rather than guess when that happens.
 
+Every inferred scale rests on an assumed standard element — a 2'6" door, a
+9" wall — that does not hold on every building. `--scale-room` sidesteps
+that: state one room's real size and the whole model is sized from it.
+
+```bash
+python scripts/correct_and_build.py plan.pdf output --checkpoint models/unet.pt --scale-room 1:5=12x10
+```
+
+`--scale-room FLOOR:ROOM=WxH` takes the same floor/room numbering `--list`
+prints, with W and H the room's real width and height in feet. Because the
+stated scale changes which small regions clear the room-size filter, the
+sheet is read a second time at that scale, and room numbers can shift as a
+result — combine `--scale-room` with `--correct` or `--corrections` and aim
+the correction using the listing printed *after* the re-read, not one from
+an earlier, unscaled run.
+
 ## Training
 
 [`notebooks/train_on_colab.ipynb`](notebooks/train_on_colab.ipynb) trains the
@@ -363,7 +379,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points
-tests/        835 tests
+tests/        850 tests
 docs/         design spec and implementation plan
 ```
 

@@ -112,7 +112,7 @@ code that produces it.
 | Class scheme | `planto3d/classes.py` (72 lines) | 11 class indices, `CLASS_NAMES`, `ROOM_CLASSES`, `WET_CLASSES` |
 | Room labelling | `planto3d/label_rooms.py` (67 lines) | `assign_labels` — OCR label wins over predicted type when both exist |
 | Feature vocabulary | `planto3d/features.py` (1068 lines) | `classify`, `finish_for`, `regions_from_labels`, `group_by_feature`, `is_open_to_sky` — 460 keywords / 15 categories |
-| Scale calibration | `planto3d/calibrate.py` (533 lines) | `parse_dimension_text`, `parse_area_text`, `estimate_scale`, `scale_from_doors`, `scale_from_gauge`, `assumed_scale`, `corroborated`, `read_text_boxes` (now upscales sub-1200px sheets before OCR) |
+| Scale calibration | `planto3d/calibrate.py` (635 lines) | `parse_dimension_text`, `parse_area_text`, `estimate_scale`, `scale_from_doors`, `scale_from_gauge`, `assumed_scale`, `corroborated`, `read_text_boxes` (now upscales sub-1200px sheets before OCR), `scale_from_known_room` (exact scale from a user-measured room, gates `--scale-room`), `detect_convention`, `element_sizes`, `CONVENTIONS` (per-tradition door/wall sizes; fires on 0/30 CubiCasa sheets, see `docs/AUDIT.md`) |
 | Site / outdoor | `planto3d/site.py` (143 lines) | `classify_cover`, `outdoor_rooms`, `site_outline`, `boundary_walls` |
 | 3D extrusion | `planto3d/extrude.py` (1931 lines — largest file) | `floors_to_parts` (top-level), `slab_mesh`, `_wall_parts`, `open_to_sky`, `_railing_parts` (`_guarded_edges`), `_stair_parts`, roof-form builders |
 | Materials | `planto3d/materials.py` (182 lines) | `Surface` dataclass, `build_scene`, `export_scene` |
@@ -378,12 +378,16 @@ live today, not from memory:
 
 ### Tests — `pytest`, full suite
 
-**835 passed, 0 failed.** This matches `docs/AUDIT.md`'s current figure
-exactly. `README.md` and `docs/AUDIT.md` both said 748 as of the last
-commit (`3f674ca`, "docs: the test count again, 748") — both already
-correct at the time of this audit; the count has since grown to 835 with
-the room-correction work and the photoreal/open-air design and
-splitter-validation work that followed. `docs/STATE.md` line 104 still says
+**835 passed, 0 failed, at the time this section was written.** This
+matched `docs/AUDIT.md`'s figure of that day exactly. `README.md` and
+`docs/AUDIT.md` both said 748 as of the last commit before that
+(`3f674ca`, "docs: the test count again, 748") — both already correct at
+the time of that audit; the count had grown to 835 with the
+room-correction work and the photoreal/open-air design and
+splitter-validation work that followed. It has since grown again, to
+**850**, with the `scale-accuracy` branch's per-source error reporting,
+`--scale-room` and per-tradition element sizes — `pytest -q` is the source
+of truth, not this paragraph. `docs/STATE.md` line 104 still says
 "384 tests" — see [Doc drift](#doc-drift-found-while-writing-this).
 
 Composition (40 test files, 6,627 lines): the largest suites are
@@ -512,10 +516,18 @@ question:**
   of the gap for plans with no printed dimensions.** The measurement is
   precise: a Finnish wall really is 7.6", not the assumed 9". No amount of
   better wall-*segmentation* changes that the constant is wrong for this
-  population. The only structural fixes are (a) reading the drawing's own
-  stated units/convention and switching constants accordingly — untried,
-  and the natural next step — or (b) more training data from the target
-  population, which changes what "trained on CubiCasa" even means.
+  population. Fix (a), reading the drawing's own stated convention and
+  switching constants accordingly, has now been **tried and shipped as a
+  dormant mechanism**: `planto3d/calibrate.py` gained `CONVENTIONS`,
+  `detect_convention` and `element_sizes`, but it fires on 0 of 30 CubiCasa
+  sheets because those rasters carry almost no readable room-name text —
+  the mechanism is correct and unit-tested, it simply has nothing to
+  detect on this corpus. See `docs/AUDIT.md`, "Scale error, broken down by
+  source, and four routes tried that did not close it" for the numbers,
+  including why correcting the door constant made things *worse* rather
+  than better. The remaining structural fix is (b), more training data
+  from the target population, which changes what "trained on CubiCasa"
+  even means.
 - **The 3½-conventions ceiling.** This is a data-acquisition problem, not
   a code problem. No measurement methodology closes it; only more
   ground-truthed corpora from different traditions do.
@@ -564,16 +576,17 @@ question:**
    since done the opposite of). Cheap, and prevents someone acting on
    superseded advice.
 
-3. **Read the drawing's own stated convention and switch scale constants
-   accordingly.** This is the concrete, general, code-only route to
-   closing the largest single end-to-end failure (scale, 10/30). Unlike
-   every scale idea tried so far, it doesn't require choosing which
-   population's door width to believe — it detects which population it's
-   looking at. Needs: a signal to detect on (units printed as m² vs sq ft,
-   room-label language, possibly paper size) and a second constant set to
-   switch to. Should be scoped and measured incrementally — start with
-   just the unit-detection signal, since that's the one CVC-FP/BRIDGE
-   already show is sometimes present on the page.
+3. ~~Read the drawing's own stated convention and switch scale constants
+   accordingly.~~ **Done, on a `scale-accuracy` branch.** The mechanism
+   (`CONVENTIONS`, `detect_convention`, `element_sizes` in
+   `planto3d/calibrate.py`, keyed on room-label language) exists, is
+   unit-tested, and is dormant — it fires on 0 of 30 CubiCasa sheets, since
+   those rasters carry almost no readable text. No measured gain on this
+   corpus follows from that; see `docs/AUDIT.md`, "Scale error, broken
+   down by source, and four routes tried that did not close it" for the
+   numbers and for why the door half of the fix was tried and rejected.
+   The remaining value here is data-side (a corpus that actually carries
+   the room-label text this mechanism reads), not code-side.
 
 4. **Rebalance or supplement window training data**, now that the
    corpus-composition hypothesis has real cross-corpus evidence behind it.
@@ -606,7 +619,7 @@ training/            Dataset, augmentation, loss/metrics, and the training loop
                       work doesn't require torch installed (pyproject.toml's
                       `ml` extra is optional).
 scripts/              16 command-line entry points — see table below.
-tests/                40 files, 835 tests, 6,627 lines. pytest, PYTHONPATH=. required.
+tests/                42 files, 850 tests, 6,749 lines. pytest, PYTHONPATH=. required.
 notebooks/            5 Colab notebooks:
                         train_on_colab.ipynb   — trains the segmenter (27 cells)
                         run_on_colab.ipynb     — upload a plan, get a house (21 cells)
