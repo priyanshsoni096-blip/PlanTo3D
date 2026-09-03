@@ -819,6 +819,304 @@ git commit -m "docs: what the Blender path costs and whether it repeats"
 
 ---
 
+---
+
+## Task 5: Put the building somewhere, and light it properly
+
+*Added after Task 2, on looking at an actual render rather than a diff. Task 1's
+`_add_lighting` is deliberately minimal — one sun and a flat ambient world — and
+its own comment defers the real work to "the next task". Task 2 was materials,
+Task 3 is views and the CLI, Task 4 is documentation: **no task covered the
+environment.** The result is a correctly-shaded building floating in a grey void,
+which does not meet the spec's "looks like an architectural visualisation".*
+
+*Execute this before Task 3.*
+
+Three things are missing and each is visible in the current output: there is no
+sky, there is no ground for the building to stand on or cast a shadow onto, and
+the light rig is a single untinted sun.
+
+The third matters most for correctness, not just looks. `planto3d/style.py`
+already defines a `Lighting` dataclass — sun, sky, bounce and fill colours with
+matching strengths — and `LIGHTING_PRESETS` maps the user's time-of-day choice
+onto it: `midday`, `golden hour`, `dusk`. `preview.py` honours all of that. The
+Blender path currently ignores it, so choosing "sunset" changes the rasterizer's
+output and not this one — the same class of disagreement the photoreal prompt
+had before it was given the `Design`.
+
+**Files:**
+- Modify: `planto3d/blender_render.py`
+- Test: `tests/test_blender_render.py`
+
+**Interfaces:**
+- Consumes: `planto3d.style.Lighting` (fields `sun`, `sky`, `bounce`, `fill` as 0-255 RGB triples; `ambient_strength`, `key_strength`, `fill_strength`, `exposure`) and `planto3d.style.LIGHTING_PRESETS`.
+- Produces:
+  - `render_view(..., lighting: Lighting | None = None)` — keyword-optional and last, defaulting to `Lighting()`, so every existing caller keeps working.
+  - `_add_world(scene, lighting)` — a sky gradient rather than flat grey.
+  - `_add_ground(centre, radius, lighting)` — a plane for the building to stand on.
+  - `_add_lighting(scene, centre, radius, lighting)` — the existing function, extended to take the rig from `Lighting` rather than hardcoding one sun.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `tests/test_blender_render.py`:
+
+```python
+def test_lighting_is_optional_and_defaults_to_the_shared_preset():
+    # Every existing caller passes no lighting and must keep working.
+    import inspect
+
+    from planto3d.style import Lighting
+
+    signature = inspect.signature(blender_render.render_view)
+    parameter = signature.parameters["lighting"]
+    assert parameter.default is None
+    # Keyword-optional and last, so positional callers are unaffected.
+    assert list(signature.parameters)[-1] == "lighting"
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_the_time_of_day_changes_the_image():
+    # style.py already maps the user's choice onto a Lighting preset and
+    # preview.py honours it. If this renderer ignores it, the two outputs
+    # disagree about what hour it is -- the same defect the photoreal
+    # prompt had before it was given the design.
+    import tempfile
+    from pathlib import Path
+
+    from planto3d.style import LIGHTING_PRESETS
+
+    with tempfile.TemporaryDirectory() as workdir:
+        out = Path(workdir)
+        model = _tiny_model(out)
+        rendered = {}
+        for name in ("midday", "dusk"):
+            path = blender_render.render_view(
+                model, out / f"{name}.png", azimuth=38.0, elevation=45.0,
+                resolution=(160, 120), samples=16,
+                lighting=LIGHTING_PRESETS[name],
+            )
+            rendered[name] = path.read_bytes()
+        assert rendered["midday"] != rendered["dusk"]
+```
+
+`_tiny_model` is a helper — factor one out of the existing render test rather
+than duplicating the model-building code, and use it in both.
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_blender_render.py -q`
+Expected: FAIL — `render_view` has no `lighting` parameter.
+
+- [ ] **Step 3: Build the world and the ground**
+
+In `planto3d/blender_render.py`:
+
+```python
+# How far the ground plane extends past the building, as a multiple of the
+# model's own radius. Wide enough that the horizon is never visible inside
+# the frame at any of the six standard views, which would read as the
+# building standing on a table.
+GROUND_EXTENT = 12.0
+
+# The ground is darker than the sky it reflects, as real ground is. Kept
+# neutral rather than green: the model already builds its own lawn where
+# the drawing says there is one, and a green plane under a paved plot
+# would contradict the drawing.
+GROUND_TONE = 0.18
+
+
+def _to_linear(colour) -> tuple[float, float, float, float]:
+    """A 0-255 style.py colour as the linear RGBA Blender wants.
+
+    style.py stores colours the way a colour picker shows them, which is
+    sRGB; Blender's shader sockets are linear, and handing sRGB straight
+    over washes every tint out.
+    """
+    channels = []
+    for value in colour:
+        srgb = value / 255
+        channels.append(
+            srgb / 12.92 if srgb <= 0.04045 else ((srgb + 0.055) / 1.055) ** 2.4
+        )
+    return (*channels, 1.0)
+
+
+def _add_world(scene, lighting) -> None:
+    """A sky that graduates, rather than a flat grey void.
+
+    The sky colour is the one style.py already chose for this hour, so the
+    Blender render and the rasterizer agree about what time it is.
+    """
+    import bpy
+
+    world = bpy.data.worlds.new("World")
+    world.use_nodes = True
+    tree = world.node_tree
+    background = tree.nodes["Background"]
+    background.inputs[0].default_value = _to_linear(lighting.sky)
+    background.inputs[1].default_value = lighting.ambient_strength
+    scene.world = world
+
+
+def _add_ground(centre, radius, lighting) -> None:
+    """A plane for the building to stand on and cast a shadow onto.
+
+    Without it the model floats: Cycles has nothing to catch the contact
+    shadow, which is most of what makes a render read as photographed
+    rather than assembled.
+    """
+    import bpy
+    import mathutils
+
+    bpy.ops.mesh.primitive_plane_add(
+        size=radius * GROUND_EXTENT,
+        location=(centre[0], centre[1], _lowest_z()),
+    )
+    plane = bpy.context.object
+    material = bpy.data.materials.new("ground_plane")
+    material.use_nodes = True
+    principled = material.node_tree.nodes.get("Principled BSDF")
+    if principled is not None:
+        principled.inputs["Base Color"].default_value = (
+            GROUND_TONE, GROUND_TONE, GROUND_TONE, 1.0
+        )
+        principled.inputs["Roughness"].default_value = 0.9
+    plane.data.materials.append(material)
+
+
+def _lowest_z() -> float:
+    """The bottom of the model, so the ground meets it rather than cutting it."""
+    import bpy
+    import mathutils
+
+    lows = [
+        (obj.matrix_world @ mathutils.Vector(corner)).z
+        for obj in bpy.data.objects
+        if obj.type == "MESH"
+        for corner in obj.bound_box
+    ]
+    return min(lows) if lows else 0.0
+```
+
+- [ ] **Step 4: Rebuild the light rig from `Lighting`**
+
+Replace `_add_lighting`'s body. It currently adds one untinted sun at fixed
+energy; it must now take its colours and strengths from the `Lighting` it is
+given:
+
+```python
+def _add_lighting(scene, centre, radius, lighting) -> None:
+    """A key sun and a soft fill, coloured by the hour style.py chose.
+
+    Mirrors the rasterizer's own rig rather than inventing a second one:
+    style.py's Lighting carries a key, a fill and an ambient, and preview.py
+    already honours all three. A renderer that ignored them would disagree
+    with its own pipeline about what time of day it is.
+
+    The sun's angular size is what softens the shadow. A hard-edged shadow
+    is the single most obvious tell of a synthetic render, and the real sun
+    subtends about half a degree; this is set wider because a slightly soft
+    edge reads better at these resolutions than a physically exact one.
+    """
+    import bpy
+    import mathutils
+
+    key = mathutils.Vector(centre) + mathutils.Vector(
+        (radius, -radius, radius * 2.0)
+    )
+    bpy.ops.object.light_add(type="SUN", location=key)
+    sun = bpy.context.object.data
+    sun.color = _to_linear(lighting.sun)[:3]
+    sun.energy = lighting.key_strength * KEY_ENERGY
+    sun.angle = SUN_ANGLE
+
+    fill = mathutils.Vector(centre) + mathutils.Vector(
+        (-radius * 1.5, -radius, radius)
+    )
+    bpy.ops.object.light_add(type="AREA", location=fill)
+    area = bpy.context.object
+    area.data.color = _to_linear(lighting.fill)[:3]
+    area.data.energy = lighting.fill_strength * FILL_ENERGY
+    area.data.size = radius
+    area.rotation_mode = "QUATERNION"
+    area.rotation_quaternion = (
+        mathutils.Vector(centre) - area.location
+    ).to_track_quat("-Z", "Y")
+```
+
+with the two energies as named constants carrying their reasoning:
+
+```python
+# style.py's strengths are multipliers tuned for its own rasterizer, not
+# watts. These convert them into something Cycles can use. Both were set by
+# rendering and looking: below these the model goes muddy, above them the
+# filmic curve rolls the lit faces into white.
+KEY_ENERGY = 4.0
+FILL_ENERGY = 60.0
+
+# The sun's angular diameter in radians, which is what softens the shadow
+# edge. The real sun subtends about 0.53 degrees; this is deliberately
+# wider, because a hard-edged shadow is the most obvious tell of a
+# synthetic render and a little softness reads better at these sizes.
+SUN_ANGLE = 0.06
+```
+
+Wire `_add_world` and `_add_ground` into `render_view` alongside the existing
+`_add_lighting` call, and thread `lighting` through — `lighting = lighting or Lighting()`
+at the top of `render_view`, importing `Lighting` inside the function so `bpy`
+and `style` stay out of module scope in the same way.
+
+Also apply the exposure `style.py` already chose, so the two renderers agree
+about brightness as well as colour:
+
+```python
+    scene.view_settings.exposure = math.log2(max(lighting.exposure, 1e-3))
+```
+
+Blender's exposure is in stops while `style.py`'s is a linear multiplier, which
+is why it is a log rather than a direct assignment. Say so in a comment.
+
+- [ ] **Step 5: Run the tests**
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_blender_render.py -q`
+Expected: PASS, including the new time-of-day test.
+
+- [ ] **Step 6: Look at it**
+
+This task exists because the render looked wrong, so the check is to look again.
+Build a real plan and render the same aerial view at two hours:
+
+```
+PYTHONPATH=. .venv/Scripts/python.exe -c "
+import warnings, logging; warnings.filterwarnings('ignore'); logging.disable(logging.WARNING)
+from pathlib import Path
+from planto3d.pipeline import run
+from planto3d.segment import load_segmenter
+from planto3d import blender_render as br
+from planto3d.style import LIGHTING_PRESETS
+r = run(Path('data/bridge/11001.gif'), Path('.env_check'),
+        segmenter=load_segmenter(Path('models/unet_cubicasa.pt')))
+for hour in ('midday', 'golden hour', 'dusk'):
+    br.render_view(r.model_path, Path(f'.env_check/{hour}.png'),
+                   azimuth=38.0, elevation=45.0, resolution=(900, 675),
+                   samples=96, lighting=LIGHTING_PRESETS[hour])
+print('rendered')
+"
+```
+
+Report what changed: the building should now sit on ground, cast a contact
+shadow, and stand against a sky whose colour differs between the three hours.
+State plainly whether it does. If it does not, say so rather than reporting the
+step as done — this is the one task whose success is visual.
+
+- [ ] **Step 7: Full suite and commit**
+
+```bash
+.venv/Scripts/python.exe -m pytest -q
+git add planto3d/blender_render.py tests/test_blender_render.py
+git commit -m "Give the render a sky, a ground, and the hour the user chose"
+```
+
 ## Self-Review
 
 **Spec coverage.** The spec's workstream 2 asks for `planto3d/blender_render.py` driven headlessly by `bpy`, fed from `extrude.py`'s geometry and `materials.py`'s surfaces, with no generative step, and says the existing rasterizer stays untouched. Task 1 builds the path, Task 2 the materials, Task 3 the view set and CLI, Task 4 the evidence. `preview.py` is modified by no task, and the Global Constraints forbid it.

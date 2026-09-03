@@ -194,8 +194,14 @@ def _to_linear(colour) -> tuple[float, float, float, float]:
 def _add_world(scene, lighting) -> None:
     """A sky that graduates, rather than a flat grey void.
 
-    The sky colour is the one style.py already chose for this hour, so the
-    Blender render and the rasterizer agree about what time it is.
+    Fix round 1: this used to set the Background node straight to
+    ``lighting.sky``, a single flat colour -- so every render had a
+    uniform-coloured void with no horizon, and dusk in particular came out
+    as uniform brown, throwing away the twilight that ``sky_top`` /
+    ``sky_bottom`` describe. preview.py draws a graduated sky from those two
+    fields (plus a warm glow near the horizon); this now does the Cycles
+    equivalent, so the Blender render and the rasterizer agree about what
+    time it is, not just what colour the sun is.
     """
     import bpy
 
@@ -203,8 +209,39 @@ def _add_world(scene, lighting) -> None:
     world.use_nodes = True
     tree = world.node_tree
     background = tree.nodes["Background"]
-    background.inputs[0].default_value = _to_linear(lighting.sky)
-    background.inputs[1].default_value = lighting.ambient_strength
+
+    # The standard Cycles recipe for a world gradient: a Geometry node's
+    # "Incoming" output is the world-space direction of the camera ray --
+    # its Z component is 0 at the horizon and +/-1 at zenith/nadir.
+    # Separating out Z and feeding it straight into a colour ramp's
+    # Factor -- clamped to [0, 1] by default -- puts sky_bottom exactly at
+    # the horizon and sky_top exactly at the zenith with no remapping
+    # needed, and clamps anything below the horizon to sky_bottom rather
+    # than extrapolating a colour that was never meant to be seen there.
+    geometry = tree.nodes.new("ShaderNodeNewGeometry")
+    separate = tree.nodes.new("ShaderNodeSeparateXYZ")
+    ramp = tree.nodes.new("ShaderNodeValToRGB")
+    tree.links.new(geometry.outputs["Incoming"], separate.inputs["Vector"])
+    tree.links.new(separate.outputs["Z"], ramp.inputs["Factor"])
+    tree.links.new(ramp.outputs["Color"], background.inputs["Color"])
+
+    elements = ramp.color_ramp.elements
+    elements[0].position = 0.0
+    elements[0].color = _to_linear(lighting.sky_bottom)
+    elements[1].position = 1.0
+    elements[1].color = _to_linear(lighting.sky_top)
+
+    # sky_glow is the warm band near the sun that style.py's own gradient
+    # uses; tried as a third stop low in the ramp (position 0.12, so it
+    # sits just above the horizon rather than washing across the whole
+    # sky) and kept -- on all three presets it reads as a warm horizon
+    # band without muddying the blue above it, most visibly at dusk where
+    # it is what makes the twilight recognisable rather than just "sky
+    # gets darker at the top".
+    glow = elements.new(0.12)
+    glow.color = _to_linear(lighting.sky_glow)
+
+    background.inputs["Strength"].default_value = lighting.ambient_strength
     scene.world = world
 
 
