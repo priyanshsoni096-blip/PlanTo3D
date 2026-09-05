@@ -712,3 +712,57 @@ def test_apply_materials_warns_on_an_unrecognised_surface(caplog):
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "some_future_surface_nobody_added_yet" in warnings[0].message
+
+
+def test_the_gltf_importer_is_silenced_and_logging_is_left_as_found():
+    # Blender's glTF importer logs a line per mesh node and adds its own
+    # handler to the root logger, so an application that has configured
+    # root logging gets every line twice -- 168 duplicated lines across
+    # six views, burying the pipeline's own output.
+    #
+    # Two things are asserted rather than one, because the first attempt
+    # at this fix passed neither: it raised the importer's logger level,
+    # and the importer sets that level itself on every run, so the level
+    # came back out of the import as NOTSET and nothing was suppressed.
+    # A filter is consulted per record and survives that.
+    import logging
+
+    records = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    root = logging.getLogger()
+    capture = Capture()
+    root.addHandler(capture)
+    # Root must be at INFO for this test to mean anything. Fix round 2:
+    # without this the first version of the test passed even with the
+    # broken level-based suppression reintroduced, because root defaulted
+    # to WARNING and dropped the record before any filter was consulted --
+    # it was asserting pytest's logging config, not the fix.
+    root_level = root.level
+    root.setLevel(logging.INFO)
+    gltf = logging.getLogger("glTFImporter")
+    try:
+        with blender_render._quiet_gltf_importer():
+            # What the importer does: reset its own level, then log.
+            gltf.setLevel(logging.NOTSET)
+            gltf.info("Blender create Mesh node wall")
+            # And attach a handler to root, as it does on first run.
+            intruder = logging.NullHandler()
+            root.addHandler(intruder)
+        assert records == [], f"importer chatter leaked: {records}"
+
+        # Errors must still get through -- only the chatty logger is
+        # filtered, and they are reported on a separate one.
+        logging.getLogger("glTFImporter_errors").error("broken file")
+        assert records == ["broken file"]
+    finally:
+        root.removeHandler(capture)
+        root.setLevel(root_level)
+
+    # Global logging state ends as it started: no leftover filter, and
+    # no handler the importer added left behind on root.
+    assert blender_render._reject not in gltf.filters
+    assert intruder not in root.handlers

@@ -220,6 +220,20 @@ checkpoint the classical baseline is used instead.
 
 ## Usage
 
+To see the whole thing work once, on one plan, end to end:
+
+```bash
+python scripts/demo.py
+```
+
+That reads a demo plan, builds the model, renders it with both renderers and
+prints where everything landed, one numbered stage at a time. `--fast` skips
+the Blender pass, which is roughly three quarters of the run; `--plan` points
+it at a drawing of your own and `--lighting` picks the hour.
+
+Every other script here does one stage or measures one thing. This is the
+single-stage-at-a-time entry point:
+
 ```bash
 python scripts/run_pipeline.py plan.pdf output --checkpoint models/unet.pt
 ```
@@ -403,8 +417,8 @@ undo by accident.
 planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
-scripts/      command-line entry points
-tests/        875 tests
+scripts/      command-line entry points; demo.py runs the lot once
+tests/        876 tests
 docs/         design spec and implementation plan
 ```
 

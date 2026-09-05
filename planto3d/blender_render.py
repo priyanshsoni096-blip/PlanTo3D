@@ -15,6 +15,7 @@ every measurement script uses it. This is the slow, pretty alternative,
 not a replacement.
 """
 
+import contextlib
 import logging
 from pathlib import Path
 
@@ -345,6 +346,53 @@ def available() -> bool:
     return True
 
 
+# The logger Blender's glTF importer emits its per-mesh chatter through.
+_GLTF_LOGGER = "glTFImporter"
+
+
+def _reject(record) -> bool:
+    return False
+
+
+@contextlib.contextmanager
+def _quiet_gltf_importer():
+    """Suppress the glTF importer's per-mesh chatter for one import.
+
+    Blender's importer logs a line per mesh node and attaches its own
+    handler to the root logger the first time it runs. An application
+    that has configured root logging therefore gets every one of those
+    lines twice, once through its own handler and once through the
+    importer's: fourteen mesh nodes across six views is 168 duplicated
+    lines, which buries the pipeline's own output. Nothing in it is
+    worth reading -- this module already reports what it imported and
+    how many materials it mapped.
+
+    A *filter* rather than a level, because the importer sets its own
+    logger's level at the start of every run: raising it to WARNING
+    beforehand was measured to have no effect at all, and the level came
+    back out of the import as NOTSET. Raising the root logger's level
+    does not work either, since logging resolves a record against the
+    logger it was emitted on and only walks up when that logger has no
+    level of its own. A filter is consulted per record and survives both.
+
+    Errors are unaffected: the importer reports those through a separate
+    ``glTFImporter_errors`` logger, which is left alone. The filter and
+    any handler the importer added to root are both removed on the way
+    out, so global logging state ends as it started.
+    """
+    root = logging.getLogger()
+    before = list(root.handlers)
+    gltf = logging.getLogger(_GLTF_LOGGER)
+    gltf.addFilter(_reject)
+    try:
+        yield
+    finally:
+        gltf.removeFilter(_reject)
+        for handler in root.handlers[:]:
+            if handler not in before:
+                root.removeHandler(handler)
+
+
 def render_view(
     model_path: Path,
     output_path: Path,
@@ -373,6 +421,7 @@ def render_view(
 
     lighting = lighting or Lighting()
 
+
     model_path, output_path = Path(model_path), Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -380,7 +429,8 @@ def render_view(
     # process, so a second render would otherwise inherit the first one's
     # objects, lights and camera.
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.gltf(filepath=str(model_path))
+    with _quiet_gltf_importer():
+        bpy.ops.import_scene.gltf(filepath=str(model_path))
 
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
     if not meshes:
