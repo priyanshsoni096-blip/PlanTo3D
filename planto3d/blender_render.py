@@ -80,18 +80,38 @@ SUN_ANGLE = 0.06
 # only sees Factor up to sin(half the vertical FOV) =~ 0.26 at its very
 # top edge, nowhere near 1.0. With sky_top pinned to the true zenith,
 # every standard view's visible sky sat entirely in the sky_bottom/
-# sky_glow portion of the ramp and never showed a trace of blue --
-# measured on the dusk preset at elevation=0: top-row RGB (150,116,91),
-# still warm however far the camera looked. Pulling both stops down
-# puts the full blue-to-warm transition inside the range these cameras
-# can actually see: same preset, same view, the top row came back
-# (42,45,67) -- clearly blue -- fading to (148,115,90) approaching the
-# horizon. A ColorRamp holds its last stop's colour flat beyond that
-# stop's position, so anything looking up steeper than this (the
-# aerial-adjacent views) simply saturates to pure sky_top rather than
-# extrapolating past it.
+# sky_glow portion of the ramp and never showed a trace of blue.
+#
+# Fix round 3: the first attempt at that pulled sky_top down only to
+# 0.35, which is still *above* the 0.26 the same comment computed, so
+# nothing changed in kind -- the top of the ramp stayed unreachable. A
+# review caught it, and re-measuring here confirmed it: bare world, dusk
+# preset, the exact camera _add_camera builds, elevation=0, 1200x900,
+# 16 samples, top-row mean RGB by ramp position --
+#
+#     sky_top=0.35   (99, 78, 73)   warm, R > B;  0% of rows read blue
+#     sky_top=0.26   (25, 37, 62)   blue;         6% of rows read blue
+#     sky_top=0.22   ( 9, 32, 61)   blue;        12% of rows read blue
+#     sky_top=0.20   ( 9, 32, 61)   blue;        16% of rows read blue
+#
+# 0.22 is what ships: it is inside the 0.26 the cameras can reach, so
+# the top of the frame genuinely arrives at sky_top, and it is close
+# enough to that bound that the blue-to-warm transition is still
+# spread across the frame rather than clipped into a flat band (at
+# 0.20 the top tenth of the frame is already uniform sky_top). Measured
+# down the same frame at 0.22: (9,32,61) at the top, (47,46,65) a tenth
+# down, (127,97,80) a quarter down, (138,99,80) at mid-frame.
+#
+# Honest limit, measured rather than assumed: only the elevation-0 views
+# (front, back, left, right) see any sky at all. At the aerial view
+# (elevation 45) the whole frame came back a uniform (138,99,80) at
+# every ramp position tried, because the top of frame is still ~30 deg
+# below horizontal -- so the sky there is sky_bottom, warm, and no
+# choice of this constant changes that. "top" looks straight down and
+# sees none. A ColorRamp holds its last stop's colour flat beyond that
+# stop's position, so nothing extrapolates past sky_top.
 SKY_GLOW_POSITION = 0.06
-SKY_TOP_POSITION = 0.35
+SKY_TOP_POSITION = 0.22
 
 
 # What each exported surface is made of, as Principled BSDF settings.
@@ -282,12 +302,17 @@ def _lowest_z() -> float:
     return min(lows) if lows else 0.0
 
 
-def _add_ground(centre, radius, lighting) -> None:
+def _add_ground(centre, radius) -> None:
     """A plane for the building to stand on and cast a shadow onto.
 
     Without it the model floats: Cycles has nothing to catch the contact
     shadow, which is most of what makes a render read as photographed
     rather than assembled.
+
+    Takes no ``lighting``: it used to, and never used it. GROUND_TONE is
+    the same neutral at every hour by intent, and the sun and sky
+    landing on it are what make the ground look like dusk. A parameter
+    that is only ever ignored reads as an unfinished intention.
     """
     import bpy
 
@@ -371,7 +396,7 @@ def render_view(
 
     centre, radius = _bounds(meshes)
     _add_camera(scene, centre, radius, azimuth, elevation)
-    _add_ground(centre, radius, lighting)
+    _add_ground(centre, radius)
     _add_lighting(scene, centre, radius, lighting)
     _add_world(scene, lighting)
 
@@ -449,29 +474,42 @@ def _bounds(meshes) -> tuple[tuple[float, float, float], float]:
     return tuple(centre), radius
 
 
-def _add_camera(scene, centre, radius, azimuth: float, elevation: float) -> None:
-    """Place a camera at the given angle, framing the whole model."""
-    import math
+def _camera_position(
+    centre, radius: float, azimuth: float, elevation: float
+) -> tuple[float, float, float]:
+    """Where the camera sits, in Blender space, for a named view's angles.
 
-    import bpy
-    import mathutils
+    Split out of ``_add_camera`` deliberately: this is pure trigonometry
+    and needs no Blender at all, so the left/right mirroring regression
+    guard that checks it can run on a machine without the 659 MB extra --
+    which is most machines, and every CI runner. When it lived inside
+    ``_add_camera`` the sole guard for a bug that actually shipped was
+    skipped everywhere ``bpy`` was missing.
+
+    The glTF importer remaps axes on the way in: X_blender = X_gltf,
+    Y_blender = -Z_gltf, Z_blender = Y_gltf. Against that remap the X
+    term needs a leading minus to keep azimuth increasing clockwise as
+    preview.VIEWS intends -- without it "right" shows the model's left
+    side and vice versa. Front, back and top are unaffected because
+    they don't depend on sin(az)'s sign.
+    """
+    import math
 
     az, el = math.radians(azimuth), math.radians(elevation)
     distance = radius * CAMERA_DISTANCE
-    # The glTF importer remaps axes on the way in: X_blender = X_gltf,
-    # Y_blender = -Z_gltf, Z_blender = Y_gltf. Against that remap the X
-    # term needs a leading minus to keep azimuth increasing clockwise as
-    # preview.VIEWS intends -- without it "right" shows the model's left
-    # side and vice versa. Front, back and top are unaffected because
-    # they don't depend on sin(az)'s sign.
-    offset = mathutils.Vector(
-        (
-            -distance * math.cos(el) * math.sin(az),
-            -distance * math.cos(el) * math.cos(az),
-            distance * math.sin(el),
-        )
+    return (
+        centre[0] - distance * math.cos(el) * math.sin(az),
+        centre[1] - distance * math.cos(el) * math.cos(az),
+        centre[2] + distance * math.sin(el),
     )
-    position = mathutils.Vector(centre) + offset
+
+
+def _add_camera(scene, centre, radius, azimuth: float, elevation: float) -> None:
+    """Place a camera at the given angle, framing the whole model."""
+    import bpy
+    import mathutils
+
+    position = mathutils.Vector(_camera_position(centre, radius, azimuth, elevation))
 
     bpy.ops.object.camera_add(location=position)
     camera = bpy.context.object

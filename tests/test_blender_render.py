@@ -17,11 +17,17 @@ from planto3d import blender_render, materials
 def test_the_view_set_matches_the_rasterizer():
     # The two renderers must answer to the same view names, or comparing
     # them frame for frame means renaming files by hand.
+    #
+    # Fix round 3: this used to assert STANDARD_VIEWS == VIEWS, which is
+    # X == X -- STANDARD_VIEWS *is* VIEWS, imported under a second name --
+    # so it could not fail. What is worth guarding is the aliasing
+    # itself: the moment someone replaces the import with a copied dict
+    # to "decouple" the two renderers, the two view sets can drift and
+    # nothing else in the suite would notice. Identity is the property
+    # that makes drift impossible rather than merely unlikely.
     from planto3d.preview import VIEWS
 
-    assert set(blender_render.STANDARD_VIEWS) == set(VIEWS)
-    for name, angles in VIEWS.items():
-        assert blender_render.STANDARD_VIEWS[name] == angles
+    assert blender_render.STANDARD_VIEWS is VIEWS
 
 
 def test_standard_views_cover_the_named_angles_and_aerial_is_oblique():
@@ -102,10 +108,16 @@ def _tiny_model(out_dir):
 
 @pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
 def test_a_model_renders_to_a_real_image(tmp_path):
+    # The angles come from VIEWS rather than being typed here: they used
+    # to read azimuth=38, while VIEWS["aerial"] is 35, so this was not
+    # rendering the view its filename claimed.
+    from planto3d.preview import VIEWS
+
     model = _tiny_model(tmp_path)
+    azimuth, elevation = VIEWS["aerial"]
 
     out = blender_render.render_view(
-        model, tmp_path / "aerial.png", azimuth=38.0, elevation=45.0,
+        model, tmp_path / "aerial.png", azimuth=azimuth, elevation=elevation,
         resolution=(320, 240), samples=16,
     )
     assert out.is_file()
@@ -132,23 +144,63 @@ def test_the_time_of_day_changes_the_image():
     # preview.py honours it. If this renderer ignores it, the two outputs
     # disagree about what hour it is -- the same defect the photoreal
     # prompt had before it was given the design.
+    #
+    # Fix round 3: this used to compare path.read_bytes(). That assertion
+    # could not fail. Blender stamps the wall-clock render time into the
+    # PNG's tEXt chunks -- docs/AUDIT.md's own determinism section
+    # measures exactly this -- so *any* two renders differ as files,
+    # including two renders of the same scene with the same preset. A
+    # reviewer passed LIGHTING_PRESETS["midday"] for both and got
+    # "bytes differ: True" alongside "pixels max abs diff: 0".
+    #
+    # So: decoded pixels, and a direction that is specific to the hour
+    # rather than merely non-zero. Measured on this fixture at the aerial
+    # view, 320x240, 16 samples -- mean abs pixel difference 31.9, and
+    # the warm cast (mean R minus mean B) is +20.2 at midday against
+    # +76.3 at dusk, a gap of 56. Both thresholds below sit far under
+    # what was measured and far above the zero that any hour-ignoring
+    # renderer produces.
     import tempfile
     from pathlib import Path
 
+    import numpy as np
+    from PIL import Image
+
+    from planto3d.preview import VIEWS
     from planto3d.style import LIGHTING_PRESETS
 
+    azimuth, elevation = VIEWS["aerial"]
     with tempfile.TemporaryDirectory() as workdir:
         out = Path(workdir)
         model = _tiny_model(out)
         rendered = {}
         for name in ("midday", "dusk"):
             path = blender_render.render_view(
-                model, out / f"{name}.png", azimuth=38.0, elevation=45.0,
-                resolution=(160, 120), samples=16,
+                model, out / f"{name}.png", azimuth=azimuth, elevation=elevation,
+                resolution=(320, 240), samples=16,
                 lighting=LIGHTING_PRESETS[name],
             )
-            rendered[name] = path.read_bytes()
-        assert rendered["midday"] != rendered["dusk"]
+            rendered[name] = np.array(Image.open(path).convert("RGB"), dtype=float)
+
+    midday, dusk = rendered["midday"], rendered["dusk"]
+    assert np.abs(midday - dusk).mean() > 5.0, (
+        "midday and dusk decoded to near-identical pixels -- the hour is "
+        "being ignored somewhere between the argument and the render"
+    )
+
+    def warmth(image):
+        red, _, blue = image.mean(axis=(0, 1))
+        return red - blue
+
+    # Direction, not just magnitude: dusk's sun is (255,176,122) against
+    # midday's neutral, so dusk must come out the warmer of the two. A
+    # difference metric alone would accept two frames that differ for any
+    # reason at all, including noise; this only passes if the hour that
+    # is supposed to be warmer actually is.
+    assert warmth(dusk) - warmth(midday) > 20.0, (
+        f"dusk is not warmer than midday: R-B was {warmth(midday):+.1f} at "
+        f"midday and {warmth(dusk):+.1f} at dusk"
+    )
 
 
 def _silhouette(path, size: int = 64) -> np.ndarray:
@@ -246,7 +298,6 @@ def test_left_and_right_views_produce_real_differing_content(tmp_path):
     )
 
 
-@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
 def test_camera_positions_match_the_named_views():
     # This is the actual regression guard for the left/right camera-sign
     # bug. A left-versus-right content comparison is symmetric under
@@ -259,6 +310,14 @@ def test_camera_positions_match_the_named_views():
     # does not have that blind spot, needs no render at all -- so it is
     # fast and free of path-tracer noise -- and fails on the very first
     # assertion the moment the sign is wrong.
+    #
+    # Fix round 3: this used to call _add_camera, which needs bpy for
+    # camera_add, so the sole guard for a bug that actually shipped was
+    # skipped on every machine without the 659 MB optional extra -- which
+    # is most machines and every CI runner. The positioning is pure
+    # trigonometry, so it now lives in _camera_position and this test
+    # points at that instead. Same arithmetic, same expected values, no
+    # skip.
     #
     # Expected dominant axis and sign in glTF space, using the remap
     # documented in _add_camera (X_gltf = X_blender, Y_gltf = Z_blender,
@@ -276,7 +335,7 @@ def test_camera_positions_match_the_named_views():
         "right": ("X", -1),
     }
 
-    # aerial (azimuth=38, elevation=45) is oblique, so its single dominant
+    # aerial (azimuth=35, elevation=45) is oblique, so its single dominant
     # axis is simply "up" -- checking that only proves the camera is above
     # the model, and would not catch a flipped sin(az) term the way the
     # five axis-aligned views above do. Its full three-axis sign pattern
@@ -284,19 +343,14 @@ def test_camera_positions_match_the_named_views():
     # fixed code as gltf = (X -1.05, Y +1.84, Z +1.51) -> signs (-, +, +).
     aerial_signs = {"X": -1, "Y": 1, "Z": 1}
 
-    import bpy
-
     from planto3d.preview import VIEWS
 
     def gltf_position(name):
         azimuth, elevation = VIEWS[name]
-        bpy.ops.wm.read_factory_settings(use_empty=True)
-        blender_render._add_camera(
-            bpy.context.scene, (0.0, 0.0, 0.0), radius=1.0,
-            azimuth=azimuth, elevation=elevation,
+        x, y, z = blender_render._camera_position(
+            (0.0, 0.0, 0.0), radius=1.0, azimuth=azimuth, elevation=elevation,
         )
-        loc = bpy.context.scene.camera.location
-        return {"X": loc.x, "Y": loc.z, "Z": -loc.y}
+        return {"X": x, "Y": z, "Z": -y}
 
     for name, (axis, sign) in expected_dominant.items():
         gltf = gltf_position(name)
@@ -314,6 +368,186 @@ def test_camera_positions_match_the_named_views():
             f"space, got gltf=({gltf['X']:.2f}, {gltf['Y']:.2f}, "
             f"{gltf['Z']:.2f})"
         )
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_add_camera_places_the_camera_where_camera_position_says():
+    # _camera_position was split out of _add_camera so the regression
+    # guard above can run without bpy. That split introduces a seam: the
+    # pure function could stay right while _add_camera grew its own,
+    # different arithmetic, and the guard would not notice. This is the
+    # stitch across that seam -- the one thing that needs bpy, and the
+    # only thing this test checks.
+    import bpy
+
+    centre, radius, azimuth, elevation = (1.0, -2.0, 0.5), 3.0, 35.0, 45.0
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    blender_render._add_camera(
+        bpy.context.scene, centre, radius, azimuth=azimuth, elevation=elevation,
+    )
+    placed = tuple(bpy.context.scene.camera.location)
+    expected = blender_render._camera_position(centre, radius, azimuth, elevation)
+    assert placed == pytest.approx(expected, abs=1e-5)
+
+
+def _bare_sky(preset: str, elevation: float, resolution=(160, 120), samples=8):
+    """Render the world alone -- no model, no ground -- and return the pixels.
+
+    The sky is the only thing under test here, so nothing else is put in
+    front of it. Uses the same camera _add_camera builds, because the
+    ramp positions are chosen against the field of view that camera has.
+    """
+    import math
+    import tempfile
+    from pathlib import Path
+
+    import bpy
+
+    from planto3d.style import LIGHTING_PRESETS
+
+    lighting = LIGHTING_PRESETS[preset]
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    scene = bpy.context.scene
+    scene.render.engine = blender_render.ENGINE
+    scene.cycles.samples = samples
+    scene.render.resolution_x, scene.render.resolution_y = resolution
+    blender_render._add_camera(scene, (0.0, 0.0, 0.0), 1.0, 0.0, elevation)
+    blender_render._add_world(scene, lighting)
+    scene.view_settings.exposure = math.log2(max(lighting.exposure, 1e-3))
+    with tempfile.TemporaryDirectory() as workdir:
+        out = Path(workdir) / "sky.png"
+        scene.render.filepath = str(out)
+        bpy.ops.render.render(write_still=True)
+        return np.array(Image.open(out).convert("RGB"), dtype=float)
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_the_sky_is_graduated_and_the_right_way_up():
+    # Nothing on this branch tested the sky at all: a reviewer reverted
+    # _add_world to the flat lighting.sky colour it had before the last
+    # two commits -- the exact bug those commits exist to fix -- and the
+    # whole suite still passed. This is the test that would have caught
+    # it, and it catches the other two ways the sky has actually been
+    # wrong here: the Incoming.Z sign inverted (blue below, warm above),
+    # and SKY_TOP_POSITION set above the ~0.26 these cameras can reach,
+    # which leaves the top of frame warm because the top of the ramp is
+    # never sampled.
+    #
+    # Measured on the dusk preset at elevation 0, bare world, 160x120,
+    # 8 samples: the top row is (9,32,61) -- B-R = +52 -- and a quarter
+    # of the way down it is (129,98,80) -- B-R = -49, warm, near the
+    # horizon glow. A flat sky gives the same sign at both heights; an
+    # inverted ramp swaps them; SKY_TOP_POSITION=0.35 gives (99,78,73)
+    # at the top, B-R = -26, and fails the first assertion.
+    image = _bare_sky("dusk", elevation=0.0)
+    rows = image.mean(axis=1)
+
+    def blueness(row):
+        return row[2] - row[0]
+
+    top, quarter_down = rows[0], rows[len(rows) // 4]
+    assert blueness(top) > 15.0, (
+        f"the top of the dusk sky is not blue: {tuple(top.round(0))}"
+    )
+    assert blueness(quarter_down) < -15.0, (
+        "the sky is not graduated -- near the horizon it should be warm, "
+        f"got {tuple(quarter_down.round(0))}"
+    )
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_the_sky_follows_the_hour():
+    # _add_world reads sky_top/sky_bottom/sky_glow off the preset. If it
+    # stopped -- the mutation the reviewer ran -- every hour would render
+    # the same sky. Midday's zenith is (96,140,190) and dusk's is a much
+    # darker blue, so the same row of the same frame must differ
+    # substantially between the two. Measured at elevation 0, 160x120,
+    # 8 samples: midday's top row is (47,83,112) against dusk's (9,32,61).
+    midday = _bare_sky("midday", elevation=0.0).mean(axis=1)[0]
+    dusk = _bare_sky("dusk", elevation=0.0).mean(axis=1)[0]
+    assert np.abs(midday - dusk).mean() > 15.0, (
+        f"midday and dusk skies are the same: {tuple(midday.round(0))} vs "
+        f"{tuple(dusk.round(0))}"
+    )
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_the_model_stands_on_a_ground_plane(tmp_path):
+    # Deleting _add_ground entirely left the suite green. Without it the
+    # model floats in a void with nothing to catch its contact shadow,
+    # which is most of what makes a render read as photographed. Checked
+    # through render_view rather than by calling _add_ground directly, so
+    # that dropping the *call* is caught as well as dropping the function.
+    import bpy
+
+    model = _tiny_model(tmp_path)
+    blender_render.render_view(
+        model, tmp_path / "front.png", azimuth=0.0, elevation=0.0,
+        resolution=(64, 48), samples=1,
+    )
+
+    planes = [
+        obj for obj in bpy.data.objects
+        if obj.type == "MESH"
+        and any(
+            slot.material is not None and slot.material.name.startswith("ground_plane")
+            for slot in obj.material_slots
+        )
+    ]
+    assert len(planes) == 1, "no ground plane in the rendered scene"
+    plane = planes[0]
+
+    # It must reach past the building, or the horizon shows inside the
+    # frame and the model reads as standing on a table.
+    meshes = [o for o in bpy.data.objects if o.type == "MESH" and o is not plane]
+    _, radius = blender_render._bounds(meshes)
+    assert max(plane.dimensions) == pytest.approx(
+        radius * blender_render.GROUND_EXTENT, rel=0.01
+    )
+    # And it must meet the model rather than cutting through it or
+    # hovering below it.
+    assert plane.location.z == pytest.approx(blender_render._lowest_z(), abs=1e-4)
+
+
+@pytest.mark.skipif(not blender_render.available(), reason="bpy not installed")
+def test_the_light_rig_follows_the_hour():
+    # Making _add_lighting ignore the chosen hour left the suite green
+    # too. The sun's colour and strength are the whole of what "what time
+    # is it" means to Cycles here, so they are what this reads back --
+    # from the scene, after the rig is built, with no render needed.
+    import bpy
+
+    from planto3d.style import LIGHTING_PRESETS
+
+    def sun_for(preset):
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        lighting = LIGHTING_PRESETS[preset]
+        blender_render._add_lighting(
+            bpy.context.scene, (0.0, 0.0, 0.0), 1.0, lighting
+        )
+        suns = [
+            obj.data for obj in bpy.data.objects
+            if obj.type == "LIGHT" and obj.data.type == "SUN"
+        ]
+        assert len(suns) == 1, "expected exactly one key sun"
+        return suns[0], lighting
+
+    for preset in ("midday", "golden hour", "dusk"):
+        sun, lighting = sun_for(preset)
+        # Straight from style.py, not a second table of hours.
+        assert tuple(sun.color) == pytest.approx(
+            blender_render._to_linear(lighting.sun)[:3], abs=1e-6
+        )
+        assert sun.energy == pytest.approx(
+            lighting.key_strength * blender_render.KEY_ENERGY
+        )
+
+    # And the presets must actually reach different rigs, not merely be
+    # read: dusk's sun is (255,176,122) against midday's (255,237,209).
+    midday_sun, _ = sun_for("midday")
+    midday_colour = tuple(midday_sun.color)
+    dusk_sun, _ = sun_for("dusk")
+    assert tuple(dusk_sun.color) != pytest.approx(midday_colour, abs=1e-6)
 
 
 def test_every_surface_materials_py_can_produce_has_a_shader():
