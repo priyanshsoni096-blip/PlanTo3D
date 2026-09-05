@@ -291,7 +291,13 @@ the `render` extra, which pulls a 659 MB `bpy` install:
 ```bash
 pip install -e ".[render]"
 python scripts/render_blender.py house.glb output
+python scripts/render_blender.py house.glb output --lighting dusk
 ```
+
+`--lighting` takes the same hour names `style.LIGHTING_PRESETS` defines
+-- `midday`, `golden hour`, `overcast`, `dusk` -- so the Blender path and
+`preview.py` can be pointed at the same hour and compared frame for
+frame.
 
 Reach for it over `preview.py` when the image itself needs to stand as
 evidence -- a client-facing render, a figure in a report -- rather than
@@ -398,7 +404,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points
-tests/        850 tests
+tests/        875 tests
 docs/         design spec and implementation plan
 ```
 

@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **850 passing** | — |
+| Tests | **875 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -206,9 +206,22 @@ Two things this renderer does honestly rather than hides:
 - At the standard `aerial` view (45° elevation, the angle `preview.py`
   also uses) **no sky is visible at all**. The camera pitch exceeds the
   lens's vertical half-FOV at that elevation, so the frame sits entirely
-  below the horizon. The sky gradient itself is correct -- it shows at
-  lower elevations -- this is a framing consequence of an angle shared
-  with the fast renderer, not a bug in the sky.
+  below the horizon. Measured rather than reasoned: a bare world at
+  elevation 45, dusk preset, comes back a uniform **(138, 99, 80)** at
+  every ramp position tried, top row and mid-frame alike -- warm, flat,
+  no gradient anywhere in it. The gradient itself is correct and does
+  show at the elevation-0 views: same world at elevation 0 gives
+  **(9, 32, 61)** at the top of frame against **(129, 98, 80)** a
+  quarter of the way down. So this is a framing consequence of an angle
+  shared with the fast renderer, not a bug in the sky, and no choice of
+  `SKY_TOP_POSITION` can change it.
+- The blue is only in the top of an elevation-0 frame, not overhead
+  across it: at the shipped `SKY_TOP_POSITION = 0.22`, **12%** of the
+  frame's rows read blue (mean B greater than mean R), the rest warming
+  towards the horizon glow. That is what a dusk sky seen through a 30°
+  vertical field of view pointed at a building actually looks like; the
+  alternative -- pushing the constant lower to get more blue -- clips
+  the transition into a flat band at the top of frame instead.
 - Dusk renders close to monochrome. The model's own palette is beige and
   the dusk key light is warm, so the two multiply into a render with
   little colour separation. That is the light and the building agreeing
