@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **881 passing** | — |
+| Tests | **894 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -906,7 +906,88 @@ calibrated within a fifth from 28 of 48 back to **33**, with 30 plans
 scaled from doors rather than 28, and the worst error from 56.1% to
 44.6%. The window floor was blamed for that and was mostly innocent.
 
-## Green ink does not mean planting, and it was taking roofs off
+## Open to the air, and how much of the gain was the instrument
+
+The workstream set out to decide correctly which spaces have sky above
+them. It found one defect in the build and two in the score that was
+meant to judge it, and the headline number moved mostly for the second
+reason. Read without that distinction it says something untrue.
+
+Measured this session, `scripts/open_air_accuracy.py` over
+`/tmp/claude/cubicasa_batch` with `models/unet_cubicasa.pt`:
+
+| | IoU | recall | precision | sheets scored |
+| --- | --- | --- | --- | --- |
+| where it started | 48.2% | 93.0% | 50.0% | 60 |
+| **where it stands** | **80.5%** | **96.3%** | **83.0%** | **48** |
+
+**The two rows do not score the same corpus, and that is half the story.**
+Three changes moved the number; one of them changed what gets built:
+
+| change | what it moved | after |
+| --- | --- | --- |
+| scoring what `extrude.open_to_sky` merges, not only what `features.is_open_to_sky` accepts | **the instrument** | 48.2%, 60 sheets — the honest baseline. The first run of the harness reported 74.5% |
+| `MAX_PLANTING_SHEET_SHARE` in `planto3d/classical.py` | **the build** | 72.5%, 60 sheets |
+| declining to score sheets `ingest.split_sheet` would have cut | **the instrument** | 80.5%, **48 sheets** |
+
+`git diff --stat <the planting commit>..HEAD -- planto3d/` is empty. One
+commit in this workstream touched production code; the rest touched the
+harness, the tests and this file. **48.2 to 80.5 is not 32 points of
+better roofs.** The build improved by the 24.3 points the planting bound
+bought, over an unchanged 60 sheets. The rest is a score that had been
+flattering itself in one direction — never looking at the colour route,
+which is where the whole defect was — and punishing itself in another, by
+judging twelve multi-plan sheets in a configuration nothing ships.
+
+The first correction made the number worse and was still the right change.
+A harness that cannot see the source a candidate would move is not an
+instrument, and this one had already been used to report 74.5%.
+
+Wherever 80.5% is quoted, the 48 belongs beside it. The 12 sheets set
+aside score 65.1% / 86.2% / 72.7% and are not fixed, only excluded from a
+measurement that could not frame them.
+
+### The workstream was scored against the wrong check
+
+Both the spec and the plan said this work would be judged by
+`output_scorecard.py`'s `openings` check. It will not be, and cannot be.
+That check is `result.opening_count / drawn` bounded to 0.6-1.5
+(`scripts/output_scorecard.py:138`) -- it counts **doors and windows**
+against the annotation's, and has nothing to do with which spaces have
+sky above them. It stands at 9 of 30 before this workstream and 9 of 30
+after, exactly as it must.
+
+The scorecard is unchanged at **10 of 30** for the same reason. Nothing
+it measures is what this workstream changed. `scripts/open_air_accuracy.py`
+exists because no instrument in the project could see this defect --
+`output_scorecard.py` says so itself in its own docstring, listing "a
+balcony sealed under a slab" among the things it cannot judge.
+
+The lesson is worth more than the correction: a workstream that names its
+acceptance metric without checking what the metric computes can run to
+completion and prove nothing. This one built its own instrument and is
+measurable; the nomination in the spec was simply wrong and is corrected
+there.
+
+### What the numbers here do not cover
+
+**The corpus's provenance is unrecorded.** These 60 CubiCasa sheets may
+overlap the split `models/unet_cubicasa.pt` was trained on -- nothing in
+this repository records which sheets trained the checkpoint. If they do,
+the 96.3% recall is partly memorised and the true figure on unseen plans
+is lower. This qualifies every number in this section, and it is not
+fixable without the training manifest.
+
+**The remaining false positives need retraining, not a rule.** After the
+planting bound and the split exclusion, 17.0% of what is still wrongly
+opened is covered exterior structure the segmenter calls outdoor and
+CubiCasa does not: a BILTAK carport, an AVOKUISTI porch, a glazed
+balcony. CubiCasa maps `CarPort` and `Garage` to STORAGE
+(`planto3d/cubicasa.py:97`), so the model is being trained toward one
+answer and judged against another. No rule was invented for this, and
+inventing one would be fitting to the sheets that happen to show it.
+
+### Green ink does not mean planting, and it was taking roofs off
 
 `vegetation_regions` states its assumption in its own first line --
 *"Architectural sheets are otherwise greyscale, so saturated colour is a
@@ -938,7 +1019,7 @@ it is a highlighter tracing one apartment's exterior wall. The closing
 step joins that outline into a single region enclosing the whole floor
 plan, and `open_to_sky` then opens all of it.
 
-### Four candidate preconditions were measured; only one separates
+#### Four candidate preconditions were measured; only one separates
 
 The obvious gate -- *is this sheet in colour at all* -- does not work, and
 the measurement is worth keeping because it is the one that looks most
@@ -968,7 +1049,7 @@ Three more were tried on the same sheets and none separates either:
 | green lying within 7px of dark linework | 0.15 - 1.00 | 0.09 - 0.99 | overlaps |
 | non-green ink inside the reported bed | 0.2 - 1.4% | 0.0 - 0.8% (11260) | overlaps |
 
-### What does separate is the size of the bed
+#### What does separate is the size of the bed
 
 A bed is a feature on a sheet; it is never the sheet. As a share of sheet
 area:

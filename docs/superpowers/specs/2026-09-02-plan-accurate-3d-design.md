@@ -62,7 +62,8 @@ All figures produced by running the project's own scripts this session.
 | Windows as a share of annotated pixels | **0.1019%** | `class_balance.py` |
 | Rooms ending open to the sky | 26 of 171 (15%) across 16 plans | this session |
 | Rooms with neither label nor predicted type | **51 of 171 (30%)** | this session |
-| Tests | 835 passing | `pytest` |
+| Open-air IoU / recall / precision | **80.5% / 96.3% / 83.0%** over 48 sheets | `open_air_accuracy.py`, 2026-09-06 |
+| Tests | 894 passing | `pytest` |
 
 Two of those deserve reading twice. **Scale is the largest single
 failure** — 7 of 20 sheets — and it is not a vision problem: CubiCasa's
@@ -128,11 +129,19 @@ verified across three drafting conventions. The detection does not:
 15% of rooms end up open, and 30% of rooms have no evidence to decide
 from.
 
-Two separable pieces. **Geometry:** fix whatever `open_to_sky` and the
+**Status: complete, 2026-09-06.** See `docs/AUDIT.md`, "Open to the air,
+and how much of the gain was the instrument", and the plan at
+`docs/superpowers/plans/2026-09-06-open-to-air.md`.
+
+Two separable pieces. **Geometry:** ~~fix whatever `open_to_sky` and the
 per-floor landscaping logic get wrong once a room *is* correctly
-identified — including gardens above ground level, not only at grade.
-This is bounded and testable against the synthetic harness that already
-exists. **Evidence:** give the 30% of rooms that currently decide nothing
+identified — including gardens above ground level, not only at grade.~~
+**This claim was stale when written.** Upper-storey planting already built
+at the right level; it was fixed on 2026-08-20, twelve days before this
+spec. Measured on a synthetic three-storey block, lawn arrives at 0.686 /
+3.581 / 6.477 m against storey floors of exactly those heights. The gap
+was test coverage, not behaviour: the colour route to a roof garden was
+untested, and now is. **Evidence:** give the 30% of rooms that currently decide nothing
 a way to be decided. The candidates, in order of how much they are worth
 against what they cost: a room enclosed by parapet-height walls on a top
 storey is open whatever it is called; a room the segmenter typed at low
@@ -141,8 +150,24 @@ discards; and a room whose neighbours are all outdoor probably is too.
 Which of these earns its place is a measurement, not a guess, and the
 plan for this workstream must sweep them rather than adopt them.
 
-Scored on `output_scorecard.py`'s openings check, which fails on 6 of 20
-sheets today.
+~~Scored on `output_scorecard.py`'s openings check, which fails on 6 of 20
+sheets today.~~ **Wrong instrument, corrected 2026-09-06.** That check is
+`opening_count / drawn` — it counts doors and windows, and is blind to
+which spaces have sky above them; `output_scorecard.py`'s own docstring
+lists "a balcony sealed under a slab" among the things it cannot see. The
+workstream built `scripts/open_air_accuracy.py` instead, which scores
+`extrude.open_to_sky` against CubiCasa's OUTDOOR class in pixels. On that
+instrument the workstream moved 48.2% IoU to 80.5%, of which 24.3 points
+were a change to what gets built and the rest a correction to what was
+being measured.
+
+Of the three candidates, one was found **circular** (parapet height is an
+output of the open-air decision, not an input, and a plan view carries no
+height information), one was **measured and rejected** (neighbour
+propagation cost precision at every setting that did anything), and one
+was **never attempted** because the baseline showed recall was never the
+problem. The defect that mattered was not missing evidence at all: it was
+a colour-detection route running unchecked, at 8.8% precision.
 
 ### 4. Windows — a bounded experiment, not an open commitment
 
