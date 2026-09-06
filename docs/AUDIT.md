@@ -1008,6 +1008,97 @@ everywhere the detector was right: reference sheet 12 -> 12, `data/bridge`
 1 -> 1, `demo_plans` 1 -> 1. On CubiCasa 43 -> 40. `output_scorecard.py`
 holds at 10 of 30.
 
+### Where the remaining wrong roofs actually are
+
+With the colour bound in place, 22.1% of the pixels the build leaves open
+were wrong. Diagnosed rather than guessed at, by painting each of the three
+sources `extrude.open_to_sky` merges onto the sheet separately and
+intersecting each with the annotation, over all 60 sheets:
+
+| source of the false-positive pixel | px | share |
+| --- | --- | --- |
+| rooms `is_open_to_sky` accepted | 1,753,346 | 86.4% |
+| what remains of the colour route | 276,693 | 13.6% |
+| `GROUND_COVERS` labelled regions | **0** | 0.0% |
+
+Labelled regions contribute nothing at all, as the 3.6% label rate implies.
+Every one of the 1,753,346 room pixels came from a room the segmenter typed
+`outdoor`; not one came from a printed label.
+
+Splitting those room pixels by whether the segmenter itself predicted
+OUTDOOR there:
+
+| | px | share |
+| --- | --- | --- |
+| the segmenter also said outdoor -- the model is wrong | 1,578,359 | 90.0% |
+| the segmenter did not -- the traced polygon covers more ground than the evidence | 174,987 | 10.0% |
+
+So nine tenths of it is the OUTDOOR class being wrong, which no
+inference-time rule reaches and which retraining is out of scope for.
+
+**What the annotation calls the pixels we get wrong**, pooled over all 60
+sheets:
+
+| true class | px | share |
+| --- | --- | --- |
+| background | 1,188,376 | 58.5% |
+| room | 472,068 | 23.3% |
+| bedroom | 158,162 | 7.8% |
+| wall | 141,517 | 7.0% |
+| bath, circulation, storage, kitchen | 54,692 | 2.7% |
+| door, window | 15,226 | 0.7% |
+
+Nearly three fifths of it is not a roof taken off a room at all -- it is
+open ground painted on annotated background, page the drawing does not
+occupy.
+
+### The instrument was measuring itself
+
+That background figure has one cause, and it is the harness rather than the
+build. `open_air_accuracy.py` runs every sheet at `split=1` so the
+prediction and the annotation share one frame. Twelve of the sixty sheets
+are ones `ingest.split_sheet` would cut into two or three plans, and on
+those the segmenter sees the gutter between the plans and calls it outdoor.
+
+| | false-positive px | share |
+| --- | --- | --- |
+| 12 sheets the splitter would cut | 1,244,689 | **61.3%** |
+| 48 single-plan sheets | 785,352 | 38.7% |
+
+61.3% of the error on 20% of the sheets, in a configuration nothing ships.
+The five worst sheets by false positives -- 11855, 10394, 8329, 9285,
+12912 -- are all multi-plan sheets.
+
+The harness now declines to score them, which is the rule
+`output_scorecard.py` already applies to walls. Measured this session:
+
+| corpus | IoU | recall | precision |
+| --- | --- | --- | --- |
+| all 60 sheets, as previously reported | 72.5% | 91.4% | 77.9% |
+| 12 multi-plan sheets alone | 65.1% | 86.2% | 72.7% |
+| **48 single-plan sheets -- what the build does** | **80.5%** | **96.3%** | **83.0%** |
+
+No build code changed; only what the instrument agrees to judge.
+
+**Ink density does not separate a spurious open region from a real
+terrace.** Tried as a cheap discriminator for the regions painted on blank
+page, on the theory that a drawn terrace has hatching, a boundary or a
+label in it and page margin has nothing. Measured over the 100 open regions
+the build produces on this corpus: real terraces (at least half their area
+annotated OUTDOOR, n=74) have a median dark-pixel share of 0.069, and
+regions at least 90% on annotated background (n=4) a median of 0.055 --
+the wrong way round, and overlapping at every percentile. The 18 wholly
+spurious regions span 0.020 to 0.989. **Do not retry this.**
+
+What is left after the multi-plan sheets are set aside is 17.0% of built
+open pixels, of which the largest identified populations are covered
+exterior structures the segmenter reads as outdoor and CubiCasa does not --
+`BILTAK` (carport) on 3718 at 161,006 px, `AVOKUISTI` (open porch) on 8329,
+a glazed balcony on 6632 at 57,812 px. CubiCasa's own ontology maps
+`CarPort` and `Garage` to STORAGE, not Outdoor (`planto3d/cubicasa.py:97`).
+That is a disagreement about whether a roofed outdoor structure is open to
+the sky, and settling it needs the model retrained, not a rule added.
+
 Scored alone again *with* the bound in place, the colour route now
 contributes 0.0% IoU on CubiCasa -- everything it still finds there is
 filtered out by the sliver test in `real_open_regions` before it reaches

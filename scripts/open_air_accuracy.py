@@ -31,6 +31,16 @@ predicted painting and the annotation share one frame of reference:
   nothing. `output_scorecard.py` sidesteps the same problem by declining
   to judge walls on a split sheet.
 
+**A sheet that really holds several plans is not scored at all**, for that
+same reason. Running one at `split=1` is a configuration the build never
+uses: the segmenter sees the gutters between the plans and calls them
+outdoor, and the harness then counts page margin as a roof the build got
+wrong. Measured over the 60-plan CubiCasa corpus, twelve sheets are ones
+`ingest.split_sheet` would cut, and they carry 1,244,689 of the 2,030,041
+false-positive pixels -- 61.3% of the error on 20% of the sheets, in a
+configuration nothing ships. Setting them aside moves the figures from
+72.5% IoU / 91.4% recall / 77.9% precision to 80.5% / 96.3% / 83.0%.
+
 The pipeline may still enlarge a sheet whose walls are too thin to
 measure, which moves the geometry into a larger frame. That is caught
 rather than assumed: the segmenter is wrapped so the harness knows the
@@ -108,6 +118,24 @@ def _painted(polygons, shape: tuple[int, int]) -> np.ndarray:
         )
         cv2.fillPoly(canvas, [points], 1)
     return canvas
+
+
+def carries_one_plan(image: np.ndarray) -> bool:
+    """Whether this sheet holds a single floor plan, by the pipeline's own rule.
+
+    Asks `ingest.split_sheet`, so this is not a second opinion about what a
+    multi-plan sheet looks like -- it is the same detector the build runs.
+
+    A sheet the splitter cannot read at all is treated as a single plan, so
+    a failure in the splitter drops nothing from the corpus quietly.
+    """
+    from planto3d.ingest import split_sheet
+
+    try:
+        return len(split_sheet(image)) == 1
+    except Exception as error:  # a sheet too narrow to look for a split in
+        logging.getLogger(__name__).info("could not split a sheet: %s", error)
+        return True
 
 
 def score_plan(image_path: Path, svg_path: Path, segmenter) -> PlanScore | None:
@@ -218,13 +246,19 @@ def main() -> None:
     segmenter = load_segmenter(arguments.checkpoint)
 
     images = sorted(arguments.root.glob("*/*/F1_scaled.png"))[: arguments.limit]
-    print(f"scoring {len(images)} plan(s)\n")
+    print(f"reading {len(images)} sheet(s)\n")
     print(f"{'plan':10}{'true px':>10}{'pred px':>10}{'IoU':>8}"
           f"{'recall':>9}{'rooms':>7}{'undec':>7}")
     print("-" * 61)
 
     scores: list[PlanScore] = []
+    several = 0
     for image_path in images:
+        sheet = cv2.imread(str(image_path))
+        if sheet is not None and not carries_one_plan(sheet):
+            several += 1
+            print(f"{image_path.parent.name:10}  several plans on one sheet")
+            continue
         score = score_plan(image_path, image_path.parent / "model.svg", segmenter)
         if score is None:
             print(f"{image_path.parent.name:10}  not scored")
@@ -252,6 +286,7 @@ def main() -> None:
     print("-" * 61)
     print(f"plans scored        {int(pooled['plans'])}")
     print(f"  with open air     {len(with_truth)}")
+    print(f"sheets set aside    {several}  (several plans on one sheet)")
     print(f"rooms               {int(pooled['rooms'])}")
     print()
     print(f"IoU                 {pooled['iou']:.1%}   <-- the headline")
