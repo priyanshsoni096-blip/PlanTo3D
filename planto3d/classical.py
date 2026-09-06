@@ -62,6 +62,51 @@ MIN_STRIPS_TO_TRUST_COLOUR = 4
 PLANTING_CLOSE = 35
 PLANTING_SIMPLIFY = 6.0
 MIN_PLANTING_AREA = 2500
+# The precondition on everything above: green means planting only on a
+# sheet that uses green for planting. Where it does not -- a Finnish agency
+# highlighting a unit's exterior walls in its brand green -- the closing
+# joins that highlight into one region enclosing the whole drawing, and
+# because extrude.open_to_sky merges planting with the other open-air
+# sources, that region punches the roof off the entire building.
+#
+# A bed is a feature on a sheet; it is never the sheet. That is the one
+# part of the assumption which can be checked from the image alone, and
+# checking it costs a comparison. Beds measured as a share of sheet area,
+# every figure from a run this session:
+#
+#   verified by eye as planting            verified by eye as not planting
+#     reference sheet, terrace garden        CubiCasa 6266 (walls in
+#       page-3                    8.68%        highlighter)        66.11%
+#       page-3_cropped           22.34%      CubiCasa 12787        71.58%
+#       page-3_cropped_cropped   23.15%      CubiCasa 9285        100.00%
+#       page-3 tightest crop     38.22%
+#     reference sheet, page-1     1.73-8.13%
+#     demo_plans 2-TWO-STOREY      0.92%
+#     data/bridge 113782           0.92%
+#
+# Largest true bed 38.22%, smallest false one 66.11%, nothing between --
+# so the bound is set mid-gap rather than at either edge. Swept over the
+# 60-plan CubiCasa corpus with scripts/open_air_accuracy.py, which scores
+# what extrude.open_to_sky actually leaves unroofed:
+#
+#   bound    IoU     recall   precision
+#   none    48.2%    93.0%     50.0%    <- before this bound existed
+#   0.90    62.8%    91.4%     66.7%
+#   0.70    66.4%    91.4%     70.8%
+#   0.50    72.5%    91.4%     77.9%    <- chosen
+#   0.40    72.5%    91.4%     77.9%
+#   0.30    72.5%    91.4%     77.9%
+#   0.00    74.6%    91.4%     80.3%    <- colour route off entirely
+#
+# The flat run from 0.30 to 0.50 is the point: across that whole span the
+# bound removes the same three regions and scores identically, so the
+# constant is not fitted to anything. Recall is 91.4% at every value the
+# bound can take, including at 0.00 -- the three giant regions carried no
+# true open air at all, only false. And 0.50 keeps 24.3 of the 26.4 IoU
+# points that deleting the colour route outright would buy, without
+# deleting it: on the reference sheet, on data/bridge and on demo_plans
+# the planting count is unchanged.
+MAX_PLANTING_SHEET_SHARE = 0.50
 
 
 def _greyscale(image: np.ndarray) -> np.ndarray:
@@ -123,6 +168,11 @@ def vegetation_regions(image: np.ndarray, min_area: int = MIN_PLANTING_AREA) -> 
     This complements the segmentation model rather than competing with it:
     the model is trained on interiors and does not label a garden as anything
     at all, since a garden is not a room.
+
+    The assumption in the first paragraph is a precondition, not a fact, and
+    it is checked rather than trusted: a returned bed covering more of the
+    sheet than `MAX_PLANTING_SHEET_SHARE` is not planting but green used for
+    something else, and is dropped with a line at INFO saying so.
     """
     if image.ndim != 3:
         return []
@@ -144,14 +194,30 @@ def vegetation_regions(image: np.ndarray, min_area: int = MIN_PLANTING_AREA) -> 
     )
     contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+    sheet_area = float(image.shape[0] * image.shape[1])
     regions = []
+    rejected = 0
     for contour in contours:
-        if cv2.contourArea(contour) < min_area:
+        area = cv2.contourArea(contour)
+        if area < min_area:
+            continue
+        if area > MAX_PLANTING_SHEET_SHARE * sheet_area:
+            # Green ink, but not this sheet's planting convention. Saying
+            # so is the point: a silently dropped region and a sheet with
+            # no garden look identical downstream.
+            rejected += 1
             continue
         simplified = cv2.approxPolyDP(contour, PLANTING_SIMPLIFY, closed=True)
         if len(simplified) >= 3:
             regions.append([(float(p[0][0]), float(p[0][1])) for p in simplified])
 
+    if rejected:
+        logger.info(
+            "ignoring %d green region(s) covering more than %.0f%% of the "
+            "sheet: this sheet does not use green for planting",
+            rejected,
+            MAX_PLANTING_SHEET_SHARE * 100,
+        )
     logger.info("found %d planted region(s)", len(regions))
     return regions
 

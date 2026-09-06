@@ -73,6 +73,34 @@ class TestVegetationRegions:
         assert vegetation_regions(np.full((100, 100), 255, dtype=np.uint8)) == []
 
 
+    def test_a_bed_swallowing_the_whole_sheet_is_not_planting(self):
+        # The detector assumes green ink means planting. Where that is
+        # false -- an agency highlighting a unit's walls in brand green --
+        # the closing joins the highlight into one region enclosing the
+        # entire drawing, and open_to_sky then punches the whole roof out.
+        # A bed is a feature on the sheet, never the sheet itself.
+        image = _sheet(400)
+        image[10:390, 10:390] = GREEN
+
+        assert vegetation_regions(image) == []
+
+    def test_a_large_but_credible_bed_is_still_found(self):
+        # The true terrace garden on the reference sheet's tightest crop
+        # is 38% of it. A bound that rejected that would be worse than no
+        # bound at all.
+        image = _sheet(400)
+        image[0:160, 0:400] = GREEN
+
+        assert len(vegetation_regions(image)) == 1
+
+    def test_the_bound_sits_between_the_measured_true_and_false_beds(self):
+        from planto3d.classical import MAX_PLANTING_SHEET_SHARE
+
+        # Largest bed verified by eye astrue planting: 38.22% of the sheet.
+        # Smallest bed verified by eye as not planting: 66.11%.
+        assert 0.3822 < MAX_PLANTING_SHEET_SHARE < 0.6611
+
+
 class TestPlantingInTheModel:
     def _floor(self, planting=None):
         walls = [

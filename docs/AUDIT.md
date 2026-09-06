@@ -906,6 +906,118 @@ calibrated within a fifth from 28 of 48 back to **33**, with 30 plans
 scaled from doors rather than 28, and the worst error from 56.1% to
 44.6%. The window floor was blamed for that and was mostly innocent.
 
+## Green ink does not mean planting, and it was taking roofs off
+
+`vegetation_regions` states its assumption in its own first line --
+*"Architectural sheets are otherwise greyscale, so saturated colour is a
+reliable signal"* -- and then never checked it. `pipeline.py` calls it on
+every sheet, and `extrude.open_to_sky` merges its output with the other
+two open-air sources, so a green region it invents is a hole in a roof
+slab.
+
+**Scored on its own over the 60-plan CubiCasa corpus**, with the other two
+sources switched off, the colour route is:
+
+| | IoU | recall | precision |
+| --- | --- | --- | --- |
+| every source (as shipped) | 48.2% | 93.0% | 50.0% |
+| the colour route alone | 4.1% | 7.0% | **8.8%** |
+| the colour route deleted | 74.6% | 91.4% | 80.3% |
+
+Deleting it outright is worth **26.4 IoU points** for 1.6 points of
+recall. It was not deleted: on the reference sheet the same code finds
+the TERRACE GARDEN correctly, twelve regions over twelve pages, and on a
+plan drawn in colour it is the only source that finds a garden at all.
+The defect is the missing precondition, not the detector.
+
+**What the green actually is on the sheets where it fails.** Looked at,
+not guessed. On CubiCasa `high_quality/11855` the green is an estate
+agency's brand colour applied to the unit's *walls* -- the Aktia logo is
+in the same green at the foot of the sheet. On `high_quality_architectural/6266`
+it is a highlighter tracing one apartment's exterior wall. The closing
+step joins that outline into a single region enclosing the whole floor
+plan, and `open_to_sky` then opens all of it.
+
+### Four candidate preconditions were measured; only one separates
+
+The obvious gate -- *is this sheet in colour at all* -- does not work, and
+the measurement is worth keeping because it is the one that looks most
+convincing on a corpus average. Fraction of pixels with HSV saturation
+above 0.15, per sheet rather than pooled:
+
+| corpus | mean saturation | fraction > 0.15 |
+| --- | --- | --- |
+| CubiCasa, 60 sheets | 0.030 | 0.044 (range 0.000 - 0.311) |
+| `data/bridge`, 60 sheets | 0.263 | 0.971 (range 0.891 - 1.000) |
+| `demo_plans`, 6 sheets | 0.176 | 0.652 (range 0.000 - 0.995) |
+| reference sheet, 12 pages | - | 0.020 (range 0.001 - 0.083) |
+
+Pooled by corpus this looks like a clean 22x separation. Per sheet it is
+not a separation at all: **the reference sheet -- the only corpus whose
+planting has been verified by eye -- sits inside CubiCasa's range**, and
+two of the six `demo_plans`, including `3-RICHEST-7labels-open-paving-wet.png`,
+carry no saturated pixels whatever. A gate on sheet colour would suppress
+the very sheet the detector was written for while claiming to protect
+colour plans. **Do not retry this.**
+
+Three more were tried on the same sheets and none separates either:
+
+| candidate | true planting | false planting | verdict |
+| --- | --- | --- | --- |
+| share of green pixels in elongated components | 0.0 - 0.1% | 0.0% (6266), 3.4% (11578) | overlaps |
+| green lying within 7px of dark linework | 0.15 - 1.00 | 0.09 - 0.99 | overlaps |
+| non-green ink inside the reported bed | 0.2 - 1.4% | 0.0 - 0.8% (11260) | overlaps |
+
+### What does separate is the size of the bed
+
+A bed is a feature on a sheet; it is never the sheet. As a share of sheet
+area:
+
+| verified by eye as planting | | verified by eye as not planting | |
+| --- | --- | --- | --- |
+| reference `page-3` | 8.68% | CubiCasa 6266 | 66.11% |
+| reference `page-3_cropped` | 22.34% | CubiCasa 12787 | 71.58% |
+| reference tightest crop | 38.22% | CubiCasa 9285 | 100.00% |
+| reference `page-1` | 1.73 - 8.13% | | |
+| `demo_plans/2-TWO-STOREY` | 0.92% | | |
+| `data/bridge/113782` | 0.92% | | |
+
+Largest true bed 38.22%, smallest false one 66.11%, nothing in between
+across four corpora. `MAX_PLANTING_SHEET_SHARE` is set mid-gap at 0.50.
+Swept with `scripts/open_air_accuracy.py`:
+
+| bound | IoU | recall | precision |
+| --- | --- | --- | --- |
+| none | 48.2% | 93.0% | 50.0% |
+| 0.90 | 62.8% | 91.4% | 66.7% |
+| 0.70 | 66.4% | 91.4% | 70.8% |
+| **0.50** | **72.5%** | **91.4%** | **77.9%** |
+| 0.40 | 72.5% | 91.4% | 77.9% |
+| 0.30 | 72.5% | 91.4% | 77.9% |
+| 0.00 | 74.6% | 91.4% | 80.3% |
+
+The flat run from 0.30 to 0.50 is the evidence that the constant is not
+fitted: across that span it removes the same three regions and scores
+identically. It buys **24.3 of the 26.4 IoU points** that deleting the
+colour route would, and keeps the route. Recall is 91.4% at every value
+the bound can take, including at 0.00, so those three giant regions
+carried no true open air at all.
+
+Counted before and after, the planting regions found are unchanged
+everywhere the detector was right: reference sheet 12 -> 12, `data/bridge`
+1 -> 1, `demo_plans` 1 -> 1. On CubiCasa 43 -> 40. `output_scorecard.py`
+holds at 10 of 30.
+
+Scored alone again *with* the bound in place, the colour route now
+contributes 0.0% IoU on CubiCasa -- everything it still finds there is
+filtered out by the sliver test in `real_open_regions` before it reaches
+a roof. Its entire net contribution to this corpus was the harm.
+
+`extrude.real_open_regions` already sized open regions, but only from
+below -- its docstring says *"a sliver of misread paving cannot punch a
+hole through a floor"*. Nothing bounded them from above, which is the
+direction that costs a whole roof rather than a corner of one.
+
 ## Room squaring is not failing, and the log was saying it was
 
 A run over the reference sheet printed *"squaring moved a room's area too
