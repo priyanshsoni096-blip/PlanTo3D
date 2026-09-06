@@ -1473,6 +1473,22 @@ advantage exactly. Recorded so it is not tried again.
 **The wall-thickness constant stays at 9 inches.** See above -- the two
 populations disagree by 26 points and fitting either breaks the other.
 
+**Parapet-height enclosure cannot be evidence for open air. It is
+circular.** The spec proposed that "a room enclosed by parapet-height walls
+on a top storey is open whatever it is called". Checked before
+implementing: `PARAPET_HEIGHT_FT` (`planto3d/extrude.py:61`) is a
+constant, and `_open_air_walls` (`:943`) decides which walls are parapets
+by asking `is_open_to_sky(room)` at line 957 -- the very question the
+candidate proposes to answer. Parapet height is an **output** of the
+open-air decision, never an input to it.
+
+Nor could it be otherwise. A floor plan is a horizontal section; it
+carries no height information about anything, and the segmenter has one
+WALL class with no notion of how tall a wall is. There is nothing upstream
+that distinguishes a parapet from a full-height wall, so no amount of
+implementation would make this candidate work. **Do not retry this** unless
+elevations are being read, which the spec places out of scope.
+
 **Fuzzy matching of room labels against the feature vocabulary does not
 ship.** OCR mangles labels, so matching them by edit distance instead of
 by substring looks obvious. Measured over 67 plans (the 60 in
