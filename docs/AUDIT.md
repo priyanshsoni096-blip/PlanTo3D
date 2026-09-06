@@ -1489,6 +1489,38 @@ that distinguishes a parapet from a full-height wall, so no amount of
 implementation would make this candidate work. **Do not retry this** unless
 elevations are being read, which the spec places out of scope.
 
+**Neighbour propagation does not ship: it spends precision and buys
+nothing.** The spec's third candidate -- "a room whose neighbours are all
+outdoor probably is too" -- was implemented as
+`features.propagate_open(rooms, scale)`: a single pass, computed from the
+input state, that opens a room carrying neither a printed label nor a
+predicted type when every room within `NEIGHBOUR_GAP_FT` of it already
+reads open and at least one does. It was wired into `extrude.open_to_sky`
+and scored with `scripts/open_air_accuracy.py` over the 60-plan CubiCasa
+corpus, 671 rooms, pooled in pixels:
+
+| neighbour gap | IoU | recall | precision |
+| --- | --- | --- | --- |
+| off (baseline) | 72.5% | 91.4% | **77.9%** |
+| 0.5 ft | 72.6% | 91.9% | 77.6% |
+| 1.0 ft | 72.4% | 91.4% | 77.7% |
+| 2.0 ft | 72.5% | 91.4% | 77.9% |
+
+The gap was swept rather than chosen because it is a fitted constant. At
+2.0 ft the rule never fires at all -- a wider gap gives each room more
+neighbours, and "all of them open" gets harder to satisfy, so the
+candidate disappears rather than growing. At 1.0 ft it moves recall not at
+all and costs 0.2 points of precision: every pixel it added was wrong. At
+0.5 ft it buys 0.5 points of recall for 0.3 points of precision, moving
+IoU by a tenth of a point.
+
+Precision is the weak leg here -- recall was already 91.4% and roughly a
+fifth of built-open pixels are wrong -- and the plan's rule was explicit
+that a candidate lowering precision does not ship whatever it does to
+recall, because a roof wrongly removed reads worse in a render than one
+wrongly left on. Precision falls at every value where the rule does
+anything. The code and its five tests were reverted. **Do not retry this.**
+
 **Fuzzy matching of room labels against the feature vocabulary does not
 ship.** OCR mangles labels, so matching them by edit distance instead of
 by substring looks obvious. Measured over 67 plans (the 60 in
