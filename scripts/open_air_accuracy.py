@@ -3,9 +3,10 @@
 A balcony sealed under a roof slab is the most visible failure this
 pipeline still has, and it is the one `scripts/output_scorecard.py` says
 outright it cannot see. This is the instrument that can: it runs the
-pipeline as far as room labelling, asks `features.is_open_to_sky` of every
-room it found, paints the ones that say yes, and compares that painting
-against CubiCasa's OUTDOOR class.
+pipeline as far as room labelling, asks `extrude.open_to_sky` what the
+geometry would leave unroofed, paints that, and compares it against
+CubiCasa's OUTDOOR class. It asks the same function the build asks, so
+the number moves when and only when the built roof would.
 
     python scripts/open_air_accuracy.py <corpus> --checkpoint models/unet_cubicasa.pt
 
@@ -53,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from planto3d.classes import OUTDOOR  # noqa: E402
 from planto3d.cubicasa import svg_to_mask  # noqa: E402
+from planto3d.extrude import open_to_sky
 from planto3d.features import is_open_to_sky  # noqa: E402
 from planto3d.pipeline import extract  # noqa: E402
 from planto3d.segment import load_segmenter  # noqa: E402
@@ -95,14 +97,16 @@ class _FrameRecorder:
         return self._segmenter(image)
 
 
-def _painted(rooms, shape: tuple[int, int]) -> np.ndarray:
-    """The open-to-sky rooms, filled onto a blank sheet."""
+def _painted(polygons, shape: tuple[int, int]) -> np.ndarray:
+    """Open-to-sky regions, filled onto a blank sheet."""
     canvas = np.zeros(shape, dtype=np.uint8)
-    for room in rooms:
-        polygon = np.array(
-            [[int(round(x)), int(round(y))] for x, y in room.polygon], dtype=np.int32
+    for polygon in polygons:
+        if len(polygon) < 3:
+            continue
+        points = np.array(
+            [[int(round(x)), int(round(y))] for x, y in polygon], dtype=np.int32
         )
-        cv2.fillPoly(canvas, [polygon], 1)
+        cv2.fillPoly(canvas, [points], 1)
     return canvas
 
 
@@ -134,14 +138,25 @@ def score_plan(image_path: Path, svg_path: Path, segmenter) -> PlanScore | None:
         return None
 
     rooms = [room for floor in result.floors for room in floor.plan.rooms]
-    open_rooms = [room for room in rooms if is_open_to_sky(room)]
+    # What the geometry actually opens, not merely which rooms say yes.
+    # extrude.open_to_sky merges three independent sources -- the colour
+    # route (floor.planting), printed GROUND_COVERS regions, and rooms
+    # that is_open_to_sky accepts -- and then drops slivers too small to
+    # stand in. Scoring rooms alone measured one of the three: on this
+    # corpus the colour route is 42.6% of the open area by itself, and a
+    # candidate could have moved it without this number noticing.
+    scale = result.scale or 1.0
+    open_regions = [
+        polygon for floor in result.floors
+        for polygon in open_to_sky(floor.plan, scale)
+    ]
     undecidable = sum(
         1 for room in rooms if not getattr(room, "label", "")
         and not getattr(room, "category", "")
     )
 
     frame = recorder.shape or image.shape[:2]
-    predicted = _painted(open_rooms, frame)
+    predicted = _painted(open_regions, frame)
     if frame != true_open.shape:
         # Nearest, not linear: this is a membership mask and an interpolated
         # edge pixel is not half open to the sky.
