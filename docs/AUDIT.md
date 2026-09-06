@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **876 passing** | — |
+| Tests | **881 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -1360,6 +1360,38 @@ advantage exactly. Recorded so it is not tried again.
 
 **The wall-thickness constant stays at 9 inches.** See above -- the two
 populations disagree by 26 points and fitting either breaks the other.
+
+**Fuzzy matching of room labels against the feature vocabulary does not
+ship.** OCR mangles labels, so matching them by edit distance instead of
+by substring looks obvious. Measured over 67 plans (the 60 in
+`data/bridge` plus the 7 demo sheets), 647 text boxes, scoring each box's
+normalised text against all 460 keywords with
+`difflib.SequenceMatcher.ratio()` and counting only hits the current
+substring rule does not already make:
+
+| cutoff | new hits | of which right |
+| --- | --- | --- |
+| 0.90 | 0 | — |
+| 0.85 | 5 | 3 (`ath`→BATH, `dow.`→DOWN, `Ram,`→RAMP) |
+| 0.82 | 9 | 3 |
+| 0.80 | 15 | 5 |
+| 0.75 | 37 | 5 |
+
+**There is no cutoff that works, and the plan that motivated this proves
+it.** The wrapped label on
+`demo_plans/1-BEST-measured-scale-50walls-19rooms.gif` reads
+`per to Be ow`, which scores **0.800** against OPEN TO BELOW. Two boxes
+reading `Master Bedroom` score **0.828** against MASTER BATHROOM. Any
+cutoff low enough to build the void is low enough to tile a bedroom
+floor, and the same band brings `DEN`→DN (a staircase in a den),
+`GATH. ROOM`→BATHROOM, and two-letter fragments `oT` and `ob`→OTB, each
+of which punches a hole through a floor slab. A minimum length on the
+matched string does not separate them either: the false positive is
+14 characters and the true one is 12.
+
+Joining stacked lines was kept because it needs no cutoff at all -- it is
+geometry, and what it recovers matches the vocabulary exactly. Fuzziness
+was the part that could not be made safe. **Do not retry this.**
 
 ## Scale error, broken down by source, and four routes tried that did not close it
 

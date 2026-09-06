@@ -377,10 +377,15 @@ def isolate_ink(image: np.ndarray, cutoff: int = INK_CUTOFF) -> np.ndarray:
 
 
 def read_text_boxes(image: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -> list[TextBox]:
-    """OCR an image, returning one box per line of text.
+    """OCR an image, returning one box per line of text, plus joined labels.
 
     Grouping by line matters: Tesseract emits `15'0"` and `X18'0"` as
     separate words, and neither parses as a dimension alone.
+
+    A label the drafter set on two lines is a line each to Tesseract, so
+    ``join_stacked`` adds a box spanning both. The single-line boxes stay:
+    dimension parsing reads those, and they come first in the list so a
+    caller taking the first match still gets one.
 
     A small sheet is enlarged first. OCR has a resolution floor and a plan
     that fits a whole house into 600 pixels sits under it: the letters are
@@ -425,6 +430,8 @@ def read_text_boxes(image: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -
         for group in _split_on_gaps(data, indices):
             boxes.append(_to_text_box(data, group))
 
+    boxes += join_stacked(boxes)
+
     if factor > 1.0:
         boxes = [
             replace(
@@ -436,6 +443,107 @@ def read_text_boxes(image: np.ndarray, min_confidence: float = MIN_CONFIDENCE) -
 
     logger.info("read %d text line(s)", len(boxes))
     return boxes
+
+
+# How much two stacked boxes must overlap horizontally, as a fraction of the
+# narrower one's width, before they are read as one wrapped label. And how
+# far apart their edges may sit vertically, in multiples of the taller box's
+# height. Both describe how a drafter sets a two-line label: the lines are
+# centred on each other and separated by ordinary leading.
+STACK_OVERLAP_RATIO = 0.3
+STACK_GAP_RATIO = 1.0
+
+
+def join_stacked(boxes: list[TextBox]) -> list[TextBox]:
+    """Boxes for labels the drafter wrapped across lines, joined into one.
+
+    Tesseract numbers every printed line separately, so "THREE CAR GARAGE"
+    set on two lines arrives as two boxes and matches nothing, while
+    "GARAGE" on its own line does.
+
+    Measured over 67 plans (the 60 in data/bridge plus the demo sheets),
+    647 text boxes: joining adds 152 boxes and takes the boxes matching
+    the feature vocabulary from 40 to 67. At the room level, of 793 rooms,
+    755 are untouched and 38 get a longer label -- "STAIR" becomes "STAIR
+    HALL", "Porch" becomes "Screen Porch", "Covered" becomes "Covered
+    Patio". Two rooms gain a feature category they did not have (a garage
+    and a covered patio, both paving); none loses one.
+
+    Returns only the new joined boxes; the caller keeps the originals, since
+    dimension parsing and room naming already read those.
+    """
+    ordered = sorted(boxes, key=lambda box: (box.bbox[1], box.bbox[0]))
+
+    # Each box gets at most one successor -- the nearest box below it that
+    # lines up -- so a column of labels chains rather than fanning out.
+    successor: dict[int, int] = {}
+    taken: set[int] = set()
+    for index, box in enumerate(ordered):
+        best: int | None = None
+        best_gap: float | None = None
+        for other_index in range(index + 1, len(ordered)):
+            if other_index in taken:
+                continue
+            gap = _stack_gap(box, ordered[other_index])
+            if gap is None:
+                continue
+            if best_gap is None or gap < best_gap:
+                best, best_gap = other_index, gap
+        if best is not None:
+            successor[index] = best
+            taken.add(best)
+
+    joined: list[TextBox] = []
+    seen: set[tuple[int, ...]] = set()
+    for start in range(len(ordered)):
+        if start in taken:
+            continue  # not the head of its chain
+        chain = [start]
+        while chain[-1] in successor:
+            chain.append(successor[chain[-1]])
+        if len(chain) < 2:
+            continue
+
+        # Adjacent pairs as well as the whole run: three stacked lines are
+        # sometimes one label and sometimes a label above a neighbour's.
+        runs = [tuple(chain[i : i + 2]) for i in range(len(chain) - 1)]
+        runs.append(tuple(chain))
+        for run in runs:
+            if len(run) < 2 or run in seen:
+                continue
+            seen.add(run)
+            joined.append(_merge_boxes([ordered[i] for i in run]))
+
+    if joined:
+        logger.info("joined %d wrapped label(s) across lines", len(joined))
+    return joined
+
+
+def _stack_gap(above: TextBox, below: TextBox) -> float | None:
+    """The vertical gap between two boxes if they stack, else None."""
+    left_a, top_a, width_a, height_a = above.bbox
+    left_b, top_b, width_b, height_b = below.bbox
+
+    overlap = min(left_a + width_a, left_b + width_b) - max(left_a, left_b)
+    if overlap <= STACK_OVERLAP_RATIO * min(width_a, width_b):
+        return None
+
+    gap = top_b - (top_a + height_a)
+    if not 0 <= gap <= STACK_GAP_RATIO * max(height_a, height_b):
+        return None
+    return gap
+
+
+def _merge_boxes(boxes: list[TextBox]) -> TextBox:
+    lefts = [box.bbox[0] for box in boxes]
+    tops = [box.bbox[1] for box in boxes]
+    rights = [box.bbox[0] + box.bbox[2] for box in boxes]
+    bottoms = [box.bbox[1] + box.bbox[3] for box in boxes]
+    return TextBox(
+        text=" ".join(box.text for box in boxes),
+        bbox=(min(lefts), min(tops), max(rights) - min(lefts), max(bottoms) - min(tops)),
+        confidence=min(box.confidence for box in boxes),
+    )
 
 
 def _split_on_gaps(data: dict, indices: list[int]) -> list[list[int]]:

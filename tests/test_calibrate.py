@@ -378,3 +378,115 @@ class TestSmallSheetsAreEnlargedBeforeReading:
         # at two. The cap says so rather than trusting a future reader to
         # rediscover it.
         assert MAX_OCR_UPSCALE <= 3.0
+
+
+class TestJoiningStackedLines:
+    """A label printed on two lines must also arrive as one box.
+
+    Tesseract gives every printed line its own ``line_num``, so "Open to
+    Below" comes back as `'per to'` and `'Be ow'` -- two boxes that match
+    nothing on their own. Measured on the seven demo-plan floors: 113
+    boxes, 5 matching the feature vocabulary. Stacked labels are the
+    reason the two "Open to Below" voids on
+    demo_plans/1-BEST-measured-scale-50walls-19rooms.gif were roofed over.
+    """
+
+    @staticmethod
+    def _fake(rows: list[tuple[str, int, int, int, int, int]]):
+        def fake_image_to_data(image, output_type):
+            return {
+                "text": [row[0] for row in rows],
+                "left": [row[1] for row in rows],
+                "top": [row[2] for row in rows],
+                "width": [row[3] for row in rows],
+                "height": [row[4] for row in rows],
+                "conf": ["90"] * len(rows),
+                "block_num": [1] * len(rows),
+                "par_num": [1] * len(rows),
+                "line_num": [row[5] for row in rows],
+            }
+
+        return fake_image_to_data
+
+    def test_two_stacked_lines_also_arrive_as_one_box(self, monkeypatch):
+        import planto3d.calibrate as calibrate
+
+        # The real geometry, doubled out of the demo plan's OCR frame:
+        # 'per to' at (224, 327, 35, 8) over 'Be ow' at (220, 340, 36, 18).
+        monkeypatch.setattr(
+            calibrate.pytesseract,
+            "image_to_data",
+            self._fake([("OPEN TO", 448, 654, 70, 16, 1), ("BELOW", 440, 680, 72, 20, 2)]),
+        )
+
+        boxes = read_text_boxes(np.zeros((1400, 1400, 3), dtype=np.uint8))
+
+        joined = next((b for b in boxes if b.text == "OPEN TO BELOW"), None)
+        assert joined is not None, [b.text for b in boxes]
+        left, top, width, height = joined.bbox
+        assert (left, top) == (440, 654)
+        assert (left + width, top + height) == (518, 700)
+
+    def test_the_separate_lines_are_kept(self, monkeypatch):
+        # Dimension parsing and room labelling already work off the
+        # single-line boxes, so joining adds rather than replaces.
+        import planto3d.calibrate as calibrate
+
+        monkeypatch.setattr(
+            calibrate.pytesseract,
+            "image_to_data",
+            self._fake([("OPEN TO", 448, 654, 70, 16, 1), ("BELOW", 440, 680, 72, 20, 2)]),
+        )
+
+        texts = [b.text for b in read_text_boxes(np.zeros((1400, 1400, 3), dtype=np.uint8))]
+
+        assert "OPEN TO" in texts
+        assert "BELOW" in texts
+
+    def test_side_by_side_labels_are_not_joined(self, monkeypatch):
+        # Two rooms' names on adjacent lines but in different columns. A
+        # join here invents "KITCHEN BEDROOM" and drops it between them.
+        import planto3d.calibrate as calibrate
+
+        monkeypatch.setattr(
+            calibrate.pytesseract,
+            "image_to_data",
+            self._fake([("KITCHEN", 100, 200, 80, 16, 1), ("BEDROOM", 900, 226, 80, 16, 2)]),
+        )
+
+        texts = [b.text for b in read_text_boxes(np.zeros((1400, 1400, 3), dtype=np.uint8))]
+
+        assert sorted(texts) == ["BEDROOM", "KITCHEN"]
+
+    def test_lines_a_paragraph_apart_are_not_joined(self, monkeypatch):
+        # Same column, but far enough down to belong to another room.
+        import planto3d.calibrate as calibrate
+
+        monkeypatch.setattr(
+            calibrate.pytesseract,
+            "image_to_data",
+            self._fake([("OPEN TO", 448, 654, 70, 16, 1), ("BELOW", 440, 900, 72, 20, 2)]),
+        )
+
+        texts = [b.text for b in read_text_boxes(np.zeros((1400, 1400, 3), dtype=np.uint8))]
+
+        assert sorted(texts) == ["BELOW", "OPEN TO"]
+
+    def test_three_stacked_lines_join_into_one(self, monkeypatch):
+        import planto3d.calibrate as calibrate
+
+        monkeypatch.setattr(
+            calibrate.pytesseract,
+            "image_to_data",
+            self._fake(
+                [
+                    ("DOUBLE", 400, 600, 80, 16, 1),
+                    ("HEIGHT", 400, 622, 80, 16, 2),
+                    ("LIVING", 400, 644, 80, 16, 3),
+                ]
+            ),
+        )
+
+        texts = [b.text for b in read_text_boxes(np.zeros((1400, 1400, 3), dtype=np.uint8))]
+
+        assert "DOUBLE HEIGHT LIVING" in texts
