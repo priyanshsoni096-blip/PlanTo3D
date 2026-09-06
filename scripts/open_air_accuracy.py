@@ -65,7 +65,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from planto3d.classes import OUTDOOR  # noqa: E402
 from planto3d.cubicasa import svg_to_mask  # noqa: E402
 from planto3d.extrude import open_to_sky
-from planto3d.features import is_open_to_sky  # noqa: E402
 from planto3d.pipeline import extract  # noqa: E402
 from planto3d.segment import load_segmenter  # noqa: E402
 
