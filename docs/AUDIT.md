@@ -1469,6 +1469,24 @@ checked — the same standing rule recorded above under "the one that is a
 trap". The number is recorded so the decision stays visible rather than
 lost.
 
+**Independent evidence that 0.633 ft is tradition-specific, from a second
+corpus.** The rejection above was made on principle -- CubiCasa is the only
+corpus with metric ground truth, so fitting to it cannot be checked
+elsewhere. It can now be checked. Running the reference house
+(`data/soni_residence`, an Indian masonry building) through `extract` this
+session reports `scale_source: dimensions`, `scale_assumed: False`: it takes
+its scale from printed dimensions, so the wall constant does not affect it
+either way. What it yields on the way is the useful part -- a measured wall
+gauge of 24.0 px against a true scale of 25.90 px/ft, so an implied real
+wall thickness of **0.93 ft (11 inches)**.
+
+Against CubiCasa's median implied thickness of 0.648 ft, that is a **43%
+difference between the two traditions**, measured rather than assumed.
+Adopting 0.633 ft globally would have passed the gate on CubiCasa while
+making the wall-derived estimate badly wrong for any masonry plan that
+lacks printed dimensions. The standing rule held; this is the evidence for
+it. **Do not retry this.**
+
 0.633 ft and the 0.648 ft in `CONVENTIONS["nordic"]` are not the same
 quantity, though they are close: 0.633 is the value that *minimises pooled
 scale error* over the 30 sheets (found by search, the number above), while
