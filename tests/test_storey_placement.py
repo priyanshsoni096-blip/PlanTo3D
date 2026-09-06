@@ -29,7 +29,7 @@ OUTLINE = [(0.0, 0.0), (600.0, 0.0), (600.0, 500.0), (0.0, 500.0)]
 INSIDE = [(120.0, 100.0), (480.0, 100.0), (480.0, 400.0), (120.0, 400.0)]
 
 
-def _floor(rooms=None):
+def _floor(rooms=None, planting=None):
     return FloorPlan(
         walls=[
             Wall(start=OUTLINE[i], end=OUTLINE[(i + 1) % 4], thickness=12.0)
@@ -37,6 +37,7 @@ def _floor(rooms=None):
         ],
         footprint=list(OUTLINE),
         rooms=rooms or [],
+        planting=list(planting or []),
     )
 
 
@@ -140,3 +141,37 @@ def test_features_on_one_storey_do_not_appear_on_another():
         heights.append(min(mesh.bounds[0][1] for mesh in parts["lawn"]))
 
     assert heights[0] < heights[1] < heights[2]
+
+
+# The tests above cover the ground covers found from a printed room label. Colour is
+# the other source and it reaches the same code by a different route:
+# ``FloorPlan.planting``, filled by ``vegetation_regions`` per sheet, joins
+# the "lawn" polygons inside ``floors_to_parts``. It needs its own storey
+# sweep because a plan's planting is very often not on the ground floor at
+# all -- run over the reference house this session, ``extract`` returns 2
+# planting regions on floor 0, 0 on floor 1 and 2 on floor 2, so its whole
+# roof garden arrives through this path and only through it.
+@pytest.mark.parametrize("storey", [0, 1, 2])
+def test_colour_read_planting_is_built_on_the_storey_it_was_found_on(storey):
+    floors = [_floor() for _ in range(3)]
+    floors[storey] = _floor(planting=[list(INSIDE)])
+
+    parts = floors_to_parts(floors, wall_height_ft=HEIGHT, scale=SCALE)
+
+    assert "lawn" in parts, f"planting on storey {storey + 1} built nothing"
+    lowest = min(mesh.bounds[0][1] for mesh in parts["lawn"])
+    assert lowest == pytest.approx(_storey_floor_m(storey), abs=0.05)
+
+
+def test_a_garden_on_the_top_storey_is_not_roofed_over():
+    # Built at the right height and then slabbed over is the same as not
+    # built at all: the garden is invisible and the storey reads sealed.
+    roofed = floors_to_parts([_floor(), _floor()], wall_height_ft=HEIGHT, scale=SCALE)
+    planted = floors_to_parts(
+        [_floor(), _floor(planting=[list(INSIDE)])], wall_height_ft=HEIGHT, scale=SCALE
+    )
+
+    def roof_area(parts):
+        return sum(mesh.area for mesh in parts["roof"])
+
+    assert roof_area(planted) < roof_area(roofed)

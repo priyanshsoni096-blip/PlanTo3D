@@ -1117,6 +1117,71 @@ below -- its docstring says *"a sliver of misread paving cannot punch a
 hole through a floor"*. Nothing bounded them from above, which is the
 direction that costs a whole roof rather than a corner of one.
 
+### Gardens above ground level already work, and the spec was stale
+
+The spec's geometry item for this workstream -- landscaping "including
+gardens above ground level, not only at grade" -- describes a defect that
+no longer exists. Checked before writing any fix, and the answer is that
+it was fixed on 2026-08-20 by `a698554`, twelve days before the spec was
+written.
+
+Ground cover is placed inside the per-storey loop of
+`extrude.floors_to_parts`. `storey_ft = base_ft + SLAB_THICKNESS_FT`
+(`planto3d/extrude.py:1707`) is that storey's own walking surface, and the
+only override is the ground-storey exception at
+`planto3d/extrude.py:1718` -- a cover on storey 0 that is not mostly
+inside the footprint drops to site level, because a lawn beside the house
+lies on the ground rather than on the plinth. Nothing else keys on the
+storey index, so every upper storey builds its planting on itself.
+
+Measured three ways this session rather than read off the source:
+
+**Synthetically**, a three-storey block with one 360x300 px region placed
+on each storey in turn, built through `floors_to_parts` at 20 px/ft, from
+each of the three sources `open_to_sky` merges:
+
+| source | storey 0 | storey 1 | storey 2 |
+| --- | --- | --- | --- |
+| `FloorPlan.planting` (colour) | 0.686 m | 3.581 m | 6.477 m |
+| `labelled_regions["lawn"]` | 0.686 m | 3.581 m | 6.477 m |
+| room labelled TERRACE GARDEN | 0.686 m | 3.581 m | 6.477 m |
+
+against storey floor levels of 0.686, 3.581 and 6.477 m. One lawn mesh
+each time, at its own storey, never dropped and never at grade.
+
+**On the reference house** (`data/soni_residence`, 3 storeys, scale
+25.90 px/ft), `extract` finds 2 planting regions on floor 0, 0 on floor 1
+and 2 on floor 2. The build produces 4 lawn meshes: two at 0.686 m and
+two at **6.477 m**, the third storey's floor. The roof garden is built on
+the roof.
+
+**And it is not then slabbed over.** Built at the right height and roofed
+is the same as not built: on the synthetic two-storey block, top-storey
+planting takes the roof from 219.381 to 172.279 m2 of mesh area, and on a
+three-storey block whose top storey steps back, mid-storey planting takes
+the slabs from 433.393 to 386.291 m2. `open_to_sky` collects
+`floor.planting` at `planto3d/extrude.py:436`; the slab above cuts to it
+at `planto3d/extrude.py:1587` and the roof at `planto3d/extrude.py:1766`.
+
+**Looked at, not only asserted.** `demo_plans/2-TWO-STOREY-stairs.gif` has
+1 planting region, and it is on the upper storey, not the ground one.
+Rendered through `scripts/demo.py`, the green patch appears inside the
+open top storey with the roof cut away over it, at 3.581 m against a
+ground floor at 0.686 m.
+
+No production code changed. What was missing was coverage:
+`tests/test_storey_placement.py` swept the labelled-room route across
+three storeys but not the colour route, which is the one the reference
+house's roof garden actually arrives by. Four tests were added there. Both
+were checked against a deliberate regression -- restricting
+`floor.planting` to `index == 0` fails two of them, and dropping
+`floor.planting` from `open_to_sky` fails the third -- so they bite rather
+than merely pass.
+
+Suite 894 passed. `output_scorecard.py` 10 of 30, `open_air_accuracy.py`
+80.5% IoU / 96.3% recall / 83.0% precision over 48 scored sheets: all
+unchanged, as a test-only change must leave them.
+
 ## Room squaring is not failing, and the log was saying it was
 
 A run over the reference sheet printed *"squaring moved a room's area too
