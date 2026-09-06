@@ -1004,9 +1004,17 @@ the bound can take, including at 0.00, so those three giant regions
 carried no true open air at all.
 
 Counted before and after, the planting regions found are unchanged
-everywhere the detector was right: reference sheet 12 -> 12, `data/bridge`
-1 -> 1, `demo_plans` 1 -> 1. On CubiCasa 43 -> 40. `output_scorecard.py`
-holds at 10 of 30.
+everywhere the detector was right: reference sheet 4 -> 4 (2 on the ground
+storey, 0 on the first, 2 on the second, re-measured by running the bound
+at 1.01 and at 0.50), `data/bridge` 1 -> 1, `demo_plans` 1 -> 1. On
+CubiCasa 43 -> 40. `output_scorecard.py` holds at 10 of 30.
+
+An earlier revision of this paragraph said "reference sheet 12 -> 12". That
+was wrong: 12 is the page count of the reference PDF, not its planting
+count, and the two were conflated. The detector finds 4 planted regions
+across that PDF's three storeys. The claim the sentence makes -- that the
+bound does not touch this sheet -- is unaffected and was re-verified; only
+the number was.
 
 ### Where the remaining wrong roofs actually are
 
