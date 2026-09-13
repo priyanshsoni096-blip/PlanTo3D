@@ -8,6 +8,15 @@ code, that is called out rather than silently resolved — see
 [Doc drift found while writing this](#doc-drift-found-while-writing-this)
 at the end.*
 
+> **Superseded figures, 2026-09-13.** The CubiCasa numbers in this guide
+> were measured on a 60-sheet temp-folder sample that has since been lost,
+> and whose recoverable sheets were 25 of 32 from the *training* split. They
+> are kept as a record, not as current results. The current baseline is 60
+> sheets from the held-out test split (`data/cubicasa_test60.txt`):
+> scorecard **27/60**, scale **12.9%** median error, walls **97.6% / 93.8%**,
+> split **57/60**, open-air IoU **75.4%**. See `docs/AUDIT.md`, "The
+> benchmark was mostly training data".
+
 ---
 
 ## What this project is

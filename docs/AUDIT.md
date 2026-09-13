@@ -48,16 +48,61 @@ separate things is not 80% of a house. `scripts/output_scorecard.py` runs
 plans end to end and asks how many come out right on **every** count at
 once, scored against the annotations rather than by eye.
 
-Over 30 plans: **10 of 30 (33%)**.
+Over 60 plans from CubiCasa's held-out **test** split, which the checkpoint
+never saw: **27 of 60 (45%)**. The list is `data/cubicasa_test60.txt`; see
+"The benchmark was mostly training data" below for why this replaced the
+earlier sample.
 
 | Check | Fails on | |
 | --- | --- | --- |
-| **size** — scale within a fifth of true | **10 of 30** | the largest single cause |
-| **openings** — within 0.6x to 1.5x of those drawn | 9 of 30 | |
-| **walls** — coverage ≥85% and agreement ≥80% | 8 of 30 | |
-| **rooms** — count within 25% of annotated | 4 of 30 | |
-| built — a model comes out at all | **0 of 30** | |
-| storeys — right number of them | **0 of 30** | |
+| **size** — scale within a fifth of true | **16 of 60** | the largest single cause |
+| **openings** — within 0.6x to 1.5x of those drawn | 11 of 60 | |
+| **walls** — coverage ≥85% and agreement ≥80% | 10 of 60 | |
+| **rooms** — count within 25% of annotated | 8 of 60 | |
+| storeys — right number of them | 3 of 60 | |
+| built — a model comes out at all | **0 of 60** | |
+
+On the earlier sample the same script gave 10 of 30 (33%). That figure is
+kept in the history below but should not be quoted.
+
+## The benchmark was mostly training data
+
+Every CubiCasa figure in this file up to 2026-09-13 was measured on a
+60-sheet sample kept in a session temp folder,
+`C:\Users\RAHULS~1\AppData\Local\Temp\claude\cubicasa_batch`. That folder was
+cleared, and nothing recorded which sheets it held. Of the 32 sheet IDs that
+can still be recovered from saved script output, checked against
+`cubicasa5k/train.txt`, `val.txt` and `test.txt`:
+
+| split | sheets | what it means for this checkpoint |
+| --- | --- | --- |
+| train | **25** | `training/train.py:201` trains on these |
+| val | 6 | `training/train.py:203` scores epochs on these; the best is kept |
+| test | 1 | never used |
+
+So the old numbers were measured almost entirely on drawings the model had
+learned from. The replacement is 60 sheets drawn from `test.txt` only — 20
+per category, `random.Random(20260913)`, listed in
+`data/cubicasa_test60.txt` so it can be rebuilt from the dataset archive
+into the git-ignored `data/cubicasa5k/`. Re-measured on 2026-09-13:
+
+| Measure | Old sample (mostly train) | **Held-out test, 60** | Script |
+| --- | --- | --- | --- |
+| Right on every check | 10 of 30 (33%) | **27 of 60 (45%)** | `output_scorecard.py --limit 60` |
+| Scale, median error | 17.7% | **12.9%** (44/60 within a fifth) | `scale_accuracy.py --limit 60` |
+| — door route | 10 plans, 9.8% | 38 plans, 8.7%, bias −1.9% | same |
+| — wall route | 14 plans, 20.2% | 22 plans, 16.7%, bias −14.3% | same |
+| Wall coverage / agreement, median | 96.6% / 92.2% | **97.6% / 93.8%** | `wall_accuracy.py --limit 60` |
+| Sheets split exactly | 58/60, 86% recall | **57/60**, 100% precision, 73% recall | `split_accuracy.py --limit 60` |
+| Open-air IoU / recall / precision | 80.5 / 96.3 / 83.0 (48 sheets) | **75.4 / 89.3 / 82.9** (52 sheets) | `open_air_accuracy.py` |
+
+Two things moved the way contamination predicts: open-air recall fell 7
+points while precision held, and split recall fell. Two moved the other way,
+and the reason is the mix of sheets rather than the model: the held-out
+sample happens to carry usable doors on 38 of 60 sheets, so more plans take
+the accurate door route, and the scorecard and scale both improve. Walls are
+as good on unseen drawings as on seen ones. Neither sample is large enough to
+treat a few points as a trend; the held-out one is the one to quote.
 
 This reorders the work. The gaps table above ranks windows first and scale
 second on stage metrics; end to end it is **scale first**. Room function,

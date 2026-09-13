@@ -58,6 +58,7 @@ All figures produced by running the project's own scripts this session.
 | Scale error | 17.3% median; 33/48 within a fifth | `scale_accuracy.py` |
 | Wall coverage / agreement | 96.6% / 92.2% | `wall_accuracy.py` |
 | Sheet splitting | 58/60 exact, 100% precision, 86% recall | `split_accuracy.py` |
+| **Re-measured on held-out test split, 2026-09-13** | scorecard **27/60**; scale **12.9%** median, 44/60; walls **97.6% / 93.8%**; split **57/60**; open-air IoU **75.4%** | same scripts, `data/cubicasa_test60.txt` — the rows above were measured on a sample mostly drawn from the training split; see `docs/AUDIT.md` |
 | Window IoU | 0.089 CubiCasa, **0.239 CVC-FP** | `class_accuracy.py` |
 | Windows as a share of annotated pixels | **0.1019%** | `class_balance.py` |
 | Rooms ending open to the sky | 26 of 171 (15%) across 16 plans | this session |

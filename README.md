@@ -73,12 +73,18 @@ is quoted everywhere because it is the less flattering of the two.
 
 | What | Script | Result |
 | --- | --- | --- |
-| Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 30 | **96.6%** |
-| Wall agreement — built wall that really is wall | `wall_accuracy.py`, 30 | **92.2%** |
-| Windows found, as detection | 28 sheets, 190 windows | **62.1%** at 43.5% precision |
-| Sheets split into the right number of plans | `split_accuracy.py`, 60 | **58/60**, 100% precision, 86% recall |
-| Scale within a fifth of true | `scale_accuracy.py`, 48 | **33/48**, 17.3% median error |
-| Tests | `pytest` | **738** |
+| Plans right on every check at once | `output_scorecard.py`, 60 | **27/60** (45%) |
+| Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 60 | **97.6%** median |
+| Wall agreement — built wall that really is wall | `wall_accuracy.py`, 60 | **93.8%** median |
+| Sheets split into the right number of plans | `split_accuracy.py`, 60 | **57/60**, 100% precision, 73% recall |
+| Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
+| Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
+| Windows found, as detection | 28 sheets, 190 windows, older sample | 62.1% at 43.5% precision |
+| Tests | `pytest` | **894** |
+
+Every row but windows is measured on 60 plans from CubiCasa's held-out test
+split, listed in `data/cubicasa_test60.txt`. An earlier sample turned out to
+be mostly training data; `docs/AUDIT.md` explains the change.
 
 Window detection is reported separately from window IoU on purpose. A
 window is a strip, and what matters downstream is whether an opening ends
