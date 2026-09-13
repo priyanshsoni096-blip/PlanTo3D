@@ -26,7 +26,7 @@ from pathlib import Path
 import cv2
 
 from planto3d.cubicasa import sample_paths
-from planto3d.window_labels import labels_path, mask_to_labelme
+from planto3d.window_labels import bundle_reviewed, labels_path, mask_to_labelme
 
 
 def refuse_held_out(split_file) -> None:
@@ -54,12 +54,28 @@ def status(pairs) -> None:
           f"({windows} window(s) in reviewed files)")
 
 
-def main(root: Path, split_file: Path, checkpoint: Path | None, limit: int, show_status: bool) -> None:
+def main(
+    root: Path,
+    split_file: Path,
+    checkpoint: Path | None,
+    limit: int,
+    show_status: bool,
+    bundle: Path | None = None,
+) -> None:
     refuse_held_out(split_file)
     warnings.filterwarnings("ignore")
     logging.disable(logging.WARNING)
 
-    pairs = sample_paths(root, split_file)[:limit]
+    everything = sample_paths(root, split_file)
+    if bundle is not None:
+        # Every reviewed file in the split, not only the first --limit: a
+        # correction made on plan 31 must not be left behind.
+        count = bundle_reviewed([image for image, _ in everything], root, bundle)
+        print(f"{count} reviewed label file(s) -> {bundle}")
+        print("Put it on Drive at MyDrive/planto3d/window_labels.zip for train_on_colab.")
+        return
+
+    pairs = everything[:limit]
     if show_status:
         status(pairs)
         return
@@ -94,5 +110,16 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=30)
     parser.add_argument("--status", action="store_true", help="report progress and stop")
+    parser.add_argument(
+        "--bundle", type=Path, default=None,
+        help="zip every reviewed label file in the split, for train_on_colab",
+    )
     arguments = parser.parse_args()
-    main(arguments.root, arguments.split_file, arguments.checkpoint, arguments.limit, arguments.status)
+    main(
+        arguments.root,
+        arguments.split_file,
+        arguments.checkpoint,
+        arguments.limit,
+        arguments.status,
+        bundle=arguments.bundle,
+    )

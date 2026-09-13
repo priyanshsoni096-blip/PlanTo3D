@@ -14,9 +14,15 @@ existing application -- and ticks "reviewed". Training then uses the
 corrected rectangles in place of the annotation's windows, but only for
 files that carry that tick: an untouched export is the model's own guess, and
 training on it would teach the model its own mistakes.
+
+Corrections are made beside a local copy of the dataset, while training on
+Colab downloads a fresh copy that has none of them, so reviewed files travel
+in a zip: ``bundle_reviewed`` on the laptop, ``unpack_bundle`` in the
+notebook.
 """
 
 import json
+import zipfile
 from pathlib import Path
 
 import cv2
@@ -111,3 +117,43 @@ def adjust_mask(mask: np.ndarray, image_path: Path) -> np.ndarray:
     """The mask training should use: corrected where a review exists."""
     labels = load_reviewed(image_path)
     return mask if labels is None else apply_window_labels(mask, labels)
+
+
+def bundle_reviewed(image_paths, root: Path, bundle_path: Path) -> int:
+    """Zip every reviewed label file, keyed by its path under the dataset root.
+
+    Unreviewed files stay behind for the same reason training ignores them.
+    """
+    root = Path(root).resolve()
+    count = 0
+    with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for image in image_paths:
+            if load_reviewed(image) is None:
+                continue
+            label = labels_path(image).resolve()
+            archive.write(label, label.relative_to(root).as_posix())
+            count += 1
+    return count
+
+
+def unpack_bundle(bundle_path: Path, data_root: Path) -> int:
+    """Put a bundle's label files back beside their plans under ``data_root``.
+
+    Only ``.json`` entries are written, so a bundle can never replace an
+    image or annotation, and every entry is checked before any is written:
+    one that would land outside the dataset -- ``../`` in its name -- stops
+    the whole unpack rather than writing the others first.
+    """
+    root = Path(data_root).resolve()
+    with zipfile.ZipFile(bundle_path) as archive:
+        entries = [name for name in archive.namelist() if name.endswith(".json")]
+        targets = []
+        for name in entries:
+            target = (root / name).resolve()
+            if root not in target.parents:
+                raise ValueError(f"refusing {name!r}: it would write outside {root}")
+            targets.append((name, target))
+        for name, target in targets:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(name))
+    return len(targets)

@@ -80,7 +80,7 @@ is quoted everywhere because it is the less flattering of the two.
 | Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
 | Windows found, as detection | 28 sheets, 190 windows, older sample | 62.1% at 43.5% precision |
-| Tests | `pytest` | **907** |
+| Tests | `pytest` | **912** |
 
 Every row but windows is measured on 60 plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`. An earlier sample turned out to
@@ -335,6 +335,15 @@ LabelMe, fix the `window` rectangles, tick **reviewed**, save. Training uses
 only reviewed files, never overwrites one on re-export, and refuses the
 held-out test split outright.
 
+Training runs on Colab against its own download of the dataset, so the
+corrections travel as a zip. Bundle them, put the zip on Drive at
+`MyDrive/planto3d/window_labels.zip`, and section 3b of
+`notebooks/train_on_colab.ipynb` unpacks them before training:
+
+```bash
+python scripts/export_windows.py <cubicasa root> <cubicasa root>/train.txt --bundle window_labels.zip
+```
+
 ### Deterministic rendering
 
 `preview.py`'s numpy rasterizer is what every script above uses, and it
@@ -461,7 +470,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        907 tests
+tests/        912 tests
 docs/         design spec and implementation plan
 ```
 

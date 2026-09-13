@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **907 passing** | — |
+| Tests | **912 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -156,7 +156,12 @@ written (plan 2564 with 20 predicted windows, 6165 with 18); a re-run wrote
 0 and kept 3; the test list was
 refused with exit 1; on plan 6044 the training mask held 78 window pixels at
 512 px from the annotation, still 78 after an unreviewed edit, and 2 once
-the edit was ticked reviewed. The retrain itself is measured with
+the edit was ticked reviewed. The corrections reach a Colab run as a zip:
+`export_windows.py --bundle` packed the one reviewed file and left the two
+unreviewed ones behind, and `window_labels.unpack_bundle` put it back beside
+the same plan in a fresh folder, where the dataset found it reviewed.
+Section 3b of `notebooks/train_on_colab.ipynb` unpacks the bundle from Drive
+and stops if any held-out test plan carries a corrected label. The retrain itself is measured with
 `scripts/window_detection_accuracy.py` and `scripts/class_accuracy.py` on
 the held-out plans, and ships only if windows improve without walls or doors
 regressing.
