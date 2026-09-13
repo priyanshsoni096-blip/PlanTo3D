@@ -104,6 +104,37 @@ the accurate door route, and the scorecard and scale both improve. Walls are
 as good on unseen drawings as on seen ones. Neither sample is large enough to
 treat a few points as a trend; the held-out one is the one to quote.
 
+## Why plans still fall back to the wall estimate
+
+Size is the largest end-to-end failure on the held-out plans, 16 of 60, and
+the wall route is where it comes from: 22 plans take it, at 16.7% median
+error against the door route's 8.7%. The question was why those 22 do not
+use doors. Measured per plan on the same 60 test sheets, comparing detected
+openings against the doors CubiCasa's annotation draws:
+
+| on the 22 wall-route plans | median |
+| --- | --- |
+| doors the annotation draws | **6.5** |
+| doors the segmenter detects | **2** |
+| detected doors inside the width band | 1.5 |
+
+- **16 of 22 have fewer than 3 detected doors before any filter runs.** The
+  width band decides only 6 plans, and every door it removes there is a
+  sliver measuring 0.4 to 0.9 ft when the annotated doors on those sheets
+  measure 2.0 to 3.3 ft. Those rejections are right.
+- **The door constant is not the problem.** Annotated doors on these sheets
+  run about 2.5 ft, which is the 2'6" assumed.
+- **The minimum door count is not the problem.** Swept at 3, 2 and 1: median
+  error 12.9%, 13.5%, 13.1%. Lowering it routes more plans through doors,
+  but those plans' doors are the fragmentary ones and the door route itself
+  worsens from 8.7% to 12.0%. It stays at 3, with the sweep in its comment.
+
+The failure is **door recall in the segmenter**, on roughly a third of
+sheets. Nothing downstream can recover a door that was never detected, so
+the remedy is training — more or better-weighted door examples — and not
+another rule. **Do not retry** widening the band, changing the door
+constant, or lowering the minimum count.
+
 This reorders the work. The gaps table above ranks windows first and scale
 second on stage metrics; end to end it is **scale first**. Room function,
 which looked like a major problem at bath 0.602 and storage 0.570, costs

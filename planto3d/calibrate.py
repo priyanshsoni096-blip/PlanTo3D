@@ -101,7 +101,20 @@ ASSUMED_DRAWING_RATIO = 150.0
 # weaker: a plan mixes thin partitions with thick external walls.
 TYPICAL_DOOR_FT = 2.5
 TYPICAL_WALL_FT = 0.75  # 9 inches
-# Too few of either and the median means nothing.
+# Too few of either and the median means nothing. Measured rather than
+# assumed on 2026-09-13, scripts/scale_accuracy.py over the 60 held-out
+# test plans in data/cubicasa_test60.txt:
+#
+#   minimum   median err   within 20%   worst    plans on doors
+#   * 3         12.9%        44/60       55.6%        38
+#     2         13.5%        44/60       55.6%        49
+#     1         13.1%        45/60       58.1%        56
+#
+# Lowering it moves plans onto the door route, but the doors they bring are
+# the unreliable ones: the door route itself degrades from 8.7% to 12.0%.
+# Plans fall back to walls because the segmenter finds about 2 of the 6.5
+# doors their annotations draw, and no threshold recovers doors that were
+# never detected.
 MIN_DOORS_FOR_SCALE = 3
 
 # Room names that place a drawing in a drafting tradition. Only the Nordic
