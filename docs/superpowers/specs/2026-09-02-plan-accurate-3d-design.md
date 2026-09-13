@@ -244,6 +244,20 @@ Two gates, both re-runnable, neither arguable.
 - `split_accuracy.py` does not regress from 58/60, 100% precision
 - `wall_accuracy.py` coverage does not fall below 96%
 
+*Status, 2026-09-13, on 60 held-out test plans (`data/cubicasa_test60.txt`).
+The baselines above were measured on a sample later found to be mostly
+training data, so these are read against the targets, not the old numbers:*
+
+| Gate 1 item | Target | Held-out result | Met? |
+| --- | --- | --- | --- |
+| Right on every check | 70% (14 of 20) | 45% (27 of 60) | no |
+| Scale median error | below 10% | 12.9% | no |
+| Split precision | 100% | 100% (57/60 exact) | yes |
+| Wall coverage | at least 96% | 97.6% median | yes |
+
+*Gate 2 is not yet scored: `scripts/reference_check.py` exists and waits on
+the house's measured dimensions.*
+
 **Gate 2 — reality.** The reference house in `data/soni_residence`,
 whose plot and room dimensions can be physically checked, reconstructs
 within **5%** on overall size and within **10%** on individual rooms,

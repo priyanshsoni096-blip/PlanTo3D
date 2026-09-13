@@ -43,30 +43,30 @@ training log.
 
 ### What the segmenter reads
 
-`scripts/class_accuracy.py`, 30 CubiCasa sheets at their own resolution:
+`scripts/class_accuracy.py`, the 60 held-out test plans at their own resolution:
 
 | Class | Share of page | IoU | Recall |
 | --- | --- | --- | --- |
-| background | 39.40% | 0.961 | 97.0% |
-| outdoor | 5.77% | 0.883 | 95.9% |
-| kitchen | 6.11% | 0.778 | 85.5% |
-| circulation | 4.64% | 0.733 | 88.5% |
-| room | 19.34% | 0.717 | 76.9% |
-| bedroom | 9.38% | 0.713 | 89.2% |
-| **wall** | 8.50% | **0.697** | 86.1% |
-| bath | 3.94% | 0.602 | 67.1% |
-| storage | 4.25% | 0.570 | 77.4% |
-| door | 0.62% | 0.560 | 85.2% |
-| **window** | **0.11%** | **0.089** | 50.9% |
+| background | 40.48% | 0.949 | 96.7% |
+| bedroom | 10.45% | 0.854 | 91.3% |
+| kitchen | 5.38% | 0.770 | 82.7% |
+| outdoor | 5.54% | 0.758 | 89.1% |
+| bath | 3.18% | 0.758 | 87.1% |
+| room | 20.87% | 0.739 | 79.7% |
+| **wall** | 8.08% | **0.714** | 84.9% |
+| circulation | 4.23% | 0.680 | 86.0% |
+| storage | 2.98% | 0.600 | 75.4% |
+| door | 0.56% | 0.557 | 82.2% |
+| **window** | **0.12%** | **0.085** | 54.3% |
 
 Wall matters most, since walls drive the whole reconstruction. Window is
-the weakest thing in the project and the share column is why: at 0.11% of
+the weakest thing in the project and the share column is why: at 0.12% of
 a page, a window arrives at the network barely a pixel wide. IoU is also
 harsh on something four pixels across -- a one-pixel offset costs a
 quarter of it -- which is why recall is printed beside it.
 
 These are pooled over pixels. The script also prints a per-sheet median,
-which is far kinder (bath reads 0.94 rather than 0.60); the pooled figure
+which is far kinder (bath reads 0.93 rather than 0.76); the pooled figure
 is quoted everywhere because it is the less flattering of the two.
 
 ### What the geometry makes of it
@@ -90,7 +90,7 @@ Window detection is reported separately from window IoU on purpose. A
 window is a strip, and what matters downstream is whether an opening ends
 up on the right wall in roughly the right place, not whether the pixels
 line up. Measured that way it finds 62% of them -- poor, but not the
-0.089 the pixel score suggests.
+0.085 the pixel score suggests.
 
 ### Does it generalise?
 
@@ -102,7 +102,8 @@ the top.
 What can be tested cheaply is the *rendering* of a drawing rather than
 its origin. `scripts/convention_stress.py` redraws the sheets we have the
 way other conventions draw them, holding the annotation fixed so the
-ground truth stays valid:
+ground truth stays valid (measured on the earlier sample, before the held-out test set was
+adopted):
 
 | Convention | Wall IoU | vs as drawn |
 | --- | --- | --- |
@@ -139,18 +140,20 @@ drawing:
 | Source | Median error | Bias | Used on |
 | --- | --- | --- | --- |
 | Printed dimensions or area | — | — | checked against the geometry first |
-| **Door widths** | **12.3%** | **−8.4%** | 30 of 48 plans |
-| Wall thickness | 20.2% | −20.1% | 18 of 48 plans |
+| **Door widths** | **8.7%** | **−1.9%** | 38 of 60 plans |
+| Wall thickness | 16.7% | −14.3% | 22 of 60 plans |
 | Drafting ratio | — | — | last resort, never needed on this corpus |
 
-`scripts/scale_accuracy.py` over 48 plans: 17.3% median error overall, 33
-within a fifth of true.
+`scripts/scale_accuracy.py` over the 60 held-out test plans: 12.9% median
+error overall, 44 within a fifth of true. Plans fall back to wall thickness
+when the segmenter finds too few doors — on those plans it detects a median
+of 2 of the 6.5 the annotation draws — which `docs/AUDIT.md` measures.
 
 Doors work because they are the most standardised element in a building: a
 house is mostly interior doors around 2'6", whatever the drafting conventions
 or the language on the sheet. Wall thickness does not travel nearly as well
--- it reads 20% low on Finnish apartments and 6% high on the Indian
-control -- which is why the constant behind it is deliberately left alone.
+-- it reads about 14% low on the held-out Finnish apartments and 6% high on
+the Indian control -- which is why the constant behind it is deliberately left alone.
 See the trap noted in `docs/AUDIT.md`.
 
 Anything printed is **gated**: a figure read by OCR is used only when it
@@ -421,16 +424,17 @@ tile where it is worked in, stone through circulation.
 ## Limitations
 
 - **Windows are the weakest thing here.** 62% of them are found and 44% of
-  what is reported is real, so elevations come out sparser than the
-  drawing. Four ways of fixing it with more pixels have been tried and
+  what is reported is real (measured on an older sample that was partly
+  training data, so if anything optimistic), so elevations come out sparser
+  than the drawing. Four ways of fixing it with more pixels have been tried and
   measured, and none paid; `docs/AUDIT.md` records all four so they are
   not tried a fifth time.
-- **Absolute size is inferred unless the drawing states it.** Over 48
-  plans, 33 land within a fifth of true at a 17.3% median error, biased
-  low. Proportions are sound; the absolute figure is an estimate, and the
-  output says which it is.
-- **Sheets holding several plans are split on 58 of 60**, at 100%
-  precision and 86% recall. What it still misses is terraced blocks whose
+- **Absolute size is inferred unless the drawing states it.** Over 60
+  held-out plans, 44 land within a fifth of true at a 12.9% median error,
+  biased low. Proportions are sound; the absolute figure is an estimate,
+  and the output says which it is.
+- **Sheets holding several plans are split on 57 of 60**, at 100%
+  precision and 73% recall. What it still misses is terraced blocks whose
   units share a party wall, where there is no gutter to find at any
   threshold. Feeding one storey per image remains the certain route.
 - **Only two and a half drafting conventions have ever been tested.** This
