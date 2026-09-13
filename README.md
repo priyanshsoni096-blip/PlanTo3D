@@ -299,6 +299,22 @@ result — combine `--scale-room` with `--correct` or `--corrections` and aim
 the correction using the listing printed *after* the re-read, not one from
 an earlier, unscaled run.
 
+### Checking against a real building
+
+Every other score here is against an annotator's drawing. To compare the
+model with a building you can measure, write the measurements in the same
+syntax the flags use — `overall=WxD` for the ground-floor outline and
+`FLOOR:ROOM=WxH` per room, in feet — and keep the file somewhere git
+ignores:
+
+```bash
+python scripts/reference_check.py plan.pdf data/soni_residence/truth.txt --checkpoint models/unet_cubicasa.pt
+```
+
+It prints each item's real and modelled size and marks it against the
+spec's gate: within 5% overall, within 10% per room. Take room numbers from
+a `--list` run on the same plan.
+
 ### Deterministic rendering
 
 `preview.py`'s numpy rasterizer is what every script above uses, and it
