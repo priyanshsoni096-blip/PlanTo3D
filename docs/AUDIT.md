@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **894 passing** | — |
+| Tests | **907 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -134,6 +134,32 @@ sheets. Nothing downstream can recover a door that was never detected, so
 the remedy is training — more or better-weighted door examples — and not
 another rule. **Do not retry** widening the band, changing the door
 constant, or lowering the minimum count.
+
+## Window correction tooling, built; the retrain is not run
+
+The spec's fourth workstream is a spike: correct 20–30 plans' window
+annotations, retrain, measure. The tooling for it exists and is tested; the
+correction and the retrain have not been done, because both need a person —
+the boxes need correcting by hand, and a GPU retrain needs explicit
+agreement before it starts.
+
+- `scripts/export_windows.py` writes the model's WINDOW pixels as LabelMe
+  rectangles beside each image. It refuses `test.txt` and
+  `data/cubicasa_test60.txt`, and never overwrites an existing file.
+- `training/dataset.py` applies a label file through
+  `planto3d/window_labels.adjust_mask` **only if it is ticked reviewed**,
+  returning removed windows to wall because CubiCasa paints windows over
+  walls.
+
+Smoke-tested on three training plans on 2026-09-13: 3 label files
+written (plan 2564 with 20 predicted windows, 6165 with 18); a re-run wrote
+0 and kept 3; the test list was
+refused with exit 1; on plan 6044 the training mask held 78 window pixels at
+512 px from the annotation, still 78 after an unreviewed edit, and 2 once
+the edit was ticked reviewed. The retrain itself is measured with
+`scripts/window_detection_accuracy.py` and `scripts/class_accuracy.py` on
+the held-out plans, and ships only if windows improve without walls or doors
+regressing.
 
 This reorders the work. The gaps table above ranks windows first and scale
 second on stage metrics; end to end it is **scale first**. Room function,

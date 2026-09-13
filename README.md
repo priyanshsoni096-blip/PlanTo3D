@@ -80,7 +80,7 @@ is quoted everywhere because it is the less flattering of the two.
 | Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
 | Windows found, as detection | 28 sheets, 190 windows, older sample | 62.1% at 43.5% precision |
-| Tests | `pytest` | **894** |
+| Tests | `pytest` | **907** |
 
 Every row but windows is measured on 60 plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`. An earlier sample turned out to
@@ -315,6 +315,23 @@ It prints each item's real and modelled size and marks it against the
 spec's gate: within 5% overall, within 10% per room. Take room numbers from
 a `--list` run on the same plan.
 
+### Correcting window annotations for retraining
+
+Windows are the weakest thing the model reads, and the evidence points at
+the training data. To improve it, export the model's own window predictions
+from **training** plans and correct them in [LabelMe](https://github.com/wkentaro/labelme)
+rather than drawing from scratch:
+
+```bash
+python scripts/export_windows.py <cubicasa root> <cubicasa root>/train.txt --checkpoint models/unet_cubicasa.pt --limit 30
+python scripts/export_windows.py <cubicasa root> <cubicasa root>/train.txt --status
+```
+
+Each plan gets a `F1_scaled.json` beside its image. Open the folder in
+LabelMe, fix the `window` rectangles, tick **reviewed**, save. Training uses
+only reviewed files, never overwrites one on re-export, and refuses the
+held-out test split outright.
+
 ### Deterministic rendering
 
 `preview.py`'s numpy rasterizer is what every script above uses, and it
@@ -440,7 +457,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        894 tests
+tests/        907 tests
 docs/         design spec and implementation plan
 ```
 

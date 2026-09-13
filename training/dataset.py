@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import Dataset
 
 from planto3d.cubicasa import sample_paths, svg_to_mask
+from planto3d.window_labels import adjust_mask
 from training.augment import augment
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,10 @@ class CubiCasaDataset(Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         mask = svg_to_mask(svg_path, image.shape[:2])
+        # Hand-corrected windows, where a person has reviewed the model's
+        # exported predictions in LabelMe. Unreviewed or absent files leave
+        # the annotation exactly as CubiCasa drew it.
+        mask = adjust_mask(mask, image_path)
 
         image = cv2.resize(image, (self.size, self.size), interpolation=cv2.INTER_AREA)
         mask = cv2.resize(
