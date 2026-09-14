@@ -187,6 +187,36 @@ the accurate door route, and the scorecard and scale both improve. Walls are
 as good on unseen drawings as on seen ones. Neither sample is large enough to
 treat a few points as a trend; the held-out one is the one to quote.
 
+## The scale ground truth, checked and sound
+
+After the hollow-window masks turned out to be wrong, the other measuring
+stick every scale figure rests on was checked the same way:
+`cubicasa.ground_truth_scale`, which gives each plan's true pixels per foot.
+It is not circular — it divides each room's SVG bounding box by the size
+CubiCasa recorded for that room, keeps rooms whose two sides agree within
+12%, and takes the median, with no wall or door assumption anywhere in it.
+
+Over the 60 held-out plans, 2026-09-15:
+
+| check | result |
+| --- | --- |
+| plans with a ground-truth scale | 60 of 60 |
+| room-size labels parsed as feet | 686 of 689 (99.6%) |
+| feet agreeing with the label's own metres, within 2% | 442 of 449 |
+| rooms feeding each plan's scale | median 8, minimum 2 |
+
+CubiCasa records every size in both systems in one string —
+`6'0" x 29'0"1.82 m x 8.85 m` — and the parser reads the feet. The seven
+disagreements are all tiny measurements (`0'1"`, `0'4"`, `0'11"`) where inch
+rounding is most of the value; every one has a side under the 4 ft minimum
+and never reaches the scale. The SVG-to-image conversion in
+`scripts/scale_accuracy.py` reads the root element's own `width`, which the
+headers confirm. As an independent physical check, doors measured with this
+scale come out near 2.5 ft and walls near 0.65 ft, both real sizes.
+
+**Nothing to fix; do not re-audit.** The 12.9% scale error is measured
+against a correct reference.
+
 ## Why plans still fall back to the wall estimate
 
 Size is the largest end-to-end failure on the held-out plans, 16 of 60, and
