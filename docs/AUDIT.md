@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **916 passing** | — |
+| Tests | **918 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -49,18 +49,84 @@ plans end to end and asks how many come out right on **every** count at
 once, scored against the annotations rather than by eye.
 
 Over 60 plans from CubiCasa's held-out **test** split, which the checkpoint
-never saw: **27 of 60 (45%)**. The list is `data/cubicasa_test60.txt`; see
-"The benchmark was mostly training data" below for why this replaced the
-earlier sample.
+never saw, scored against correctly rasterised annotations: **11 of 60
+(18%)**. The list is `data/cubicasa_test60.txt`; see "The benchmark was
+mostly training data" and "Every window in the masks was hollow" below.
 
 | Check | Fails on | |
 | --- | --- | --- |
-| **size** — scale within a fifth of true | **16 of 60** | the largest single cause |
+| **walls** — coverage ≥85% and agreement ≥80% | **40 of 60** | the largest single cause |
+| **size** — scale within a fifth of true | 16 of 60 | |
 | **openings** — within 0.6x to 1.5x of those drawn | 11 of 60 | |
-| **walls** — coverage ≥85% and agreement ≥80% | 10 of 60 | |
 | **rooms** — count within 25% of annotated | 8 of 60 | |
 | storeys — right number of them | 3 of 60 | |
 | built — a model comes out at all | **0 of 60** | |
+
+Scored against the hollow-window masks the same model read 27 of 60 (45%),
+with walls failing on 10. That figure was produced by the bug and should not
+be quoted.
+
+## Every window in the masks was hollow
+
+`planto3d/cubicasa.svg_to_mask` filled all of a class's polygons in a single
+`cv2.fillPoly` call. OpenCV treats polygons given together as the contours of
+one shape, so where two coincide they cancel. CubiCasa repeats outlines: each
+window is drawn again inside its `Glass` child, each door three times, and 42%
+of wall groups more than once. An even number of copies left only a border:
+one rectangle fills 1,701 pixels, the same rectangle twice fills 200. Over the
+60 held-out plans, counting duplicated polygons per group: windows 429 of 429,
+doors 539 of 539, walls 601 of 1,423, every room type 0.
+
+What that did to the labels, same 60 plans, pixels per class filled together
+against filled one polygon at a time:
+
+| class | as trained | corrected | change |
+| --- | --- | --- | --- |
+| window | 141,474 | 1,686,340 | ×11.9 |
+| wall | 9,341,237 | 7,888,644 | −15.6% |
+| door | 695,012 | 782,224 | +12.5% |
+
+A window's box was 9% window at the median and 95% of the rest wall; 1.54
+million pixels of glass were labelled wall. **The installed checkpoint was
+trained on window outlines, and on walls running across every window.** The
+converter's one window test used a single rectangle with no `Glass` child, so
+it never saw the duplicate. Fixed by filling each polygon on its own, with
+tests for a window carrying its glass and for shapes repeated any number of
+times.
+
+Every figure scored against these masks moves. The same checkpoint, the same
+60 plans, the old masks against the corrected ones:
+
+| | hollow masks | **corrected masks** |
+| --- | --- | --- |
+| Window IoU / recall | 0.085 / 54.3% | **0.223 / 27.3%** |
+| Wall IoU / recall | 0.714 / 84.9% | **0.660 / 88.6%** |
+| Door IoU | 0.557 | **0.545** |
+| Wall coverage / agreement, median | 97.6% / 93.8% | **97.9% / 79.9%** |
+| Plans below 70% wall agreement | 1 of 60 | **6 of 60** |
+| Window detection recall / precision | 87.4% / 79.5% | **87.7% / 84.5%** |
+| Right on every check | 27 of 60 | **11 of 60** |
+
+The model's windows overlap real glass far better than they overlapped the
+outlines, so window IoU nearly triples; but it covers 27% of each window,
+because it learned that glass is wall. The same lesson is why wall agreement
+falls: it builds wall straight through window openings, which the hollow
+masks scored as correct. Scale and open air read neither mask and do not move.
+
+The training loss weights were measured on the same broken masks.
+`CLASS_FREQUENCY` is re-measured on 60 training plans (`random.Random(20260915)`
+over `train.txt`): windows 1.48% of a page rather than 0.11%, walls 7.1% rather
+than 8.3%, and doors, at 0.68%, the rarest class. The weights now span 7.8 to
+one and no real class reaches the ceiling. The tests that pinned windows as
+the rarest class and 1.5 times a door encoded the bug's numbers and are
+rewritten to follow measured frequency for every class.
+
+This also reframes the window evidence above. Window weakness was put down to
+windows being 0.1% of the training pixels; they are 1.3–1.5%, and the model
+was taught their outlines. The door-weighted retrain was trained on these
+masks too, which may be part of why it moved nothing. A retrain on the
+corrected masks has not yet been run; `notebooks/train_on_colab.ipynb`
+defaults to it, writing `unet_cubicasa_fixedwindows.pt`.
 
 On the earlier sample the same script gave 10 of 30 (33%). That figure is
 kept in the history below but should not be quoted.
@@ -395,7 +461,7 @@ Two things this renderer does honestly rather than hides:
 
 | # | Gap | Measured | Why it matters | General? |
 | --- | --- | --- | --- | --- |
-| 1 | **Windows weak** | Detection **87.4%** recall at 79.5% precision on 59 held-out plans, but 727 predicted pieces for 422 windows; IoU **0.085** | Windows come out fragmented, so façades carry broken glazing and extra openings. Openings fail on 11 of 60 plans end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
+| 1 | **Windows weak** | Detection **87.7%** recall at 84.5% precision on 59 held-out plans, but IoU **0.223** and recall 27.3% — the checkpoint was trained on hollow window masks | Windows are found but drawn as a fraction of their glass, and walls are built through them: wall agreement 79.9%, walls fail 40 of 60 end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
 | 2 | **Scale, 12.9% median error** | 44/60 within a fifth; **doors 8.7% error / −1.9% bias on 38 plans, walls 16.7% error / −14.3% bias on 22** (60 held-out test plans) | Sets the whole building's size, and is the **largest end-to-end failure** at 16 of 60. Plans fall back to walls because the segmenter finds about 2 of the 6.5 doors drawn on them; a door-weighted retrain did not change that. The error is concentrated in the wall-derived half of the population — doors are already accurate | No — wall thickness genuinely varies (IQR ±16% of median); no single constant repairs it. See below |
 | 3 | Sheet splitting misses | Recall **73%**, **57/60** exact, 100% precision (held-out) | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
 | 4 | **Only 2½ conventions tested** | Now **3½** — CVC-FP added, 122 sheets, 4 styles | Walls hold at 96.7% coverage on an unseen tradition; scale still untestable there | **Yes** |

@@ -1,7 +1,7 @@
 """The loss weights that keep rare classes from being abandoned.
 
-A window is 0.11% of a drawing. Unweighted, the cheapest way for the model
-to reduce its loss is to stop predicting windows entirely -- the error it
+A door is 0.68% of a drawing. Unweighted, the cheapest way for the model
+to reduce its loss is to stop predicting doors entirely -- the error it
 adds is smaller than the error it removes elsewhere. These weights are what
 stop that, so their shape matters more than their exact values.
 """
@@ -36,17 +36,23 @@ def test_the_weights_average_one():
 
 
 def test_a_rarer_class_is_weighted_more_heavily():
+    # Doors are the rarest class once windows are rasterised whole: 0.68% of
+    # a page against windows' 1.48%. Before the fill fix the masks had
+    # windows at 0.11%, and this test pinned that wrong order.
     weights = class_weights()
 
-    assert weights[WINDOW] > weights[DOOR] > weights[ROOM] > weights[BACKGROUND]
+    assert weights[DOOR] > weights[WINDOW] > weights[ROOM] > weights[BACKGROUND]
 
 
-def test_the_rarest_class_keeps_its_lead_over_the_next():
-    # The ceiling once sat below both, flattening a window and a door to the
-    # same weight when a window is five times the rarer.
+def test_weights_follow_frequency_for_every_class():
+    # Stated for all classes rather than for a named pair, so the next
+    # correction to a measured share cannot leave a test asserting the old
+    # ranking -- which is what the window lead over doors turned out to be.
     weights = class_weights()
+    by_rarity = sorted(CLASS_FREQUENCY, key=CLASS_FREQUENCY.get)
 
-    assert weights[WINDOW] > weights[DOOR] * 1.5
+    ranked = [weights[index].item() for index in by_rarity]
+    assert ranked == sorted(ranked, reverse=True)
 
 
 def test_the_spread_stays_trainable():
@@ -85,11 +91,16 @@ def test_a_door_boost_raises_doors_against_every_other_class():
 
 def test_a_boost_cannot_lift_a_class_past_the_ceiling():
     # Otherwise a large boost reopens the runaway gradient the ceiling exists
-    # to prevent: doors could never outweigh windows by more than the cap.
+    # to prevent.
+    import math
+
     boosted = class_weights(boost={DOOR: 1000.0})
 
-    assert boosted[DOOR] == pytest.approx(boosted[WINDOW])
-    assert boosted.max() / boosted.min() < 200
+    # Clamped to the ceiling, so its lead over background is exactly the
+    # ceiling against background's unboosted weight.
+    expected = WEIGHT_CEILING * math.sqrt(CLASS_FREQUENCY[BACKGROUND])
+    assert boosted[DOOR] / boosted[BACKGROUND] == pytest.approx(expected, rel=1e-5)
+    assert boosted.max() == boosted[DOOR]
 
 
 def test_the_training_command_accepts_door_boost():
@@ -102,13 +113,14 @@ def test_the_training_command_accepts_door_boost():
     assert build_parser().parse_args(["data", "out.pt"]).door_boost == 1.0
 
 
-def test_the_ceiling_clears_every_real_class_but_the_rarest():
-    # If the ceiling caught several classes it would flatten them together,
-    # which is the failure it was raised to avoid.
+def test_the_ceiling_catches_no_real_class():
+    # The ceiling exists for a vanishing class (see the test above that
+    # drives a share to 1e-9). With windows measured whole, no real class
+    # comes near it: the rarest, door, sits at about half.
     raw = {index: freq ** -0.5 for index, freq in CLASS_FREQUENCY.items()}
     clamped = [index for index, value in raw.items() if value > WEIGHT_CEILING]
 
-    assert clamped == [WINDOW]
+    assert clamped == []
 
 
 class TestTheWeightsFollowTheModel:

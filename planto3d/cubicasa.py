@@ -190,9 +190,17 @@ def svg_to_mask(svg_path: Path, shape: tuple[int, int]) -> np.ndarray:
     # to the index dtype the rest of the pipeline expects.
     canvas = np.full(shape, BACKGROUND, dtype=np.uint8)
     for class_index in PAINT_ORDER:
-        polygons = [p.round().astype(np.int32) for p in shapes[class_index]]
-        if polygons:
-            cv2.fillPoly(canvas, polygons, color=int(class_index))
+        # One call per polygon, never one call for the list. fillPoly treats
+        # the polygons it is given together as the contours of one shape, so
+        # where two coincide they cancel. CubiCasa repeats outlines -- every
+        # window is drawn again inside its Glass child, every door three
+        # times, 42% of wall groups more than once -- and a shape drawn an
+        # even number of times came out as its border alone. Measured over
+        # the 60 held-out plans: window pixels 141,474 filled together,
+        # 1,686,340 filled one by one; 1.54 million pixels of window glass
+        # had been labelled wall.
+        for polygon in shapes[class_index]:
+            cv2.fillPoly(canvas, [polygon.round().astype(np.int32)], color=int(class_index))
 
     return canvas.astype(np.int64)
 

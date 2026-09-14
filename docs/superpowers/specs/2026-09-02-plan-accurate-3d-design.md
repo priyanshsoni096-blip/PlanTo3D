@@ -58,7 +58,7 @@ All figures produced by running the project's own scripts this session.
 | Scale error | 17.3% median; 33/48 within a fifth | `scale_accuracy.py` |
 | Wall coverage / agreement | 96.6% / 92.2% | `wall_accuracy.py` |
 | Sheet splitting | 58/60 exact, 100% precision, 86% recall | `split_accuracy.py` |
-| **Re-measured on held-out test split, 2026-09-13** | scorecard **27/60**; scale **12.9%** median, 44/60; walls **97.6% / 93.8%**; split **57/60**; open-air IoU **75.4%** | same scripts, `data/cubicasa_test60.txt` — the rows above were measured on a sample mostly drawn from the training split; see `docs/AUDIT.md` |
+| **Re-measured on held-out test split, 2026-09-13** | scorecard **11/60** (27/60 before the hollow-window mask fix); scale **12.9%** median, 44/60; walls **97.9% / 79.9%**; split **57/60**; open-air IoU **75.4%** | same scripts, `data/cubicasa_test60.txt` — the rows above were measured on a sample mostly drawn from the training split; see `docs/AUDIT.md` |
 | Window IoU | 0.089 CubiCasa, **0.239 CVC-FP** | `class_accuracy.py` |
 | Windows as a share of annotated pixels | **0.1019%** | `class_balance.py` |
 | Rooms ending open to the sky | 26 of 171 (15%) across 16 plans | this session |
@@ -250,10 +250,10 @@ training data, so these are read against the targets, not the old numbers:*
 
 | Gate 1 item | Target | Held-out result | Met? |
 | --- | --- | --- | --- |
-| Right on every check | 70% (14 of 20) | 45% (27 of 60) | no |
+| Right on every check | 70% (14 of 20) | 18% (11 of 60) | no |
 | Scale median error | below 10% | 12.9% | no |
 | Split precision | 100% | 100% (57/60 exact) | yes |
-| Wall coverage | at least 96% | 97.6% median | yes |
+| Wall coverage | at least 96% | 97.9% median | yes |
 
 *Gate 2 is not yet scored: `scripts/reference_check.py` exists and waits on
 the house's measured dimensions.*

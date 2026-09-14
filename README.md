@@ -43,27 +43,30 @@ training log.
 
 ### What the segmenter reads
 
-`scripts/class_accuracy.py`, the 60 held-out test plans at their own resolution:
+`scripts/class_accuracy.py`, the 60 held-out test plans at their own resolution,
+against correctly rasterised annotations:
 
 | Class | Share of page | IoU | Recall |
 | --- | --- | --- | --- |
-| background | 40.48% | 0.949 | 96.7% |
+| background | 40.40% | 0.953 | 97.0% |
 | bedroom | 10.45% | 0.854 | 91.3% |
 | kitchen | 5.38% | 0.770 | 82.7% |
 | outdoor | 5.54% | 0.758 | 89.1% |
 | bath | 3.18% | 0.758 | 87.1% |
-| room | 20.87% | 0.739 | 79.7% |
-| **wall** | 8.08% | **0.714** | 84.9% |
+| room | 20.87% | 0.741 | 79.7% |
 | circulation | 4.23% | 0.680 | 86.0% |
+| **wall** | 6.44% | **0.660** | 88.6% |
 | storage | 2.98% | 0.600 | 75.4% |
-| door | 0.56% | 0.557 | 82.2% |
-| **window** | **0.12%** | **0.085** | 54.3% |
+| door | 0.71% | 0.545 | 75.9% |
+| **window** | 1.30% | **0.223** | 27.3% |
 
-Wall matters most, since walls drive the whole reconstruction. Window is
-the weakest thing in the project and the share column is why: at 0.12% of
-a page, a window arrives at the network barely a pixel wide. IoU is also
-harsh on something four pixels across -- a one-pixel offset costs a
-quarter of it -- which is why recall is printed beside it.
+Wall matters most, since walls drive the whole reconstruction. Window is the
+weakest thing in the project, and the reason is a bug rather than scarcity:
+the converter that turns CubiCasa's SVGs into training masks drew every window
+as its outline and labelled the glass wall. The installed checkpoint learned
+exactly that — it covers 27% of each window and builds wall through the rest.
+The converter is fixed; a retrain on the corrected masks has not yet been run.
+`docs/AUDIT.md`, "Every window in the masks was hollow", has the measurements.
 
 These are pooled over pixels. The script also prints a per-sheet median,
 which is far kinder (bath reads 0.93 rather than 0.76); the pooled figure
@@ -73,26 +76,27 @@ is quoted everywhere because it is the less flattering of the two.
 
 | What | Script | Result |
 | --- | --- | --- |
-| Plans right on every check at once | `output_scorecard.py`, 60 | **27/60** (45%) |
-| Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 60 | **97.6%** median |
-| Wall agreement — built wall that really is wall | `wall_accuracy.py`, 60 | **93.8%** median |
+| Plans right on every check at once | `output_scorecard.py`, 60 | **11/60** (18%) |
+| Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 60 | **97.9%** median |
+| Wall agreement — built wall that really is wall | `wall_accuracy.py`, 60 | **79.9%** median |
 | Sheets split into the right number of plans | `split_accuracy.py`, 60 | **57/60**, 100% precision, 73% recall |
 | Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
-| Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **87.4%** found, 79.5% precision |
-| Tests | `pytest` | **916** |
+| Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **87.7%** found, 84.5% precision |
+| Tests | `pytest` | **918** |
 
 Every row is measured on plans from CubiCasa's held-out test
-split, listed in `data/cubicasa_test60.txt`. An earlier sample turned out to
-be mostly training data; `docs/AUDIT.md` explains the change.
+split, listed in `data/cubicasa_test60.txt`, against annotations rasterised
+correctly. An earlier sample turned out to be mostly training data, and the
+earlier masks drew every window hollow; `docs/AUDIT.md` explains both.
 
 Window detection is reported separately from window IoU on purpose. A
 window is a strip, and what matters downstream is whether an opening ends
 up on the right wall in roughly the right place, not whether the pixels
-line up. Measured that way it finds 87% of them, and 80% of what it calls a
-window is one -- far better than the 0.085 the pixel score suggests. The gap
-is fragmentation: it predicts 727 pieces for 422 windows, splitting one
-window into several, which the pixel score punishes and a count does not.
+line up. Measured that way it finds 88% of them, and 85% of what it calls a
+window is one -- far better than the 0.223 pixel score suggests. The gap is
+how much of each window it paints: trained on outlines, it covers 27% of the
+glass and splits a window into pieces, 727 of them for 422 windows.
 
 ### Does it generalise?
 
@@ -434,9 +438,10 @@ tile where it is worked in, stone through circulation.
 
 ## Limitations
 
-- **Windows are the weakest thing here.** 87% of them are found and 80% of
-  what is reported is real, but a window often comes out in fragments, so
-  pixel IoU is only 0.085 and elevations carry broken glazing. Four ways of fixing it with more pixels have been tried and
+- **Windows are the weakest thing here.** 88% of them are found and 85% of
+  what is reported is real, but the installed model was trained on hollow
+  window labels: it paints 27% of each window, builds wall through the rest,
+  and pixel IoU is 0.223. The label bug is fixed; the retrain is not yet run. Four ways of fixing it with more pixels have been tried and
   measured, and none paid; `docs/AUDIT.md` records all four so they are
   not tried a fifth time.
 - **Absolute size is inferred unless the drawing states it.** Over 60
@@ -471,7 +476,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        916 tests
+tests/        918 tests
 docs/         design spec and implementation plan
 ```
 

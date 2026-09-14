@@ -13,7 +13,8 @@ at the end.*
 > and whose recoverable sheets were 25 of 32 from the *training* split. They
 > are kept as a record, not as current results. The current baseline is 60
 > sheets from the held-out test split (`data/cubicasa_test60.txt`):
-> scorecard **27/60**, scale **12.9%** median error, walls **97.6% / 93.8%**,
+> scorecard **11/60** (after the 2026-09-15 fix to hollow window masks),
+> scale **12.9%** median error, walls **97.9% / 79.9%**,
 > split **57/60**, open-air IoU **75.4%**. See `docs/AUDIT.md`, "The
 > benchmark was mostly training data".
 

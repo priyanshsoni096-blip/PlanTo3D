@@ -44,6 +44,34 @@ class TestSvgToMask:
         assert mask[10, 70] == WINDOW
         assert mask[50, 10] == BEDROOM
 
+    def test_a_window_with_its_glass_child_paints_solid(self, tmp_path):
+        # CubiCasa draws every window twice: the Window group's rectangle and
+        # an identical one in its Glass child. Collected together and filled
+        # in one call, the overlap cancelled and only the border was painted
+        # -- measured over the held-out plans, a window's box was 9% window
+        # and 95% of the rest wall. The model was trained on those outlines.
+        svg = _write_svg(
+            tmp_path,
+            f'<g class="Wall">{_rect(0, 0, 100, 20)}</g>'
+            f'<g class="Window">{_rect(20, 5, 80, 15)}'
+            f'<g class="Glass">{_rect(20, 5, 80, 15)}</g></g>',
+        )
+
+        mask = svg_to_mask(svg, (100, 100))
+
+        assert (mask[7:14, 22:79] == WINDOW).all()
+
+    def test_repeated_polygons_of_any_count_paint_solid(self, tmp_path):
+        # Doors repeat their outline three times and walls sometimes twice;
+        # whether a shape came out solid depended on whether the count was
+        # odd. It must not depend on that at all.
+        body = f'<g class="Wall">{_rect(0, 60, 40, 80)}{_rect(0, 60, 40, 80)}</g>'
+        body += f'<g class="Door">{_rect(50, 60, 90, 80)}' + _rect(50, 60, 90, 80) * 3 + "</g>"
+        mask = svg_to_mask(_write_svg(tmp_path, body), (100, 100))
+
+        assert (mask[63:78, 3:38] == WALL).all()
+        assert (mask[63:78, 53:88] == DOOR).all()
+
     def test_room_types_are_kept_apart(self, tmp_path):
         # Room type is the only route to room function on a plan that prints
         # no names, which is most of them. Collapsing these to one class --

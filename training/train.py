@@ -52,39 +52,46 @@ def build_model(num_classes: int = NUM_CLASSES) -> torch.nn.Module:
     )
 
 
-# Share of pixels each class occupies, measured over sixty CubiCasa samples
-# with ``scripts/class_balance.py``. Re-measure rather than adjust by feel if
-# the class scheme changes.
+# Share of pixels each class occupies, measured over sixty CubiCasa training
+# samples with ``scripts/class_balance.py``. Re-measure rather than adjust by
+# feel if the class scheme or the rasteriser changes.
 #
-# The spread is the problem: a window is 0.11% of a drawing and the
-# background 42%, four hundred times more. Unweighted, the cheapest way for
-# the model to cut its loss is to stop predicting windows at all -- it costs
-# almost nothing and the average barely moves.
+# Re-measured 2026-09-15, after fixing ``cubicasa.svg_to_mask``: it had filled
+# every polygon of a class in one call, and CubiCasa repeats outlines, so
+# every window came out as its border alone and its glass was labelled wall.
+# The table this replaced had windows at 0.11% and walls at 8.3% for that
+# reason. Measured whole, windows are 1.48% and walls 7.1%, and doors -- not
+# windows -- are the rarest class. Sixty training plans drawn with
+# random.Random(20260915) from train.txt.
+#
+# The spread is still the problem: a door is 0.68% of a drawing and the
+# background 42%, sixty times more. Unweighted, the cheapest way for the
+# model to cut its loss is to stop predicting the thin classes at all.
 CLASS_FREQUENCY = {
-    BACKGROUND: 0.4244,
-    WALL: 0.0830,
-    ROOM: 0.1992,
-    DOOR: 0.0060,
-    WINDOW: 0.0011,
-    BEDROOM: 0.0774,
-    KITCHEN: 0.0583,
-    BATH: 0.0279,
+    BACKGROUND: 0.4172,
+    WALL: 0.0710,
+    ROOM: 0.1972,
+    DOOR: 0.0068,
+    WINDOW: 0.0148,
+    BEDROOM: 0.0837,
+    KITCHEN: 0.0497,
+    BATH: 0.0280,
     STORAGE: 0.0310,
-    CIRCULATION: 0.0388,
-    OUTDOOR: 0.0530,
+    CIRCULATION: 0.0439,
+    OUTDOOR: 0.0567,
 }
 
 # Inverse square root rather than plain inverse frequency. Plain inverse
-# would weight a window 386 times a background pixel, and the gradient from
+# would weight a door 61 times a background pixel, and the gradient from
 # a handful of thin strips then swamps everything else -- the model chases
 # windows and loses the walls. The square root keeps the ordering while
-# compressing the range to something trainable, around twenty to one.
+# compressing the range to something trainable -- 7.8 to one across the
+# shares above.
 #
 # The ceiling is a guard against a class that is nearly absent rather than
-# merely rare, where the reciprocal runs away. It is set clear of the
-# rarest real class: at ten it caught doors and windows together and gave
-# them equal weight, when a window is five times the rarer of the two and
-# needs the larger share of the attention.
+# merely rare, where the reciprocal runs away. With the corrected shares no
+# real class reaches it -- the rarest, door, sits at about half -- so it now
+# only bounds a vanishing class and an experimental boost.
 WEIGHT_CEILING = 25.0
 
 
