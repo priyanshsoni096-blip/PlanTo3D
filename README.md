@@ -79,18 +79,20 @@ is quoted everywhere because it is the less flattering of the two.
 | Sheets split into the right number of plans | `split_accuracy.py`, 60 | **57/60**, 100% precision, 73% recall |
 | Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
-| Windows found, as detection | 28 sheets, 190 windows, older sample | 62.1% at 43.5% precision |
+| Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **87.4%** found, 79.5% precision |
 | Tests | `pytest` | **916** |
 
-Every row but windows is measured on 60 plans from CubiCasa's held-out test
+Every row is measured on plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`. An earlier sample turned out to
 be mostly training data; `docs/AUDIT.md` explains the change.
 
 Window detection is reported separately from window IoU on purpose. A
 window is a strip, and what matters downstream is whether an opening ends
 up on the right wall in roughly the right place, not whether the pixels
-line up. Measured that way it finds 62% of them -- poor, but not the
-0.085 the pixel score suggests.
+line up. Measured that way it finds 87% of them, and 80% of what it calls a
+window is one -- far better than the 0.085 the pixel score suggests. The gap
+is fragmentation: it predicts 727 pieces for 422 windows, splitting one
+window into several, which the pixel score punishes and a count does not.
 
 ### Does it generalise?
 
@@ -432,10 +434,9 @@ tile where it is worked in, stone through circulation.
 
 ## Limitations
 
-- **Windows are the weakest thing here.** 62% of them are found and 44% of
-  what is reported is real (measured on an older sample that was partly
-  training data, so if anything optimistic), so elevations come out sparser
-  than the drawing. Four ways of fixing it with more pixels have been tried and
+- **Windows are the weakest thing here.** 87% of them are found and 80% of
+  what is reported is real, but a window often comes out in fragments, so
+  pixel IoU is only 0.085 and elevations carry broken glazing. Four ways of fixing it with more pixels have been tried and
   measured, and none paid; `docs/AUDIT.md` records all four so they are
   not tried a fifth time.
 - **Absolute size is inferred unless the drawing states it.** Over 60

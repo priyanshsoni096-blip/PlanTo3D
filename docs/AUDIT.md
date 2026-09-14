@@ -395,23 +395,25 @@ Two things this renderer does honestly rather than hides:
 
 | # | Gap | Measured | Why it matters | General? |
 | --- | --- | --- | --- | --- |
-| 1 | **Windows weak** | Detection **62.1%** at 43.5% precision; IoU 0.089 | Façades sparser than the drawing, plus openings that are not there. Openings fail on 9 of 30 plans end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
-| 2 | **Scale, 17.3% median error** | 33/48 within a fifth; **doors 10.4% error / +0.9% bias, walls 20.2% error / −20.2% bias** (30 sheets) | Sets the whole building's size, and is the **largest end-to-end failure** at 10 of 30. The error is concentrated in the wall-derived half of the population — doors are already accurate | No — wall thickness genuinely varies (IQR ±16% of median); no single constant repairs it. See below |
-| 3 | Sheet splitting misses | Recall **86%**, **58/60** exact | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
+| 1 | **Windows weak** | Detection **87.4%** recall at 79.5% precision on 59 held-out plans, but 727 predicted pieces for 422 windows; IoU **0.085** | Windows come out fragmented, so façades carry broken glazing and extra openings. Openings fail on 11 of 60 plans end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
+| 2 | **Scale, 12.9% median error** | 44/60 within a fifth; **doors 8.7% error / −1.9% bias on 38 plans, walls 16.7% error / −14.3% bias on 22** (60 held-out test plans) | Sets the whole building's size, and is the **largest end-to-end failure** at 16 of 60. Plans fall back to walls because the segmenter finds about 2 of the 6.5 doors drawn on them; a door-weighted retrain did not change that. The error is concentrated in the wall-derived half of the population — doors are already accurate | No — wall thickness genuinely varies (IQR ±16% of median); no single constant repairs it. See below |
+| 3 | Sheet splitting misses | Recall **73%**, **57/60** exact, 100% precision (held-out) | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
 | 4 | **Only 2½ conventions tested** | Now **3½** — CVC-FP added, 122 sheets, 4 styles | Walls hold at 96.7% coverage on an unseen tradition; scale still untestable there | **Yes** |
-| 5 | Storage rooms weak | IoU 0.570 | Storage reads as ordinary rooms | Yes |
-| 6 | Bath rooms weak | IoU 0.602 | Wet floors missed | Yes |
+| 5 | Storage rooms weak | IoU 0.600 (held-out) | Storage reads as ordinary rooms | Yes |
+| 6 | ~~Bath rooms weak~~ **no longer among the weakest** | IoU 0.758 on the held-out plans, against 0.602 on the earlier training-heavy sample; circulation, at 0.680, is now lower | Wet floors missed | Yes |
 | 7 | ~~Prompt truncated~~ **closed** | 68 tokens, site features preserved | — | — |
 | 8 | OCR reads few names | 12/60 plans | Largely mitigated: types come from the model now | Inherent |
 | 9 | ~~Diagonal walls~~ **not worth building** | Costs **2.7%** of wall pixels, no plan over 10% | See below | — |
 | 10 | Classical baseline | No walls on 10/12 unseen | Scaffold for clean CAD only; the trained model is the contribution | Documented |
 | 11 | Colour heuristics | Windows 5/12, planting 1/12 | One drafting office's convention | Documented |
 
-> **Discrepancy note (row 1):** `scripts/window_detection_accuracy.py` now
-> exists and measures **81.7% recall at 75.7% precision**, not the
-> 62.1%/43.5% above -- the original measurement's method was never recorded
-> and could not be recovered. The figure above is kept as the historical
-> record rather than silently changed; treat the script's output as current.
+> **Discrepancy note (row 1):** earlier revisions quoted window detection as
+> 62.1% recall at 43.5% precision. That measurement's method was never
+> recorded and cannot be reproduced; `scripts/window_detection_accuracy.py`
+> later gave 81.7% / 75.7% on the old, mostly-training sample. Re-run on the
+> 59 held-out test plans that carry windows (2026-09-15): **87.4% recall,
+> 79.5% precision**, 422 annotated windows, 727 predicted components. Those
+> are the figures to quote.
 
 ## What rendering a random plan turned up
 
