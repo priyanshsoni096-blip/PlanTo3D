@@ -1,11 +1,13 @@
 """Correcting window annotations without building an interface.
 
-Windows are the weakest thing the segmenter reads, and the evidence is that
-the cause is the training data: windows are about 0.1% of CubiCasa's
-annotated pixels, and the same weights score 2.7 times better on a corpus
-they never saw. The one untried remedy is better window annotations, and
-drawing them from nothing is slow. Correcting the model's own predictions is
-not.
+Windows are the weakest thing the segmenter reads. This module was written
+on the belief that CubiCasa's window annotations were too sparse -- about
+0.1% of its pixels. That figure was a bug: the SVG converter drew every
+window as its outline (fixed 2026-09-15, see ``cubicasa.svg_to_mask``), and
+measured whole, windows are about 1.5% of a page. CubiCasa's own window
+labels are complete, so correcting them by hand is no longer the remedy;
+retraining on the corrected masks is. This tooling is kept for plans whose
+annotations genuinely are wrong or absent.
 
 So there is no tool here to draw with. The model's WINDOW pixels are written
 out as rectangles in LabelMe's format, beside each image and under the name

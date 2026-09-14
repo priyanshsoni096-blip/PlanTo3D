@@ -83,7 +83,7 @@ is quoted everywhere because it is the less flattering of the two.
 | Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
 | Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **87.7%** found, 84.5% precision |
-| Tests | `pytest` | **918** |
+| Tests | `pytest` | **920** |
 
 Every row is measured on plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`, against annotations rasterised
@@ -108,24 +108,25 @@ the top.
 What can be tested cheaply is the *rendering* of a drawing rather than
 its origin. `scripts/convention_stress.py` redraws the sheets we have the
 way other conventions draw them, holding the annotation fixed so the
-ground truth stays valid (measured on the earlier sample, before the held-out test set was
-adopted):
+ground truth stays valid. 15 held-out test plans, against correctly rasterised
+annotations:
 
 | Convention | Wall IoU | vs as drawn |
 | --- | --- | --- |
-| Solid poché walls | 0.811 | +0.064 |
-| Photocopied, toned paper, heavier or finer pen | 0.732–0.752 | within 0.015 |
-| **As drawn** | **0.747** | — |
-| Hatched walls | 0.688 | −0.059 |
-| **Outline walls** | **0.534** | **−0.214** |
-| Reversed print (blueprint) | 0.014 → **0.747** | fixed at ingest |
+| Solid poché walls | 0.761 | +0.022 |
+| **As drawn** | **0.739** | — |
+| Photocopied, toned paper, finer pen | 0.726–0.735 | within 0.013 |
+| Heavier pen | 0.703 | −0.036 |
+| Hatched walls | 0.662 | −0.077 |
+| **Outline walls** | **0.567** | **−0.172** |
+| Reversed print, fed straight to the model | 0.005 | ingest turns it the right way up first |
 
-The model is not fragile: scan quality, paper tone and pen weight cost
-almost nothing, and hatched walls -- which were predicted to be read as
-background -- are read as walls. Outline-drawn walls are the one real
-gap, and the training augmentation now includes them for the next run. A
-reversed print used to destroy it and is now turned the right way up on
-read, scoring exactly what the ordinary sheet does.
+The model is not fragile to scan quality: paper tone and pen weight cost
+little, and hatched walls are still read as walls. Outline-drawn walls are
+the one real gap, and the training augmentation includes them for the next
+run. This script feeds each redrawn sheet straight to the segmenter, so a
+reversed print scores near zero here; the pipeline's ingest step detects a
+reversed print and turns it the right way up before the model sees it.
 
 A simulated convention is not a second corpus. It is a lower bound on the
 damage, and what it narrows is *which* corpus would be worth getting.
@@ -476,7 +477,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        918 tests
+tests/        920 tests
 docs/         design spec and implementation plan
 ```
 

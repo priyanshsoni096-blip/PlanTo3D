@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **918 passing** | — |
+| Tests | **920 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -127,6 +127,23 @@ was taught their outlines. The door-weighted retrain was trained on these
 masks too, which may be part of why it moved nothing. A retrain on the
 corrected masks has not yet been run; `notebooks/train_on_colab.ipynb`
 defaults to it, writing `unet_cubicasa_fixedwindows.pt`.
+
+`planto3d/cvc_fp.svg_to_mask` filled polygons the same way. CVC-FP carries no
+repeated polygons, so its windows were never hollow, but wall pieces overlap
+at corners and the overlaps came out as background: 468,747 pixels, 1.04% of
+all wall across the 122 plans. It is fixed the same way and now has tests,
+which it had none of. `scripts/cvc_fp_accuracy.py` on its default 30 plans,
+before and after:
+
+| | before | after |
+| --- | --- | --- |
+| Wall IoU | 0.636 | **0.666** |
+| Wall coverage / agreement | 96.3% / 69.0% | 96.4% / 70.1% |
+| Window IoU | 0.239 | 0.239 |
+| Room / door IoU | 0.530 / 0.136 | 0.530 / 0.136 |
+
+Only walls move, as the pixel count said they would; the CVC-FP window figure
+was never affected and stands.
 
 On the earlier sample the same script gave 10 of 30 (33%). That figure is
 kept in the history below but should not be quoted.
@@ -1693,6 +1710,15 @@ draws them at 0.11% of a page. CVC-FP draws them at 0.9% and at 1.75 wall
 thicknesses deep against CubiCasa's 1.33, and the model finds them. The
 window problem is substantially a property of the training corpus rather
 than of the network.
+
+> **Superseded, 2026-09-15.** The 0.11% above was produced by a converter
+> bug: `cubicasa.svg_to_mask` drew every CubiCasa window as its outline, so
+> both the share and the 0.089 were measured against hollow labels. Scored
+> against corrected masks, CubiCasa window IoU is 0.223, close to CVC-FP's,
+> and windows are about 1.5% of a page. The "nearly three times better"
+> comparison did not compare like with like, and the conclusion that
+> windows fail because CubiCasa draws too few of them does not stand. See
+> "Every window in the masks was hollow".
 
 **The door collapse is not a door collapse.** It looked like the model
 failing badly, and it is the two corpora meaning different things:

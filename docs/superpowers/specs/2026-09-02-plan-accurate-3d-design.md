@@ -60,7 +60,7 @@ All figures produced by running the project's own scripts this session.
 | Sheet splitting | 58/60 exact, 100% precision, 86% recall | `split_accuracy.py` |
 | **Re-measured on held-out test split, 2026-09-13** | scorecard **11/60** (27/60 before the hollow-window mask fix); scale **12.9%** median, 44/60; walls **97.9% / 79.9%**; split **57/60**; open-air IoU **75.4%** | same scripts, `data/cubicasa_test60.txt` — the rows above were measured on a sample mostly drawn from the training split; see `docs/AUDIT.md` |
 | Window IoU | 0.089 CubiCasa, **0.239 CVC-FP** | `class_accuracy.py` |
-| Windows as a share of annotated pixels | **0.1019%** | `class_balance.py` |
+| Windows as a share of annotated pixels | ~~0.1019%~~ **1.48%** on 60 training plans, after the 2026-09-15 fix to hollow window masks | `class_balance.py` |
 | Rooms ending open to the sky | 26 of 171 (15%) across 16 plans | this session |
 | Rooms with neither label nor predicted type | **51 of 171 (30%)** | this session |
 | Open-air IoU / recall / precision | **80.5% / 96.3% / 83.0%** over 48 sheets | `open_air_accuracy.py`, 2026-09-06 |
@@ -177,6 +177,15 @@ unusually clear. The same weights score 0.089 on CubiCasa and **0.239 on
 CVC-FP** — 2.7× better on a corpus never trained on. Windows are 0.1019%
 of CubiCasa's annotated pixels. The problem is the training data, not the
 network.
+
+**Corrected 2026-09-15: that evidence was a converter bug.**
+`cubicasa.svg_to_mask` drew every CubiCasa window as its outline, which is
+where both 0.1019% and 0.089 came from. Against corrected masks CubiCasa
+window IoU is 0.223 and windows are about 1.5% of a page, so the CVC-FP
+comparison no longer shows a sparse training set. CubiCasa's own window
+labels are complete; the installed checkpoint was trained on the broken
+masks, and a retrain on corrected masks replaces the annotation spike as the
+remedy to test.
 
 It matters that **the cheap remedies are already spent.** `train.py`
 already weights classes by inverse *square root* frequency with a ceiling
