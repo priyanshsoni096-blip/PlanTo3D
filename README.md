@@ -83,12 +83,23 @@ is quoted everywhere because it is the less flattering of the two.
 | Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
 | Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **87.7%** found, 84.5% precision |
-| Tests | `pytest` | **929** |
+| Tests | `pytest` | **936** |
 
 Every row is measured on plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`, against annotations rasterised
 correctly. An earlier sample turned out to be mostly training data, and the
 earlier masks drew every window hollow; `docs/AUDIT.md` explains both.
+
+The dataset is not ours to redistribute, so the plans themselves are not in
+the repository. With CubiCasa5K's archive, one command rebuilds exactly this
+set into `data/cubicasa5k/` — checked byte for byte against the copy every
+figure here was measured on — and `--verify-list` confirms the list is the
+seeded draw it claims to be:
+
+```bash
+python scripts/rebuild_benchmark.py path/to/cubicasa5k.zip
+python scripts/rebuild_benchmark.py path/to/cubicasa5k.zip --verify-list
+```
 
 Window detection is reported separately from window IoU on purpose. A
 window is a strip, and what matters downstream is whether an opening ends
@@ -492,7 +503,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        929 tests
+tests/        936 tests
 docs/         design spec and implementation plan
 ```
 
