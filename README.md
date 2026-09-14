@@ -83,7 +83,7 @@ is quoted everywhere because it is the less flattering of the two.
 | Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
 | Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **87.7%** found, 84.5% precision |
-| Tests | `pytest` | **920** |
+| Tests | `pytest` | **929** |
 
 Every row is measured on plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`, against annotations rasterised
@@ -351,6 +351,21 @@ corrections travel as a zip. Bundle them, put the zip on Drive at
 python scripts/export_windows.py <cubicasa root> <cubicasa root>/train.txt --bundle window_labels.zip
 ```
 
+### Judging a retrained model
+
+A new checkpoint replaces the installed one only if it is measured to be
+better. One command runs every held-out measurement for both and prints
+them side by side, each marked better, worse or the same:
+
+```bash
+python scripts/compare_checkpoints.py data/cubicasa5k --baseline models/unet_cubicasa.pt --candidate models/unet_cubicasa_fixedwindows.pt --save comparison_logs
+```
+
+It runs class accuracy, scale, the scorecard, walls, window detection and
+open air on the 60 held-out plans for each model, six at a time. It does not
+decide: it lists what improved and what regressed. If any script fails, the
+comparison stops and names it rather than reporting that figure as unchanged.
+
 ### Deterministic rendering
 
 `preview.py`'s numpy rasterizer is what every script above uses, and it
@@ -477,7 +492,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        920 tests
+tests/        929 tests
 docs/         design spec and implementation plan
 ```
 

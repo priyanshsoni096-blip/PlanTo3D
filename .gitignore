@@ -22,6 +22,7 @@ data/bridge/
 *.obj
 output/
 output_*/
+comparison_logs/
 
 # Trained checkpoints (~98 MB each)
 models/*.pt
