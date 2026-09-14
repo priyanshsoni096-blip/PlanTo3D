@@ -1,97 +1,83 @@
 # Where the project stands
 
 A handoff note, so work can resume from a fresh session without the
-conversation that produced it. Read alongside the
-[README](../README.md), which covers what the project does and how to run
-it, and **[`docs/PROJECT_GUIDE.md`](PROJECT_GUIDE.md), which is the
-current, verified reference** -- every number in it was reproduced by
-actually running the code on 2026-08-28, not copied from this file.
+conversation that produced it. Read alongside the [README](../README.md),
+which covers what the project does and how to run it.
 
-**[`docs/AUDIT.md`](AUDIT.md) is the authority on every measurement.**
-This file is a narrative, and most of it is now history rather than
-status: everything below "Start here" predates the session that produced
-`PROJECT_GUIDE.md` and, in a couple of places named below, recommends
-work that the project has since done the *opposite* of. Where any of the
-three files disagree, trust `AUDIT.md` for numbers and
-`PROJECT_GUIDE.md` for what to do next.
+**[`docs/AUDIT.md`](AUDIT.md) is the authority on every measurement.** This
+file's "Start here" section is current as of 2026-09-15; everything below the
+rule further down is history. `docs/PROJECT_GUIDE.md` is a verified snapshot
+from 2026-08-28 and is itself marked superseded -- trust `AUDIT.md` wherever
+they disagree.
 
 ## Start here
 
-`models/unet_cubicasa.pt` predicts eleven classes, trained 24 epochs on
-augmented data, best at epoch 22 with a validation Dice of 0.7757. A
-768px run and a retrain with an outline-wall augmentation were both tried
-afterwards and neither replaced it -- see the audit.
+`models/unet_cubicasa.pt` predicts eleven classes, trained 24 epochs, best at
+epoch 22 with a validation Dice of 0.7757. **It was trained on broken window
+labels**: until 2026-09-15 `cubicasa.svg_to_mask` drew every window as its
+outline and labelled the glass wall. The converter is fixed. A retrain on the
+corrected masks is the next step and has not yet been run. A door-weighted
+retrain (`--door-boost 2`) was run and rejected on measurement.
 
-Where things stand, every figure reproduced live against this checkpoint
-on 2026-08-28 (`docs/PROJECT_GUIDE.md` has the full detail and the script
-behind each row):
+Every figure below was measured on 2026-09-13 to 15 on the 60 held-out test
+plans in `data/cubicasa_test60.txt`, against correctly rasterised annotations.
+Rebuild the set with `scripts/rebuild_benchmark.py`.
 
 | | Result | Script |
 | --- | --- | --- |
-| Sheets split into the right number of plans | **58/60**, 100% precision, 86% recall | `split_accuracy.py` |
-| Wall coverage — annotated wall that gets built | **96.6%** | `wall_accuracy.py` |
-| Wall agreement — built wall that really is wall | **92.2%** | `wall_accuracy.py` |
-| Windows found, as detection | **62.1%** at 43.5% precision | in-session harness, not yet a tracked script |
-| Scale within a fifth of true | **33/48**, 17.3% median | `scale_accuracy.py` |
-| Room function, from the predicted type | **every plan** | `batch_evaluate.py` |
-| Per-class IoU | wall 0.697, door 0.560, **window 0.089** | `class_accuracy.py` |
-| **Correct end to end, every check at once** | **10/30 (33%)** | `output_scorecard.py` |
-| Tests | **835** | `pytest` |
+| **Correct end to end, every check at once** | **11/60 (18%)** | `output_scorecard.py` |
+| — fails on walls / size / openings / rooms / storeys | 40 / 16 / 11 / 8 / 3 | same |
+| Sheets split into the right number of plans | **57/60**, 100% precision, 73% recall | `split_accuracy.py` |
+| Wall coverage / agreement, median | **97.9% / 79.9%** | `wall_accuracy.py` |
+| Scale within a fifth of true | **44/60**, 12.9% median error | `scale_accuracy.py` |
+| Windows found, as detection | **87.7%** at 84.5% precision | `window_detection_accuracy.py` |
+| Per-class IoU | wall 0.660, door 0.545, **window 0.223** | `class_accuracy.py` |
+| Open-to-sky spaces, pixel IoU | **75.4%** over 52 plans | `open_air_accuracy.py` |
+| Tests | **936** | `pytest` |
 
-That last-but-one row matters more than any single stage number: it runs
-the whole pipeline per plan and asks how many are right on *every* check
-at once, not just on average. It reorders the priority the per-stage
-numbers alone would suggest -- **scale is the largest end-to-end failure
-(10 of 30), not windows** (which cost 9 of 30, and are substantially a
-property of what CubiCasa's training data looks like rather than of the
-network -- confirmed by a second corpus, CVC-FP, where the same weights
-score 0.239 rather than 0.089).
+The scorecard row matters more than any stage number, and it currently points
+at **walls, failing on 40 of 60**. That is the broken labels showing through:
+the checkpoint learned that window glass is wall, so it builds wall across
+window openings and wall agreement falls below the scorecard's 80% bar. The
+retrain on corrected masks is aimed squarely at it. Scale is next, at 16 of
+60, and is door recall rather than any constant: on plans that fall back to
+the wall estimate the segmenter finds about 2 of the 6.5 doors drawn.
+
+An earlier claim that windows fail because CubiCasa draws them at 0.1% of a
+page, supported by CVC-FP scoring 0.239 against CubiCasa's 0.089, came from
+the same bug. On corrected masks CubiCasa window IoU is 0.223 and windows are
+about 1.5% of a page. `AUDIT.md`, "Every window in the masks was hollow".
 
 ### What is worth doing next
 
-In priority order, from `docs/PROJECT_GUIDE.md`'s future-plan section,
-which has the reasoning behind each:
-
-1. **Commit a script for the two numbers that only exist as throwaway
-   session code** -- the CVC-FP measurement and window detection
-   recall/precision. Both are correct (reproduced live) but neither can
-   be re-run by anyone else without rebuilding the code from scratch.
-2. ~~Read the drawing's own stated convention and switch scale constants
-   accordingly.~~ **Tried, on `scale-accuracy`, and shipped dormant.**
-   `planto3d/calibrate.py` gained `CONVENTIONS`, `detect_convention` and
-   `element_sizes`; it is correct and unit-tested but fires on 0 of 30
-   CubiCasa sheets, because those rasters carry almost no readable
-   room-name text. **Correcting the door constant to the Finnish 2'3" was
-   also tried and measured worse, not better** -- pooled error moves from
-   17.7% to 20.1% and sheets within a fifth from 20/30 to 15/30 (the
-   detector measures an opening span, not the leaf the annotation
-   records). The wall-thickness half of the same idea is real but was
-   deliberately not shipped globally, since it fits the one corpus with
-   metric ground truth. `docs/AUDIT.md`, "Scale error, broken down by
-   source, and four routes tried that did not close it" has the numbers;
-   do not restate them here.
-3. **Rebalance or supplement window training data.** CVC-FP's 2.7x
-   better window IoU on the same weights is real evidence for this being
-   worth trying, and it hasn't been.
+1. **Retrain on the corrected masks** with `notebooks/train_on_colab.ipynb` at
+   its defaults (`door_boost = 1.0`, `run_name = "fixedwindows"`), then judge it
+   in one command:
+   `python scripts/compare_checkpoints.py data/cubicasa5k --baseline models/unet_cubicasa.pt --candidate models/unet_cubicasa_fixedwindows.pt --save comparison_logs`.
+   It replaces the installed checkpoint only if walls and windows improve
+   without scale or doors regressing.
+2. **Score the reference house against tape measurements** --
+   `scripts/reference_check.py`, with the sizes in a git-ignored file. It is
+   the spec's second gate and the only ground truth not drawn by an annotator.
+3. **Door recall**, if the retrain does not move scale. Loss weighting was
+   tried and measured worse (`AUDIT.md`, the door-weighted retrain); the
+   remaining levers need more or different door examples, not a rule.
 4. **A milder retrain** with the `unfill_walls` augmentation at a lower
    probability than the 0.3 that was tried and rejected.
-5. **A fourth ground-truthed corpus**, ideally from a population whose
-   scale constants are known to differ in the *other* direction from
-   CubiCasa's (the Indian villa control already shows +6% wall bias
-   where CubiCasa shows -20%) -- the only way to move past "3½
-   conventions tested" as the standing qualification on every number in
-   the project.
+5. **A fourth ground-truthed corpus**, ideally with scale constants that
+   differ in the other direction from CubiCasa's -- the only way past "3½
+   conventions tested" as the qualification on every number.
 
-Two ideas already tried and explicitly rejected, so they are not
-retried on a hunch: preferring door-based scale estimates *harder* (swept
-across five thresholds; the current one is already the best on every
-measure), and combining the two geometric scale estimates by averaging
-(every blend loses to picking doors alone).
+Done since the previous version of this list: scripts for the CVC-FP and
+window-detection measurements are committed; correcting the door constant,
+widening the door band, lowering the minimum door count, a global wall
+constant, fuzzy OCR matching, parapet-height evidence and neighbour
+propagation were each measured and rejected, and are recorded in the audit
+so they are not retried.
 
 ---
 
-*Everything from here down predates the session that produced the table
-above and `docs/PROJECT_GUIDE.md`. Read it as history -- what was true,
+*Everything from here down predates 2026-08-28. Read it as history -- what was true,
 what was tried, what was learned -- not as current status. Two places
 below give advice the code has since done the opposite of, and are
 marked inline where they occur rather than deleted, since the reasoning
