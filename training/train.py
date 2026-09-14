@@ -89,7 +89,9 @@ WEIGHT_CEILING = 25.0
 
 
 def class_weights(
-    frequency: dict[int, float] | None = None, ceiling: float = WEIGHT_CEILING
+    frequency: dict[int, float] | None = None,
+    ceiling: float = WEIGHT_CEILING,
+    boost: dict[int, float] | None = None,
 ) -> torch.Tensor:
     """Loss weights per class, normalised to average one.
 
@@ -98,8 +100,14 @@ def class_weights(
     training logs.
     """
     frequency = frequency or CLASS_FREQUENCY
+    # An optional multiplier per class, for experiments. Applied before the
+    # ceiling, so no boost can reopen the runaway gradient the ceiling stops.
+    boost = boost or {}
     raw = torch.tensor(
-        [1.0 / math.sqrt(max(frequency.get(i, 1.0), 1e-6)) for i in range(NUM_CLASSES)]
+        [
+            boost.get(i, 1.0) / math.sqrt(max(frequency.get(i, 1.0), 1e-6))
+            for i in range(NUM_CLASSES)
+        ]
     )
     return (raw.clamp(max=ceiling) / raw.clamp(max=ceiling).mean()).float()
 
@@ -188,6 +196,7 @@ def train(
     limit: int | None = None,
     num_workers: int = 2,
     augment: bool = True,
+    door_boost: float = 1.0,
 ) -> Path:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cpu":
@@ -209,7 +218,11 @@ def train(
     val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=num_workers)
 
     model = build_model().to(device)
-    loss_fn = build_loss(device=device)
+    # door_boost is an experiment: the shipped checkpoint was trained at 1.0.
+    # Doors decide scale, the largest end-to-end failure, and on the held-out
+    # plans that fail it the segmenter finds about 2 of the 6.5 doors drawn.
+    loss_fn = build_loss(class_weights(boost={DOOR: door_boost}), device=device)
+    logger.info("door boost %.2f", door_boost)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
@@ -257,6 +270,7 @@ def train(
                     "size": size,
                     "val_dice": best_dice,
                     "epoch": epoch,
+                    "door_boost": door_boost,
                 },
                 output_path,
             )
@@ -266,8 +280,7 @@ def train(
     return output_path
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_root", type=Path, help="folder holding train.txt and the samples")
     parser.add_argument("output", type=Path, help="where to write the checkpoint")
@@ -277,7 +290,16 @@ def main() -> None:
     parser.add_argument("--size", type=int, default=DEFAULT_SIZE)
     parser.add_argument("--limit", type=int, default=None, help="cap samples, for a smoke test")
     parser.add_argument("--num-workers", type=int, default=2)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--door-boost", type=float, default=1.0,
+        help="multiply the door loss weight; 1.0 reproduces the shipped checkpoint",
+    )
+    return parser
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    args = build_parser().parse_args()
 
     train(
         args.data_root,
@@ -288,6 +310,7 @@ def main() -> None:
         size=args.size,
         limit=args.limit,
         num_workers=args.num_workers,
+        door_boost=args.door_boost,
     )
 
 

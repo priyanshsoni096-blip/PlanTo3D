@@ -64,6 +64,44 @@ def test_a_vanishing_class_cannot_run_away():
     assert weights.max() / weights.min() < 200
 
 
+def test_no_boost_is_exactly_the_shipped_weights():
+    # The boost is an experiment, opt-in. Everything above describes the
+    # weights the installed checkpoint was trained with, and a run that asks
+    # for nothing must reproduce them to the digit.
+    assert torch.equal(class_weights(boost=None), class_weights())
+    assert torch.equal(class_weights(boost={DOOR: 1.0}), class_weights())
+
+
+def test_a_door_boost_raises_doors_against_every_other_class():
+    # Doors decide scale, the largest end-to-end failure, and the segmenter
+    # finds about 2 of the 6.5 doors CubiCasa draws on the plans that fail.
+    plain = class_weights()
+    boosted = class_weights(boost={DOOR: 2.0})
+
+    assert boosted[DOOR] / boosted[ROOM] > plain[DOOR] / plain[ROOM]
+    assert boosted[DOOR] / boosted[BACKGROUND] > plain[DOOR] / plain[BACKGROUND]
+    assert boosted.mean().item() == pytest.approx(1.0, abs=1e-5)
+
+
+def test_a_boost_cannot_lift_a_class_past_the_ceiling():
+    # Otherwise a large boost reopens the runaway gradient the ceiling exists
+    # to prevent: doors could never outweigh windows by more than the cap.
+    boosted = class_weights(boost={DOOR: 1000.0})
+
+    assert boosted[DOOR] == pytest.approx(boosted[WINDOW])
+    assert boosted.max() / boosted.min() < 200
+
+
+def test_the_training_command_accepts_door_boost():
+    # Two flags on this project were added to a function and never reached
+    # the command line. This asks the real parser.
+    from training.train import build_parser
+
+    arguments = build_parser().parse_args(["data", "out.pt", "--door-boost", "2"])
+    assert arguments.door_boost == 2.0
+    assert build_parser().parse_args(["data", "out.pt"]).door_boost == 1.0
+
+
 def test_the_ceiling_clears_every_real_class_but_the_rarest():
     # If the ceiling caught several classes it would flatten them together,
     # which is the failure it was raised to avoid.

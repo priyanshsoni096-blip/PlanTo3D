@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **912 passing** | — |
+| Tests | **916 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -134,6 +134,31 @@ sheets. Nothing downstream can recover a door that was never detected, so
 the remedy is training — more or better-weighted door examples — and not
 another rule. **Do not retry** widening the band, changing the door
 constant, or lowering the minimum count.
+
+### The door labels are not the problem, so the retrain is a weighting change
+
+Before correcting any annotations by hand, CubiCasa's own were checked. On
+training plan 6044 every door arc in the drawing carries an annotated door —
+7 of them — and the segmenter finds 5. Across the 22 held-out plans that fall
+back to walls the annotation draws a median of 6.5 doors and the segmenter
+finds 2. The labels exist and are right; the model under-learns them. Hand
+correction would re-draw labels it has already seen, so it is not used.
+
+What the loss currently asks of doors is low: `training/train.py`'s
+inverse-square-root weights, averaging one, give a door pixel **1.92** and a
+window pixel **3.72** (the ceiling). Doors carry scale, the largest failure,
+and are weighted at half what windows are.
+
+`class_weights` now takes an optional per-class `boost`, applied before the
+ceiling so it cannot reopen a runaway gradient, and `train.py --door-boost`
+passes it through and records it in the checkpoint. The default is 1.0, which
+reproduces the shipped weights exactly, and the existing tests still pin that.
+`notebooks/train_on_colab.ipynb` defaults the experiment to 2.0, writes it to
+`unet_cubicasa_doors2.pt`, and refuses to overwrite the working checkpoint.
+A one-epoch CPU smoke run on three training plans logged the boost and saved
+`door_boost: 2.0`. The GPU run itself has not happened; it ships only if the
+held-out door recall and scale error improve without walls or windows
+regressing.
 
 ## Window correction tooling, built; the retrain is not run
 
