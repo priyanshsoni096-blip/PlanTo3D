@@ -156,9 +156,40 @@ reproduces the shipped weights exactly, and the existing tests still pin that.
 `notebooks/train_on_colab.ipynb` defaults the experiment to 2.0, writes it to
 `unet_cubicasa_doors2.pt`, and refuses to overwrite the working checkpoint.
 A one-epoch CPU smoke run on three training plans logged the boost and saved
-`door_boost: 2.0`. The GPU run itself has not happened; it ships only if the
-held-out door recall and scale error improve without walls or windows
-regressing.
+`door_boost: 2.0`. The GPU run happened on 2026-09-14: 24 epochs at 512 px on a Colab T4,
+`unet_cubicasa_doors2.pt`, validation Dice 0.7684 against the shipped
+checkpoint's 0.7757. **It was measured and rejected.** Every script below ran on
+the 60 held-out test plans in `data/cubicasa_test60.txt`, against the shipped
+checkpoint's figures from the same plans:
+
+| | shipped (boost 1.0) | door boost 2.0 |
+| --- | --- | --- |
+| Scale median error | **12.9%** | 13.7% |
+| Scale within a fifth | **44/60** | 42/60 |
+| — door route | 38 plans, **8.7%** | 41 plans, 12.7% |
+| — wall route | 22 plans, 16.7% | 19 plans, 16.7% |
+| Doors found on wall-route plans, median | 2 of 6.5 | 2 of 7 |
+| Door IoU / recall | **0.557** / 82.2% | 0.521 / **87.3%** |
+| Wall IoU | **0.714** | 0.702 |
+| Window IoU | 0.085 | 0.084 |
+| Wall coverage / agreement, median | **97.6% / 93.8%** | 97.0% / 93.7% |
+| Open-air IoU | 75.4% | 75.8% |
+| Right on every check | 27/60 | 27/60 |
+| — fails on size | **16** | 18 |
+| — fails on openings | 11 | **6** |
+
+The boost did what a loss weight does: more pixels were called door, and
+door recall rose five points. But the doors it recovered were not the ones
+the failing plans lack — on the plans still sized from walls it finds the
+same median of 2 doors — and what it added was less precise, so the door
+widths scale is measured from got worse and the door route's error rose from
+8.7% to 12.7%. The one real gain, opening counts right on five more plans,
+was cancelled by two more plans failing on size, and size was the target.
+
+The shipped checkpoint stays. `--door-boost` remains available and defaults
+to reproducing it. **Do not retry a plain door-weight boost**; the missing
+doors on wall-route plans need a different remedy than asking the loss to
+weigh door pixels more.
 
 ## Window correction tooling, built; the retrain is not run
 
