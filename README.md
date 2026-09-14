@@ -144,10 +144,22 @@ damage, and what it narrows is *which* corpus would be worth getting.
 
 ### Geometric accuracy
 
-On a three-storey reference set the model comes out 77 × 51 ft on plan and
-30.5 ft tall — three 9 ft storeys, a slab and a parapet — consistent with the
-3,050 sq ft construction area printed on the sheet. All three floors
-independently agree on scale to within 6%.
+On a three-storey reference set whose sheets print their own room sizes,
+each floor measured independently agrees on scale to within **2.0%**
+(25.62, 25.38 and 25.62 px/ft against 25.90 pooled). Each floor comes out about
+78–81 × 57–59 ft on plan. The fully built first floor's footprint is
+**3,966 sq ft against the 3,940 sq ft printed on its sheet, 0.7% out**.
+
+The ground floor (4,257 sq ft against 3,050 printed) and terrace (4,111 against
+1,390) do not match that way, and are not expected to: their printed figures
+read as built-up area, while the footprint also covers open terrace and
+porches. On the terrace that is most of the slab. This is the likely reading,
+not a checked one — only a measured building settles it, which is what
+`scripts/reference_check.py` is for.
+
+The model is 34.6 ft to the top of its coping: 0.6 ft of site ground, a plinth
+to 2.3 ft, three 9 ft storeys with their slabs to 30.8 ft, then the roof and
+parapet. Measured 2026-09-15 by rebuilding the plan with the current code.
 
 ## Scale without dimensions
 
