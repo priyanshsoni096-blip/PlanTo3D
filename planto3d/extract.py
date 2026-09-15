@@ -871,6 +871,40 @@ def _polygon_area(polygon: list[tuple[float, float]]) -> float:
     return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
 
 
+# How far a room pixel looks, in wall thicknesses, when its type is settled
+# by the types around it. On 60 held-out CubiCasa plans 1 and 2 both left
+# the scorecard exactly where it was (39 of 60, rooms failing on 8) and
+# open-air IoU within 0.1 point; on drawings from other conventions 2 turned
+# ragged, bitten rooms back into rectangles. Much wider begins to swallow
+# small rooms whole.
+ROOM_VOTE_RATIO = 2.0
+
+
+def _vote_room_types(mask: np.ndarray, gauge: float) -> np.ndarray:
+    """Settle each room pixel's type by the room types around it.
+
+    On a drawing unlike its training data the model is often unsure what a
+    room is for and paints one room in patches of two types. Traced type by
+    type, each patch became its own ragged room. Only room pixels change,
+    and only between room types, so no wall, opening or outside space moves;
+    and a patch as large as an open kitchen outvotes its neighbour and keeps
+    its own type.
+    """
+    size = int(round(ROOM_VOTE_RATIO * gauge)) | 1
+    room_types = np.array(sorted(ROOM_CLASSES))
+    is_room = np.isin(mask, room_types)
+    if size < 3 or not is_room.any():
+        return mask
+
+    votes = np.stack([
+        cv2.boxFilter((mask == c).astype(np.float32), -1, (size, size), normalize=False)
+        for c in room_types
+    ])
+    voted = mask.copy()
+    voted[is_room] = room_types[votes.argmax(axis=0)][is_room]
+    return voted
+
+
 def extract_rooms(
     mask: np.ndarray,
     room_class: int | None = None,
@@ -901,6 +935,7 @@ def extract_rooms(
         simplify_pixels = SIMPLIFY_RATIO * gauge
 
     wanted = ROOM_CLASSES if room_class is None else {room_class}
+    mask = _vote_room_types(mask, gauge)
 
     rooms: list[Room] = []
     for class_index in sorted(wanted):

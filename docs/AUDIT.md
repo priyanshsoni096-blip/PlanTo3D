@@ -130,9 +130,32 @@ same effect: 95.0% under the new one.
 Worse on four: scale median error by 0.7 points (while five more plans land
 within a fifth), wall coverage by 0.9, window precision by 0.3, open-air IoU by
 0.6. Better on eleven, including the headline by nine plans. **The corrected
-checkpoint is installed as `models/unet_cubicasa.pt`.** Not re-measured with
-it: `convention_stress.py` and `cvc_fp_accuracy.py`; the CVC-FP figures on this
-page belong to the hollow-window checkpoint.
+checkpoint is installed as `models/unet_cubicasa.pt`.**
+
+**Other drafting conventions, checked afterwards.** `convention_stress.py`, 15
+sheets, wall IoU, hollow-window → corrected-window checkpoint: as drawn 0.739 →
+0.818, hatched 0.662 → 0.778, outline walls 0.567 → 0.804, solid poché 0.761 →
+0.836, heavier pen 0.703 → 0.792, reversed print 0.005 → 0.393 (4/15 → 15/15
+reconstruct). Room IoU unchanged at 0.96–0.97 except reversed, 0.061 → 0.876.
+The outline-wall gain is the first checkpoint trained with `unfill_walls`.
+
+`cvc_fp_accuracy.py`, all 122 CVC-FP sheets, both run with walls read through
+openings:
+
+| | hollow windows | corrected windows |
+| --- | --- | --- |
+| wall IoU, pooled / median | 0.561 / 0.657 | 0.557 / 0.677 |
+| room IoU, pooled / median | 0.502 / **0.531** | 0.501 / **0.497** |
+| window IoU, pooled / median | 0.160 / 0.211 | **0.412 / 0.503** |
+| door IoU, pooled / median | 0.101 / 0.134 | 0.106 / 0.139 |
+| wall coverage / agreement | 96.3% / 65.1% | 95.7% / 58.6% |
+
+Walls hold, windows gain most, and rooms are slightly worse per sheet. That
+matches the reference house, where the corrected checkpoint draws several
+furnished rooms as ragged regions the old one drew cleanly. The script's
+agreement still scores against wall alone, so its fall is not comparable with
+`wall_accuracy.py`'s. Room reading on unfamiliar conventions is the open
+weakness of this checkpoint.
 
 The spec's target for the headline was 70%; this is 65%. Scale, at 9.3%, is
 under its 10% target.

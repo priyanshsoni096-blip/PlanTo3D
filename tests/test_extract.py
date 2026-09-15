@@ -78,6 +78,44 @@ def test_extract_walls_returns_nothing_for_a_mask_with_no_walls():
     assert extract_walls(_blank()) == []
 
 
+def _walled_room(size=200):
+    mask = _blank(size)
+    _horizontal(mask, y=20, x0=20, x1=180, thickness=6)
+    _horizontal(mask, y=174, x0=20, x1=180, thickness=6)
+    _vertical(mask, x=20, y0=20, y1=180, thickness=6)
+    _vertical(mask, x=174, y0=20, y1=180, thickness=6)
+    return mask
+
+
+def test_a_room_speckled_with_another_type_comes_out_as_one_room():
+    # On an unfamiliar drawing the model is unsure what a room is for and
+    # paints a bedroom partly as a plain room. Traced type by type, the
+    # bedroom came out as a ragged shape with a bite taken out of it.
+    # Patches smaller than a wall thickness, as the argmax leaves them.
+    mask = _walled_room()
+    mask[26:174, 26:174] = BEDROOM
+    for y, x in [(40, 60), (70, 120), (110, 50), (140, 150), (150, 90)]:
+        mask[y : y + 5, x : x + 5] = ROOM
+    mask[26:31, 80:84] = ROOM
+
+    rooms = extract_rooms(mask, gauge=6)
+
+    assert [room.category for room in rooms] == ["bedroom"]
+    assert len(rooms[0].polygon) == 4
+
+
+def test_an_open_kitchen_beside_its_living_room_stays_two_rooms():
+    # Nothing but the type separates an open kitchen from the room it opens
+    # onto, so tidying the types must not merge areas this large.
+    mask = _walled_room()
+    mask[26:174, 26:100] = KITCHEN
+    mask[26:174, 100:174] = ROOM
+
+    rooms = extract_rooms(mask, gauge=6)
+
+    assert sorted(room.category for room in rooms) == ["", "kitchen"]
+
+
 @pytest.mark.parametrize("opening", [WINDOW, DOOR])
 def test_an_opening_drawn_across_a_wall_does_not_cut_it_in_two(opening):
     # A model trained on solid window labels paints the window over the wall
