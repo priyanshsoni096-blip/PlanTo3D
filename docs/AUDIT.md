@@ -157,6 +157,24 @@ agreement still scores against wall alone, so its fall is not comparable with
 `wall_accuracy.py`'s. Room reading on unfamiliar conventions is the open
 weakness of this checkpoint.
 
+**Ragged rooms, and the vote that tidies them.** On the reference house the
+corrected-window checkpoint painted the left bedroom as a plain room and the
+right one as a speckle of bedroom and room; traced type by type, each patch
+became its own ragged room. `extract_rooms` now settles each room pixel's type
+by the room types within `ROOM_VOTE_RATIO` (2) wall thicknesses before tracing.
+Only room pixels change, and only between room types.
+
+On the 60 held-out plans it moves nothing: right on every check 39 of 60 and
+rooms failing on 8, both with and without it; open-air IoU 74.6% → 74.5%.
+One wall thickness gave the same scorecard. What it changes is shape on other
+conventions: the reference house's right bedroom, living area and courtyard,
+a French sheet's bedroom (`demo_plans/3`) and a scanned French workshop
+(`demo_plans/5`) come out rectilinear rather than ragged, with room counts of
+20 → 20, 22 → 20 and 11 → 11. It cannot fix a room the model types wrongly as
+a whole -- the house's living area is still split along the furniture where the
+model reads kitchen -- nor a room edge against the outside, such as
+`demo_plans/5`'s carport. Those need the model.
+
 The spec's target for the headline was 70%; this is 65%. Scale, at 9.3%, is
 under its 10% target.
 
