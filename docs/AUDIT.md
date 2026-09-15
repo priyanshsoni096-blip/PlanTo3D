@@ -175,6 +175,37 @@ a whole -- the house's living area is still split along the furniture where the
 model reads kitchen -- nor a room edge against the outside, such as
 `demo_plans/5`'s carport. Those need the model.
 
+**Training on a second convention, set up and not yet run.** The remaining
+room-type confusion is the model's, so the next checkpoint trains on CVC-FP
+beside CubiCasa. `planto3d.cvc_fp.split_names` holds back a third of every
+drawing set with `random.Random(20260915)`: of 122 plans, 40 are listed in
+`data/cvc_fp_test.txt` and never trained on, 82 are trained on, and every set
+is represented in the 40 (IIa 14, image 6, IId 4, Ia/Ib/Ic/numbered 3 each,
+IIb 2, IIc 1, p 1). Training reads the committed list, not a fresh draw, so a
+plan added later cannot reach training while being tested on.
+
+Two CVC-FP labels mean something different from CubiCasa's and are reduced
+before training (`training.dataset.CvcFpDataset`): door pixels are not scored,
+since CVC-FP marks the swing arc and CubiCasa the leaf that scale is measured
+from; and room pixels are scored as any room type (`ANY_ROOM`, the log of the
+summed room-type probabilities), since CVC-FP gives no type and training on
+the untyped class would teach the model to stop typing rooms. Walls, windows
+and background train as drawn. Each CVC-FP plan is shown 4 times an epoch.
+`train` now saves progress after every epoch and resumes from it, since the
+last Colab run was cut off at epoch 21 of 24.
+
+It is judged on the 60 CubiCasa plans with `compare_checkpoints.py`, on the
+40 held-back CVC-FP plans with `cvc_fp_accuracy.py --split test`, and on the
+reference house by eye only. The installed checkpoint on those 40: wall IoU
+0.573 pooled / 0.683 median, room 0.514 / 0.502, window 0.403 / 0.505, door
+0.115 / 0.138 (arc against leaf, so not a measure of the model), wall coverage
+96.4%.
+
+Checked end to end on a CPU before handing to Colab: two epochs over six
+CubiCasa and six CVC-FP plans, then the same command with three epochs, which
+logged "resuming after epoch 2" and ran only epoch 3; the checkpoint records
+`cvc_fp_plans` and `cvc_repeat`.
+
 The spec's target for the headline was 70%; this is 65%. Scale, at 9.3%, is
 under its 10% target.
 

@@ -32,7 +32,7 @@ import cv2
 import numpy as np
 
 from planto3d.classes import CLASS_NAMES, DOOR, NUM_CLASSES, ROOM, WALL, WINDOW
-from planto3d.cvc_fp import sample_paths, svg_to_mask
+from planto3d.cvc_fp import TEST_LIST, read_names, sample_paths, svg_to_mask
 from planto3d.extract import extract_walls, wall_gauge
 from planto3d.segment import load_segmenter
 
@@ -88,7 +88,7 @@ def _wall_score(truth: np.ndarray, walls) -> tuple[float, float] | None:
     return float(coverage), float(agreement)
 
 
-def main(root: str, checkpoint: Path | None, limit: int) -> None:
+def main(root: str, checkpoint: Path | None, limit: int, split: str = "all") -> None:
     warnings.filterwarnings("ignore")
     logging.disable(logging.WARNING)
     segmenter = load_segmenter(checkpoint)
@@ -98,7 +98,13 @@ def main(root: str, checkpoint: Path | None, limit: int) -> None:
     per_class_ious: dict[int, list[float]] = {index: [] for index in range(NUM_CLASSES)}
     usable = 0
 
-    pairs = sample_paths(Path(root))[:limit]
+    pairs = sample_paths(Path(root))
+    if split != "all":
+        # A checkpoint trained on CVC-FP's training plans can only be judged
+        # on the plans held back from it: data/cvc_fp_test.txt.
+        held_back = set(read_names(TEST_LIST))
+        pairs = [pair for pair in pairs if (pair[0].stem in held_back) == (split == "test")]
+    pairs = pairs[:limit]
     for image_path, svg_path in pairs:
         image = cv2.imread(str(image_path))
         if image is None:
@@ -152,5 +158,9 @@ if __name__ == "__main__":
     parser.add_argument("root")
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--limit", type=int, default=30)
+    parser.add_argument(
+        "--split", choices=("all", "test", "train"), default="all",
+        help="test: only data/cvc_fp_test.txt, the plans no checkpoint trains on",
+    )
     arguments = parser.parse_args()
-    main(arguments.root, arguments.checkpoint, arguments.limit)
+    main(arguments.root, arguments.checkpoint, arguments.limit, arguments.split)

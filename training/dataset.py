@@ -8,11 +8,19 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from planto3d import cvc_fp
+from planto3d.classes import DOOR, ROOM
 from planto3d.cubicasa import sample_paths, svg_to_mask
 from planto3d.window_labels import adjust_mask
 from training.augment import augment
 
 logger = logging.getLogger(__name__)
+
+# Label values outside the class range, for corpora whose annotations mean
+# less than CubiCasa's. IGNORE_INDEX pixels are not scored at all; ANY_ROOM
+# pixels are scored as "some room type", whichever. See CvcFpDataset.
+IGNORE_INDEX = 255
+ANY_ROOM = 254
 
 # Input size for the network. Floor plans are large and mostly empty, so a
 # square resize keeps batches affordable without losing wall structure.
@@ -116,8 +124,86 @@ class CubiCasaDataset(Dataset):
             rng = np.random.default_rng((self.seed, index, self.epoch))
             image, mask = augment(image, mask, rng)
 
-        normalized = (image.astype(np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
-        return (
-            torch.from_numpy(normalized).permute(2, 0, 1),
-            torch.from_numpy(mask.astype(np.int64)),
-        )
+        return _to_tensors(image, mask)
+
+
+def _to_tensors(image: np.ndarray, mask: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
+    normalized = (image.astype(np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
+    return (
+        torch.from_numpy(normalized).permute(2, 0, 1),
+        torch.from_numpy(mask.astype(np.int64)),
+    )
+
+
+class CvcFpDataset(Dataset):
+    """CVC-FP plans for training, with labels reduced to what they can teach.
+
+    A second drafting convention, but its annotations do not mean what
+    CubiCasa's do, and two of its classes would teach the model something
+    false if trained on as they stand:
+
+    - **Doors** are annotated as the swing arc, CubiCasa's as the leaf in the
+      wall (median depth 3.19 wall thicknesses against 0.79). Taught arcs,
+      the model would lose the leaves that scale is measured from, so door
+      pixels are not scored.
+    - **Rooms** carry no type. Taught as the untyped ROOM class, the model
+      would learn to stop typing rooms, so a room pixel is scored as any
+      room type -- where a room is, without saying what it is for.
+
+    Walls, windows and background are trained on as drawn.
+
+    ``names`` are plan stems (``IIa_BK0701``); pass the training side of
+    ``cvc_fp.split_names``. ``repeat`` shows each plan that many times an
+    epoch, each drawn differently, since 80 plans beside 4,200 would
+    otherwise barely register.
+    """
+
+    def __init__(
+        self,
+        root: Path,
+        names: list[str],
+        size: int = DEFAULT_SIZE,
+        augment: bool = False,
+        seed: int = 0,
+        repeat: int = 1,
+    ):
+        wanted = set(names)
+        self.samples = [pair for pair in cvc_fp.sample_paths(Path(root)) if pair[0].stem in wanted]
+        if not self.samples:
+            raise ValueError(f"none of the {len(wanted)} named CVC-FP plans were found under {root}")
+        self.size = size
+        self.augment = augment
+        self.seed = seed
+        self.repeat = max(int(repeat), 1)
+
+    epoch: int = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __len__(self) -> int:
+        return len(self.samples) * self.repeat
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        image_path, svg_path = self.samples[index % len(self.samples)]
+
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise FileNotFoundError(f"could not read {image_path}")
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        drawn = cvc_fp.svg_to_mask(svg_path, image.shape[:2])
+        mask = drawn.astype(np.uint8)
+        mask[drawn == DOOR] = IGNORE_INDEX
+        mask[drawn == ROOM] = ANY_ROOM
+
+        image = cv2.resize(image, (self.size, self.size), interpolation=cv2.INTER_AREA)
+        mask = cv2.resize(mask, (self.size, self.size), interpolation=cv2.INTER_NEAREST)
+
+        if self.augment:
+            # Seeded on the full index, so each repeat of a plan is drawn
+            # differently within the same epoch.
+            rng = np.random.default_rng((self.seed, 1, index, self.epoch))
+            image, mask = augment(image, mask, rng)
+
+        return _to_tensors(image, mask)

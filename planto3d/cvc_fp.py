@@ -25,6 +25,7 @@ nothing here uses.
 """
 
 import logging
+import random
 import re
 from pathlib import Path
 from xml.etree import ElementTree
@@ -171,3 +172,64 @@ def sample_paths(root: Path) -> list[tuple[Path, Path]]:
         logger.warning("%d annotation(s) had no matching image", missing)
     logger.info("found %d CVC-FP sample(s)", len(pairs))
     return pairs
+
+
+# --- training on it, and keeping a test set back ------------------------------
+#
+# Training on CVC-FP spends the only second convention there is, so a share of
+# it is held back and never trained on. The held-back plans are committed as a
+# list, like data/cubicasa_test60.txt, so every later figure is measured on the
+# same sheets and training can refuse them by name.
+TEST_LIST = Path(__file__).resolve().parents[1] / "data" / "cvc_fp_test.txt"
+SPLIT_SEED = 20260915
+TEST_SHARE = 1 / 3
+
+_SUBSET = re.compile(r"^(I{1,3}[a-d])_")
+
+
+def subset(name: str) -> str:
+    """Which of CVC-FP's drawing sets a plan belongs to, from its file name.
+
+    The sets differ deliberately in origin and style, so a test set has to
+    draw from every one of them.
+    """
+    match = _SUBSET.match(name)
+    if match:
+        return match.group(1)
+    if name.startswith("image"):
+        return "image"
+    if re.fullmatch(r"p\d+", name):
+        return "p"
+    if name.isdigit():
+        return "numbered"
+    return "other"
+
+
+def split_names(
+    names: list[str], test_share: float = TEST_SHARE, seed: int = SPLIT_SEED
+) -> tuple[list[str], list[str]]:
+    """(train, test), a seeded share of every drawing set held back for test.
+
+    Sets are drawn in sorted order from one generator, and each set's names
+    are sorted first, so the same names and seed give the same split in any
+    order. A set of one plan goes to training: it cannot be both taught and
+    tested, and one sheet is not a measurement.
+    """
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(subset(name), []).append(name)
+
+    rng = random.Random(seed)
+    train, test = [], []
+    for key in sorted(groups):
+        members = sorted(groups[key])
+        count = max(1, round(len(members) * test_share)) if len(members) > 1 else 0
+        held = set(rng.sample(members, count))
+        test += [name for name in members if name in held]
+        train += [name for name in members if name not in held]
+    return sorted(train), sorted(test)
+
+
+def read_names(path: Path) -> list[str]:
+    """Plan names from a list file, one per line."""
+    return sorted(line.strip() for line in Path(path).read_text().splitlines() if line.strip())
