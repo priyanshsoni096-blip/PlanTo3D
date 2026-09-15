@@ -411,10 +411,17 @@ def extract_walls(
     tilt the result. The cost is that a genuinely diagonal wall is not
     recovered at all -- the orientation filters erase it -- which is
     acceptable for the rectilinear plans this targets.
+
+    Doors and windows are read as wall here. An opening is drawn in the wall
+    it interrupts, and a model trained on solid window labels paints it over
+    that wall: read as a gap, the wall came apart at every window, and over
+    60 held-out plans 222 of 477 windows were left with no wall near enough
+    to be built into. The openings are cut back out of the wall when the
+    model is extruded.
     """
-    binary = (mask == wall_class).astype(np.uint8)
-    if not binary.any():
+    if not (mask == wall_class).any():
         return []
+    binary = np.isin(mask, (wall_class, DOOR, WINDOW)).astype(np.uint8)
 
     gauge = wall_gauge(mask, wall_class) if gauge is None else gauge
     if min_wall_length is None:

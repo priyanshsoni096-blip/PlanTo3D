@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from planto3d.classes import BACKGROUND, BEDROOM, KITCHEN, OUTDOOR, ROOM, WALL
+from planto3d.classes import BACKGROUND, BEDROOM, DOOR, KITCHEN, OUTDOOR, ROOM, WALL, WINDOW
 from planto3d.extract import (
     MAX_THICKNESS_RATIO,
     _drop_impossibly_thick,
@@ -76,6 +76,22 @@ def test_extract_walls_ignores_speckle_noise():
 
 def test_extract_walls_returns_nothing_for_a_mask_with_no_walls():
     assert extract_walls(_blank()) == []
+
+
+@pytest.mark.parametrize("opening", [WINDOW, DOOR])
+def test_an_opening_drawn_across_a_wall_does_not_cut_it_in_two(opening):
+    # A model trained on solid window labels paints the window over the wall
+    # it sits in. Read as a gap, the wall came apart there, and over 60
+    # held-out plans 222 of 477 windows then had no wall near enough to be
+    # built into. The opening belongs to the wall, so the wall runs through it.
+    mask = _blank(200)
+    _horizontal(mask, y=100, x0=10, x1=190, thickness=6)
+    mask[100:106, 70:130] = opening
+
+    walls = extract_walls(mask)
+
+    assert len(walls) == 1
+    assert walls[0].length() == pytest.approx(180, abs=6)
 
 
 def test_extract_rooms_finds_one_polygon_per_enclosed_region():
