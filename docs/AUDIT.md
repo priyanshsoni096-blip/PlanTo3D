@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **936 passing** | — |
+| Tests | **942 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -49,22 +49,93 @@ plans end to end and asks how many come out right on **every** count at
 once, scored against the annotations rather than by eye.
 
 Over 60 plans from CubiCasa's held-out **test** split, which the checkpoint
-never saw, scored against correctly rasterised annotations: **11 of 60
-(18%)**. The list is `data/cubicasa_test60.txt`; see "The benchmark was
-mostly training data" and "Every window in the masks was hollow" below.
+never saw, scored against correctly rasterised annotations, with the
+checkpoint retrained on corrected window masks: **39 of 60 (65%)**. The list
+is `data/cubicasa_test60.txt`; see "Walls read through their openings", "The
+benchmark was mostly training data" and "Every window in the masks was hollow"
+below.
 
 | Check | Fails on | |
 | --- | --- | --- |
-| **walls** — coverage ≥85% and agreement ≥80% | **40 of 60** | the largest single cause |
-| **size** — scale within a fifth of true | 16 of 60 | |
-| **openings** — within 0.6x to 1.5x of those drawn | 11 of 60 | |
+| **walls** — coverage ≥85% and agreement ≥80% | 9 of 60 | |
+| **size** — scale within a fifth of true | 9 of 60 | |
 | **rooms** — count within 25% of annotated | 8 of 60 | |
+| **openings** — within 0.6x to 1.5x of those drawn | 3 of 60 | |
 | storeys — right number of them | 3 of 60 | |
 | built — a model comes out at all | **0 of 60** | |
 
-Scored against the hollow-window masks the same model read 27 of 60 (45%),
-with walls failing on 10. That figure was produced by the bug and should not
-be quoted.
+Earlier figures on this page — 11 of 60 with the hollow-window checkpoint, and
+27 of 60 against the hollow-window masks — are kept where they were measured
+but are superseded.
+
+## Walls read through their openings
+
+The checkpoint retrained on corrected window masks (`unet_cubicasa_fixedwindows.pt`,
+Colab, stopped at epoch 21 of 24, validation Dice 0.8332) was compared with the
+installed one by `scripts/compare_checkpoints.py` on the 60 held-out plans. Its
+masks were far better — wall IoU 0.660 → 0.736, door 0.545 → 0.575, window
+0.223 → 0.679, window pixel recall 27.3% → 88.2% — but the openings check
+failed on 33 plans against 11.
+
+**Cause.** It paints a window solid, over the wall it sits in, as the corrected
+labels do. `extract_walls` read only wall pixels, so every window cut its wall
+in two. Counted over the 60 plans, of 477 predicted window blobs 222 were then
+further than `MAX_OPENING_DISTANCE_RATIO` from any wall and were dropped (7 of
+800 for the old checkpoint, whose walls ran across its windows); 205 windows
+were built where the plans draw 422.
+
+**Fix.** `extract_walls` now reads door and window pixels as wall; extrusion
+still cuts each opening out of the wall it binds to. Built openings, new
+checkpoint: windows 205 → 418, doors 303 → 548. The old checkpoint gains
+too: doors 319 → 520.
+
+**The scorer had the same blind spot.** `wall_accuracy.score` painted each
+built wall solid and scored it against annotated wall alone, so wall through a
+drawn opening counted as invented. Median agreement, new checkpoint, 60 plans:
+
+| | scored against wall | against wall + drawn doors and windows |
+| --- | --- | --- |
+| walls as extracted before | 92.8% | 96.9% |
+| walls read through openings | 74.4% | **94.6%** |
+
+Most of the apparent fall is the scoring rule. The part that is not is real
+and is recorded: 96.9% → 94.6%, and plans below 80% from 3 to 6. Agreement is
+now scored against wall plus drawn openings; coverage still asks only about
+wall. The hollow-window checkpoint under the old rule, 79.9%, was mostly the
+same effect: 95.0% under the new one.
+
+**Each step, 60 held-out plans, right on every check:**
+
+| checkpoint | wall extraction | wall scoring | right on every check | walls / openings fail |
+| --- | --- | --- | --- | --- |
+| hollow windows | before | wall only | 11 | 40 / 11 |
+| corrected windows | before | wall only | 12 | 23 / 33 |
+| hollow windows | through openings | wall only | 10 | 44 / 8 |
+| corrected windows | through openings | wall only | 13 | 42 / 3 |
+| hollow windows | through openings | wall + openings | 30 | 9 / 8 |
+| **corrected windows** | **through openings** | **wall + openings** | **39** | **9 / 3** |
+
+**The final comparison**, both on the new extraction and scoring:
+
+| measure | hollow windows | corrected windows |
+| --- | --- | --- |
+| right on every check | 30 | **39** |
+| scale median error | 8.6% | 9.3% |
+| plans scaled within a fifth | 46 | **51** |
+| fails on size / rooms / openings | 14 / 9 / 8 | **9 / 8 / 3** |
+| wall coverage / agreement | 98.7% / 93.1% | 97.8% / **94.6%** |
+| window detection recall / precision | 87.7% / 84.5% | **96.0%** / 84.2% |
+| open-air IoU | 75.2% | 74.6% |
+
+Worse on four: scale median error by 0.7 points (while five more plans land
+within a fifth), wall coverage by 0.9, window precision by 0.3, open-air IoU by
+0.6. Better on eleven, including the headline by nine plans. **The corrected
+checkpoint is installed as `models/unet_cubicasa.pt`.** Not re-measured with
+it: `convention_stress.py` and `cvc_fp_accuracy.py`; the CVC-FP figures on this
+page belong to the hollow-window checkpoint.
+
+The spec's target for the headline was 70%; this is 65%. Scale, at 9.3%, is
+under its 10% target.
 
 ## Every window in the masks was hollow
 
@@ -508,8 +579,8 @@ Two things this renderer does honestly rather than hides:
 
 | # | Gap | Measured | Why it matters | General? |
 | --- | --- | --- | --- | --- |
-| 1 | **Windows weak** | Detection **87.7%** recall at 84.5% precision on 59 held-out plans, but IoU **0.223** and recall 27.3% — the checkpoint was trained on hollow window masks | Windows are found but drawn as a fraction of their glass, and walls are built through them: wall agreement 79.9%, walls fail 40 of 60 end to end | Partly — CVC-FP reads **0.239**, so it is largely a property of CubiCasa |
-| 2 | **Scale, 12.9% median error** | 44/60 within a fifth; **doors 8.7% error / −1.9% bias on 38 plans, walls 16.7% error / −14.3% bias on 22** (60 held-out test plans) | Sets the whole building's size, and is the **largest end-to-end failure** at 16 of 60. Plans fall back to walls because the segmenter finds about 2 of the 6.5 doors drawn on them; a door-weighted retrain did not change that. The error is concentrated in the wall-derived half of the population — doors are already accurate | No — wall thickness genuinely varies (IQR ±16% of median); no single constant repairs it. See below |
+| 1 | ~~Windows weak~~ **largely closed by the retrain** | Detection **96.0%** recall at 84.2% precision on 59 held-out plans, IoU **0.679**, pixel recall 88.2% (corrected-window checkpoint; was 0.223 / 27.3%) | Openings fail on 3 of 60 end to end | CVC-FP (0.239) not yet re-measured with the new checkpoint |
+| 2 | **Scale, 9.3% median error** (corrected-window checkpoint, 51/60 within a fifth; the breakdown that follows is the hollow-window checkpoint's, at 12.9%) | 44/60 within a fifth; **doors 8.7% error / −1.9% bias on 38 plans, walls 16.7% error / −14.3% bias on 22** (60 held-out test plans) | Sets the whole building's size, and is the **largest end-to-end failure** at 16 of 60. Plans fall back to walls because the segmenter finds about 2 of the 6.5 doors drawn on them; a door-weighted retrain did not change that. The error is concentrated in the wall-derived half of the population — doors are already accurate | No — wall thickness genuinely varies (IQR ±16% of median); no single constant repairs it. See below |
 | 3 | Sheet splitting misses | Recall **73%**, **57/60** exact, 100% precision (held-out) | A missed split reconstructs several plans as one flat building, confidently. All five failures now diagnosed -- three distinct modes, below | **Yes** |
 | 4 | **Only 2½ conventions tested** | Now **3½** — CVC-FP added, 122 sheets, 4 styles | Walls hold at 96.7% coverage on an unseen tradition; scale still untestable there | **Yes** |
 | 5 | Storage rooms weak | IoU 0.600 (held-out) | Storage reads as ordinary rooms | Yes |

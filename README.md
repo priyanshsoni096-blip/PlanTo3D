@@ -76,14 +76,21 @@ is quoted everywhere because it is the less flattering of the two.
 
 | What | Script | Result |
 | --- | --- | --- |
-| Plans right on every check at once | `output_scorecard.py`, 60 | **11/60** (18%) |
-| Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 60 | **97.9%** median |
-| Wall agreement — built wall that really is wall | `wall_accuracy.py`, 60 | **79.9%** median |
+| Plans right on every check at once | `output_scorecard.py`, 60 | **39/60** (65%) |
+| Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 60 | **97.8%** median |
+| Wall agreement — built wall that really is wall, or a drawn opening in it | `wall_accuracy.py`, 60 | **94.6%** median |
 | Sheets split into the right number of plans | `split_accuracy.py`, 60 | **57/60**, 100% precision, 73% recall |
-| Scale within a fifth of true | `scale_accuracy.py`, 60 | **44/60**, 12.9% median error |
-| Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **75.4%** |
-| Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **87.7%** found, 84.5% precision |
-| Tests | `pytest` | **936** |
+| Scale within a fifth of true | `scale_accuracy.py`, 60 | **51/60**, 9.3% median error |
+| Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **74.6%** |
+| Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **96.0%** found, 84.2% precision |
+| Per-class IoU | `class_accuracy.py`, 60 | wall **0.736**, door **0.575**, window **0.679** |
+| Tests | `pytest` | **942** |
+
+Measured on 2026-09-15 with the checkpoint retrained on corrected window masks
+(`unet_cubicasa_fixedwindows.pt`, installed as `unet_cubicasa.pt`). Much of
+the jump from 11/60 is a correction to how wall agreement is scored, not the
+model: under the old rule the same model and pipeline read 13/60.
+`docs/AUDIT.md`, "Walls read through their openings", has every step.
 
 Every row is measured on plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`, against annotations rasterised

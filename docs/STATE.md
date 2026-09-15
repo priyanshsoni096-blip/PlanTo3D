@@ -12,36 +12,35 @@ they disagree.
 
 ## Start here
 
-`models/unet_cubicasa.pt` predicts eleven classes, trained 24 epochs, best at
-epoch 22 with a validation Dice of 0.7757. **It was trained on broken window
-labels**: until 2026-09-15 `cubicasa.svg_to_mask` drew every window as its
-outline and labelled the glass wall. The converter is fixed. A retrain on the
-corrected masks is the next step and has not yet been run. A door-weighted
-retrain (`--door-boost 2`) was run and rejected on measurement.
+`models/unet_cubicasa.pt` is now the checkpoint retrained on corrected window
+masks (Colab run `fixedwindows`, stopped at epoch 21 of 24, validation Dice
+0.8332). The previous checkpoint, trained on hollow window masks, is kept
+locally as `unet_cubicasa_hollowwindows.pt`. Checkpoints are not committed; on
+Colab, put the new file on Drive as `MyDrive/planto3d/unet_cubicasa.pt`.
 
-Every figure below was measured on 2026-09-13 to 15 on the 60 held-out test
-plans in `data/cubicasa_test60.txt`, against correctly rasterised annotations.
-Rebuild the set with `scripts/rebuild_benchmark.py`.
+Every figure below was measured on 2026-09-15 on the 60 held-out test plans in
+`data/cubicasa_test60.txt`, against correctly rasterised annotations, with
+`scripts/compare_checkpoints.py` (logs in `comparison_logs/bridge_scored/`,
+git-ignored). Rebuild the set with `scripts/rebuild_benchmark.py`.
 
 | | Result | Script |
 | --- | --- | --- |
-| **Correct end to end, every check at once** | **11/60 (18%)** | `output_scorecard.py` |
-| — fails on walls / size / openings / rooms / storeys | 40 / 16 / 11 / 8 / 3 | same |
+| **Correct end to end, every check at once** | **39/60 (65%)** | `output_scorecard.py` |
+| — fails on walls / size / rooms / openings / storeys | 9 / 9 / 8 / 3 / 3 | same |
 | Sheets split into the right number of plans | **57/60**, 100% precision, 73% recall | `split_accuracy.py` |
-| Wall coverage / agreement, median | **97.9% / 79.9%** | `wall_accuracy.py` |
-| Scale within a fifth of true | **44/60**, 12.9% median error | `scale_accuracy.py` |
-| Windows found, as detection | **87.7%** at 84.5% precision | `window_detection_accuracy.py` |
-| Per-class IoU | wall 0.660, door 0.545, **window 0.223** | `class_accuracy.py` |
-| Open-to-sky spaces, pixel IoU | **75.4%** over 52 plans | `open_air_accuracy.py` |
-| Tests | **936** | `pytest` |
+| Wall coverage / agreement, median | **97.8% / 94.6%** | `wall_accuracy.py` |
+| Scale within a fifth of true | **51/60**, 9.3% median error | `scale_accuracy.py` |
+| Windows found, as detection | **96.0%** at 84.2% precision | `window_detection_accuracy.py` |
+| Per-class IoU | wall 0.736, door 0.575, window 0.679 | `class_accuracy.py` |
+| Open-to-sky spaces, pixel IoU | **74.6%** over 52 plans | `open_air_accuracy.py` |
+| Tests | **942** | `pytest` |
 
-The scorecard row matters more than any stage number, and it currently points
-at **walls, failing on 40 of 60**. That is the broken labels showing through:
-the checkpoint learned that window glass is wall, so it builds wall across
-window openings and wall agreement falls below the scorecard's 80% bar. The
-retrain on corrected masks is aimed squarely at it. Scale is next, at 16 of
-60, and is door recall rather than any constant: on plans that fall back to
-the wall estimate the segmenter finds about 2 of the 6.5 doors drawn.
+Two pipeline changes landed with the checkpoint, and part of the jump is the
+second, which is a scoring correction: walls are now read through doors and
+windows, and wall built through a drawn opening is scored as right. Under the
+old scoring the same model and pipeline read 13/60. `AUDIT.md`, "Walls read
+through their openings". Gate 1 is now 3 of 4: scale is under 10%; plans right
+on every check are 65% against a 70% target.
 
 An earlier claim that windows fail because CubiCasa draws them at 0.1% of a
 page, supported by CVC-FP scoring 0.239 against CubiCasa's 0.089, came from

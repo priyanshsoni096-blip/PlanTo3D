@@ -253,16 +253,22 @@ Two gates, both re-runnable, neither arguable.
 - `split_accuracy.py` does not regress from 58/60, 100% precision
 - `wall_accuracy.py` coverage does not fall below 96%
 
-*Status, 2026-09-13, on 60 held-out test plans (`data/cubicasa_test60.txt`).
-The baselines above were measured on a sample later found to be mostly
-training data, so these are read against the targets, not the old numbers:*
+*Status, 2026-09-15, on 60 held-out test plans (`data/cubicasa_test60.txt`),
+with the checkpoint retrained on corrected window masks. The baselines above
+were measured on a sample later found to be mostly training data, so these
+are read against the targets, not the old numbers:*
 
 | Gate 1 item | Target | Held-out result | Met? |
 | --- | --- | --- | --- |
-| Right on every check | 70% (14 of 20) | 18% (11 of 60) | no |
-| Scale median error | below 10% | 12.9% | no |
+| Right on every check | 70% (14 of 20) | 65% (39 of 60) | no |
+| Scale median error | below 10% | 9.3% | yes |
 | Split precision | 100% | 100% (57/60 exact) | yes |
-| Wall coverage | at least 96% | 97.9% median | yes |
+| Wall coverage | at least 96% | 97.8% median | yes |
+
+*The 39 of 60 includes a correction to how wall agreement is scored (wall
+built through a drawn opening now counts as right); under the old rule the
+same model and pipeline read 13 of 60. `docs/AUDIT.md`, "Walls read through
+their openings".*
 
 *Gate 2 is not yet scored: `scripts/reference_check.py` exists and waits on
 the house's measured dimensions.*
