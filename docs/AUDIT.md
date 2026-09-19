@@ -201,6 +201,18 @@ reference house by eye only. The installed checkpoint on those 40: wall IoU
 0.115 / 0.138 (arc against leaf, so not a measure of the model), wall coverage
 96.4%.
 
+**The first attempt trained on CubiCasa alone, and three more epochs did not
+help.** `cvc_fp.zip` was not at `MyDrive/planto3d/`, the notebook only printed
+a note, and the run named "mixed" trained 24 epochs without CVC-FP
+(`cvc_fp_plans: 0`; validation Dice 0.8359 against the installed checkpoint's
+0.8332 at epoch 21). So it measured only what finishing the schedule is worth.
+`compare_checkpoints.py`, installed → 24-epoch: right on every check 39 → 37,
+openings failing 3 → 4, rooms failing 8 → 6, scale error 9.3% → 9.6%, wall
+agreement 94.6% → 93.6%, window detection precision 84.2% → 79.9%, door IoU
+0.575 → 0.580, window IoU 0.679 → 0.682; 4 better, 8 worse. **Rejected.** The
+notebook now stops when the zip is missing, and trains under the run name
+`cvcmix`.
+
 Checked end to end on a CPU before handing to Colab: two epochs over six
 CubiCasa and six CVC-FP plans, then the same command with three epochs, which
 logged "resuming after epoch 2" and ran only epoch 3; the checkpoint records
