@@ -213,6 +213,35 @@ agreement 94.6% → 93.6%, window detection precision 84.2% → 79.9%, door IoU
 notebook now stops when the zip is missing, and trains under the run name
 `cvcmix`.
 
+**The second attempt trained on CVC-FP, but on all 122 plans.** On Colab,
+section 3c printed "122 to train on, 0 held back": the plan names read from
+the unpacked zip did not match `data/cvc_fp_test.txt`, although the same zip
+and list give 82/40 on this machine, and the cause was not found. The
+checkpoint records `cvc_fp_plans: 122`. It has therefore seen the 40 plans it
+was to be judged on, and **no CVC-FP figure for it is quoted**. Training and
+the notebook now stop unless all 40 held-back names are found, and the
+notebook prints sample names from both sides.
+
+On the 60 CubiCasa plans, which it did not train on, installed →
+CVC-FP-trained: right on every check 39 → 34, walls failing 9 → 12, size
+failing 9 → 11, scale error 9.3% → 9.9%, plans within a fifth 51 → 49, wall
+coverage 97.8% → 98.5%, wall IoU 0.736 → 0.738, door 0.575 → 0.581, window
+0.679 → 0.686, open-air IoU 74.5% → 75.4%; 6 better, 8 worse. **Rejected.**
+On the reference house it draws cleaner rooms by eye, but it reads the walls
+8.0 px thick against 11.2, below `MIN_WORKABLE_GAUGE`, and so enlarges the
+page -- which exposed the frame bug below.
+
+**An enlarged drawing's geometry and its page were in different frames.**
+`_enlarge_if_unmeasurable` read thin-walled drawings at up to twice the size,
+but `draw_overlay` drew the resulting geometry over the page as it was on
+disk, and the plot size (`page_size`) was taken from the page on disk while
+the scale was measured on the enlarged one. On the reference house at 1.25x
+the overlay ran off the right and bottom edges, and the plot came out 1.25x
+too small for the building. Each floor now records its `enlargement`, and the
+overlay and plot size are both taken in the enlarged frame. It affects any
+drawing whose walls read under 10 px, with any checkpoint; the scorecard does
+not read either, so its figures stand.
+
 Checked end to end on a CPU before handing to Colab: two epochs over six
 CubiCasa and six CVC-FP plans, then the same command with three epochs, which
 logged "resuming after epoch 2" and ran only epoch 3; the checkpoint records

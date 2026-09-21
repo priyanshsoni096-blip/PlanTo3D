@@ -112,6 +112,11 @@ class FloorResult:
     # figure than the extracted walls give: those have been through
     # orientation filtering and merging first, and both erode.
     wall_gauge_px: float | None = None
+    # How much the page was enlarged before it was read; 1.0 if it was not.
+    # The geometry is in the enlarged frame, so anything that pairs it with
+    # the page on disk -- the overlay, the plot size -- has to scale the page
+    # by this first.
+    enlargement: float = 1.0
 
     @property
     def drawn_walls(self) -> list:
@@ -228,10 +233,13 @@ def _enlarge_if_unmeasurable(image, mask, segmenter: Segmenter):
     Costs a second pass over the segmenter, which is why it is conditional:
     on any drawing of ordinary resolution the gauge is already fine and
     this returns immediately.
+
+    Returns (image, mask, factor). The factor has to travel with the
+    geometry: everything read from here on is in the enlarged frame.
     """
     gauge = wall_gauge(mask)
     if gauge >= MIN_WORKABLE_GAUGE:
-        return image, mask
+        return image, mask, 1.0
 
     factor = min(MIN_WORKABLE_GAUGE / max(gauge, 1.0), MAX_ENLARGEMENT)
     height, width = image.shape[:2]
@@ -246,7 +254,7 @@ def _enlarge_if_unmeasurable(image, mask, segmenter: Segmenter):
         (int(round(width * factor)), int(round(height * factor))),
         interpolation=cv2.INTER_CUBIC,
     )
-    return enlarged, segmenter(enlarged)
+    return enlarged, segmenter(enlarged), enlarged.shape[1] / width
 
 
 def _polygon_area(polygon: list[tuple[float, float]]) -> float:
@@ -293,7 +301,7 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
     # So it is asked after segmenting rather than before, and answered by
     # the gauge. Enlarging invents no detail; it lifts what detail there is
     # back above the floors the geometry cannot go below.
-    image, mask = _enlarge_if_unmeasurable(image, mask, segmenter)
+    image, mask, enlargement = _enlarge_if_unmeasurable(image, mask, segmenter)
     # Measured once and shared, so every stage sizes itself against the same
     # figure -- and so it can be reported later, since the wall thickness is
     # also the weakest of the scale references.
@@ -343,6 +351,7 @@ def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorR
         image_path=image_path,
         drawn_wall_count=drawn_wall_count,
         wall_gauge_px=gauge,
+        enlargement=enlargement,
         plan=FloorPlan(
             walls=walls,
             rooms=rooms,
@@ -581,8 +590,7 @@ def extract(
     # the drawing's extent gives the boundary rather than a guess. Computed
     # here and carried on the result so ``build`` does not need to re-read
     # the image later.
-    first = cv2.imread(str(floors[0].image_path))
-    page_size = (first.shape[1], first.shape[0]) if first is not None else None
+    page_size = _page_size(floors[0])
 
     return PipelineResult(
         floors=floors,
@@ -657,9 +665,36 @@ def run(
     return build(result, output_dir, wall_height_ft, palette, site)
 
 
+def _page_in_frame(floor: FloorResult) -> np.ndarray | None:
+    """The floor's page, at the size its geometry was read at."""
+    image = cv2.imread(str(floor.image_path))
+    if image is None or floor.enlargement == 1.0:
+        return image
+    height, width = image.shape[:2]
+    return cv2.resize(
+        image,
+        (int(round(width * floor.enlargement)), int(round(height * floor.enlargement))),
+        interpolation=cv2.INTER_CUBIC,
+    )
+
+
+def _page_size(floor: FloorResult) -> tuple[int, int] | None:
+    """(width, height) of the page in the frame its geometry and scale share.
+
+    The plot is the cropped sheet, so this sizes the site. Taken from the
+    page on disk, an enlarged drawing got a plot too small for its building
+    by the enlargement factor.
+    """
+    image = cv2.imread(str(floor.image_path))
+    if image is None:
+        return None
+    height, width = image.shape[:2]
+    return int(round(width * floor.enlargement)), int(round(height * floor.enlargement))
+
+
 def draw_overlay(floor: FloorResult) -> np.ndarray:
     """Draw extracted walls and rooms over the source page for inspection."""
-    image = cv2.imread(str(floor.image_path))
+    image = _page_in_frame(floor)
 
     for wall in floor.plan.walls:
         cv2.line(
