@@ -83,6 +83,38 @@ def test_the_committed_test_list_is_the_seeded_draw(tmp_path):
     assert read_names(TEST_LIST) == sorted(test)
 
 
+def test_training_stops_if_the_held_back_plans_are_not_all_found(tmp_path, monkeypatch):
+    # On Colab the plan names read from the zip did not match the committed
+    # list, nothing was held back, and a run trained on the very plans it was
+    # to be judged on. Every held-back name must be present, or it stops.
+    from planto3d import cvc_fp
+    from training.train import _cvc_training_names
+
+    _plan(tmp_path)
+    listing = tmp_path / "held_back.txt"
+    listing.write_text("p1\nIIa_BK0701\n")
+    monkeypatch.setattr(cvc_fp, "TEST_LIST", listing)
+
+    with pytest.raises(ValueError, match="IIa_BK0701"):
+        _cvc_training_names(tmp_path, None)
+
+
+def test_training_leaves_out_every_held_back_plan(tmp_path, monkeypatch):
+    from planto3d import cvc_fp
+    from training.train import _cvc_training_names
+
+    _plan(tmp_path)
+    import cv2
+
+    cv2.imwrite(str(tmp_path / "ImagesGT" / "p2.png"), np.full((60, 60, 3), 255, np.uint8))
+    (tmp_path / "ImagesGT" / "p2_gt_1.svg").write_text((tmp_path / "ImagesGT" / "p1_gt_1.svg").read_text())
+    listing = tmp_path / "held_back.txt"
+    listing.write_text("p1\n")
+    monkeypatch.setattr(cvc_fp, "TEST_LIST", listing)
+
+    assert _cvc_training_names(tmp_path, None) == ["p2"]
+
+
 # --- the labels ----------------------------------------------------------------
 
 

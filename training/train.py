@@ -371,6 +371,16 @@ def _cvc_training_names(root: Path, limit: int | None) -> list[str]:
     held_back = set(cvc_fp.read_names(cvc_fp.TEST_LIST))
     if not held_back:
         raise ValueError(f"{cvc_fp.TEST_LIST} is empty; refusing to train on every CVC-FP plan")
+    # Every held-back plan has to be found by name. On Colab once none were
+    # -- the names read from the data did not match the list -- so nothing
+    # was left out and the run trained on its own test set.
+    missing = sorted(held_back - set(names))
+    if missing:
+        raise ValueError(
+            f"{len(missing)} of the {len(held_back)} held-back plans in {cvc_fp.TEST_LIST.name} "
+            f"are not among the {len(names)} found under {root} (e.g. {', '.join(missing[:5])}; "
+            f"found e.g. {', '.join(sorted(names)[:5])}). Refusing to train: nothing would be held back."
+        )
     training = sorted(name for name in names if name not in held_back)
     return training[:limit] if limit is not None else training
 
