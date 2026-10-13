@@ -713,6 +713,18 @@ What this does say is where the remaining wall failures are: 6094, at 79%
 agreement against the 80% bar, has no invented walls at all, so its
 disagreement is the model's own reading.
 
+### The four scale near-misses are not a class
+
+The same search, on the other cheap group: four plans sized from doors and
+25–29% out against a 20% bar. Over all 60 plans, recording what the door
+route had to work with -- how many doors were measured, the spread of their
+widths, and the drawing's wall gauge -- the nine plans over a fifth out and
+the 51 within it are indistinguishable: median 8 doors each, spread 0.31
+against 0.22, gauge 24.0 px in both. No threshold on door count or spread
+separates them, so there is no rule to write. They are drawings whose doors
+are not 2'6", which is the finding already recorded under "Most of the scale
+error is not a mistake" rather than a defect to fix.
+
 ## Gaps, worst first
 
 | # | Gap | Measured | Why it matters | General? |
