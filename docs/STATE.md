@@ -32,8 +32,8 @@ git-ignored). Rebuild the set with `scripts/rebuild_benchmark.py`.
 | Scale within a fifth of true | **51/60**, 9.3% median error | `scale_accuracy.py` |
 | Windows found, as detection | **96.0%** at 84.2% precision | `window_detection_accuracy.py` |
 | Per-class IoU | wall 0.736, door 0.575, window 0.679 | `class_accuracy.py` |
-| Open-to-sky spaces, pixel IoU | **74.6%** over 52 plans | `open_air_accuracy.py` |
-| Tests | **942** | `pytest` |
+| Open-to-sky spaces, pixel IoU | **74.5%** over 52 plans | `open_air_accuracy.py` |
+| Tests | **964** | `pytest` |
 
 Two pipeline changes landed with the checkpoint, and part of the jump is the
 second, which is a scoring correction: walls are now read through doors and
