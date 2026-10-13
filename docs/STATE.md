@@ -5,7 +5,7 @@ conversation that produced it. Read alongside the [README](../README.md),
 which covers what the project does and how to run it.
 
 **[`docs/AUDIT.md`](AUDIT.md) is the authority on every measurement.** This
-file's "Start here" section is current as of 2026-09-15; everything below the
+file's "Start here" section is current as of 2026-10-13; everything below the
 rule further down is history. `docs/PROJECT_GUIDE.md` is a verified snapshot
 from 2026-08-28 and is itself marked superseded -- trust `AUDIT.md` wherever
 they disagree.
@@ -47,23 +47,42 @@ page, supported by CVC-FP scoring 0.239 against CubiCasa's 0.089, came from
 the same bug. On corrected masks CubiCasa window IoU is 0.223 and windows are
 about 1.5% of a page. `AUDIT.md`, "Every window in the masks was hollow".
 
+### Since then: three retrains, all measured, none installed
+
+| run | what it was | result on the 60 held-out plans |
+| --- | --- | --- |
+| `fixedwindows` | corrected window masks, stopped at epoch 21 | **installed**: 39/60 |
+| `mixed` | the same, finished to epoch 24 -- CVC-FP was missing from Drive | 37/60, rejected |
+| `cvcmix` | CubiCasa + CVC-FP, but it trained on all 122 CVC-FP plans including the 40 held back, so its CVC-FP figures mean nothing | 34/60, rejected |
+
+Two notebook faults made those runs cost three hours each: a missing
+`cvc_fp.zip` only printed a note, and the held-back plans were not checked
+against the data. Both now stop the run. The third attempt is **not
+recommended**: mixing 82 plans of another convention into 4,200 lost five
+plans end to end, and a fourth run cannot be judged before the deadline.
+
+Two pipeline faults were found and fixed along the way, both general rather
+than specific to any checkpoint: walls came apart at every solid-painted
+opening, and an enlarged drawing's geometry was paired with the page as it was
+on disk (overlay off the edge, plot 1.25x too small).
+
 ### What is worth doing next
 
-1. **Retrain on the corrected masks** with `notebooks/train_on_colab.ipynb` at
-   its defaults (`door_boost = 1.0`, `run_name = "fixedwindows"`), then judge it
-   in one command:
-   `python scripts/compare_checkpoints.py data/cubicasa5k --baseline models/unet_cubicasa.pt --candidate models/unet_cubicasa_fixedwindows.pt --save comparison_logs`.
-   It replaces the installed checkpoint only if walls and windows improve
-   without scale or doors regressing.
-2. **Score the reference house against tape measurements** --
-   `scripts/reference_check.py`, with the sizes in a git-ignored file. It is
-   the spec's second gate and the only ground truth not drawn by an annotator.
-3. **Door recall**, if the retrain does not move scale. Loss weighting was
-   tried and measured worse (`AUDIT.md`, the door-weighted retrain); the
-   remaining levers need more or different door examples, not a rule.
-4. **A milder retrain** with the `unfill_walls` augmentation at a lower
-   probability than the 0.3 that was tried and rejected.
-5. **A fourth ground-truthed corpus**, ideally with scale constants that
+1. **Score the reference house against tape measurements** --
+   `scripts/reference_check.py <plan> <truth file> --checkpoint models/unet_cubicasa.pt`,
+   with the sizes in a git-ignored file (`data/soni_residence/truth.txt`). It is
+   the spec's second gate, the only ground truth not drawn by an annotator, and
+   the only thing left that nobody can do without the building. Smoke-tested
+   end to end on a demo plan with invented numbers: it runs, measures and
+   prints a pass/fail table per item.
+2. **Nothing cheap is left on the scorecard.** The three plans needed for the
+   spec's 70% were searched for directly: the invented envelope walls cost 5.5
+   points of wall agreement but removing them trades one failing plan for
+   another, and the four scale near-misses cannot be told from the 51 passing
+   plans by door count or width spread. Both are recorded in `AUDIT.md`.
+3. **Door recall**, the remaining lever on scale. Loss weighting was tried and
+   measured worse; what is left needs more or different door examples.
+4. **A fourth ground-truthed corpus**, ideally with scale constants that
    differ in the other direction from CubiCasa's -- the only way past "3½
    conventions tested" as the qualification on every number.
 
