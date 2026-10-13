@@ -688,6 +688,31 @@ Two things this renderer does honestly rather than hides:
   with each other, not a defect -- but it is a real limitation of the
   preset, not just of this one house.
 
+## The invented envelope walls cost agreement, and removing them gains nothing
+
+Measured while looking for the three plans needed to reach the spec's 70%.
+`close_envelope` adds walls across gaps in the facade, and they are where the
+disagreement is. Over the 52 single-plan sheets, scoring the same built
+geometry two ways:
+
+| | coverage, median | agreement, median | passing the scorecard's wall check |
+| --- | --- | --- | --- |
+| all walls | 98.1% | 89.0% | 43 |
+| only the walls read off the drawing | 97.8% | **94.5%** | 43 |
+
+Five and a half points of agreement, and no more plans passing: the invented
+walls carry coverage on the plans where the facade is genuinely broken, so
+dropping them trades one failure for another (20002 goes 78% → 81% agreement
+and passes; 3517 goes 79% → 72% coverage and fails). Two changes were run end
+to end on the 60 plans, and **neither is shipped**: invented walls given the
+drawing's own wall thickness instead of 9 inches at the assumed scale, 39 of
+60 (openings failing 3, unchanged); no envelope walls at all, 39 of 60
+(openings failing 1, walls 9). The headline does not move either way.
+
+What this does say is where the remaining wall failures are: 6094, at 79%
+agreement against the 80% bar, has no invented walls at all, so its
+disagreement is the model's own reading.
+
 ## Gaps, worst first
 
 | # | Gap | Measured | Why it matters | General? |
