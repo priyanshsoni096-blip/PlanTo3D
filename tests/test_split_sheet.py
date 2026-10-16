@@ -32,8 +32,8 @@ def _plan(width=300, height=400):
     return piece
 
 
-def _sheet(count, gutter=90, margin=60):
-    plans = [_plan() for _ in range(count)]
+def _sheet(count, gutter=90, margin=60, plan_width=300):
+    plans = [_plan(width=plan_width) for _ in range(count)]
     height = plans[0].shape[0]
     width = margin * 2 + sum(p.shape[1] for p in plans) + gutter * (count - 1)
 
@@ -43,6 +43,33 @@ def _sheet(count, gutter=90, margin=60):
         sheet[:, x : x + plan.shape[1]] = plan
         x += plan.shape[1] + gutter
     return sheet
+
+
+def _edge_to_edge_plan(width, height=400):
+    """A plan whose outer wall is its own edge, so no white margin of its
+    own widens the gutter beside it."""
+    piece = np.full((height, width, 3), WHITE, dtype=np.uint8)
+    thickness = 10
+    piece[:, :] = INK
+    piece[thickness:-thickness, thickness:-thickness] = WHITE
+    piece[height // 2 : height // 2 + thickness, :] = INK
+    piece[:, width // 2 : width // 2 + thickness] = INK
+    return piece
+
+
+def test_a_gutter_half_a_percent_of_the_sheet_still_splits_it():
+    # Real sheets rule the gutter thin. Over the 60 held-out plans, three
+    # carried a second plan behind a gap of 12 to 22 px on sheets 2,700 to
+    # 3,700 px wide -- under the 0.6% the detector used to require, so they
+    # reconstructed as one storey, and 8304 and 4707 were two of them.
+    # Two 1,200 px plans with a 12 px gutter is 0.47% of the sheet.
+    gutter, plan_width = 12, 1200
+    sheet = np.full((400, plan_width * 2 + gutter, 3), WHITE, dtype=np.uint8)
+    sheet[:, :plan_width] = _edge_to_edge_plan(plan_width)
+    sheet[:, plan_width + gutter :] = _edge_to_edge_plan(plan_width)
+
+    assert 0.004 < gutter / sheet.shape[1] < 0.006
+    assert len(split_sheet(sheet)) == 2
 
 
 def test_three_plans_in_a_row_become_three_images():

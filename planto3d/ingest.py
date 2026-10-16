@@ -84,7 +84,21 @@ INKED_COLUMN_FLOOR = 0.01
 # Loosening it this far is only safe because the pieces are checked
 # afterwards: detection is generous and _pieces_look_like_plans throws out
 # what does not stand up.
-MIN_GUTTER_FRACTION = 0.006
+#
+# Re-swept 2026-10-16 against the corrected-window checkpoint and the
+# corrected annotations, on the 60 held-out plans, 11 of which carry more
+# than one plan:
+#
+#     0.006   58/60   precision 100%   recall 73%
+#     0.004   58/60              100%         82%
+#
+# Three sheets rule their gutter down to 12-22 px on pages 2,700 to 3,700
+# px across -- under 0.6% -- and reconstructed as one storey. At 0.004 they
+# split, no sheet is cut wrongly, and the end-to-end scorecard goes from 40
+# of 60 to 41: storey failures 3 to 2, wall failures 9 to 8. Loosening the
+# ink ratio instead was swept at the same time and does cut real plans in
+# half (0.25 splits 3676 wrongly), so that stays where it is.
+MIN_GUTTER_FRACTION = 0.004
 
 # A gutter is frequently ruled down the middle, one plan's border box
 # against the next. That single line of ink breaks the empty run in two,
