@@ -50,18 +50,19 @@ once, scored against the annotations rather than by eye.
 
 Over 60 plans from CubiCasa's held-out **test** split, which the checkpoint
 never saw, scored against correctly rasterised annotations, with the
-checkpoint retrained on corrected window masks: **40 of 60 (67%)**. The list
+checkpoint retrained on corrected window masks: **42 of 60 (70%)**, which is
+the spec's Gate 1 target. The list
 is `data/cubicasa_test60.txt`; see "Walls read through their openings", "The
 benchmark was mostly training data" and "Every window in the masks was hollow"
 below.
 
 | Check | Fails on | |
 | --- | --- | --- |
-| **walls** — coverage ≥85% and agreement ≥80% | 9 of 60 | |
-| **size** — scale within a fifth of true | 9 of 60 | |
+| **size** — scale within a fifth of true | 9 of 60 | the largest single cause |
 | **rooms** — count within 25% of annotated | 7 of 60 | |
+| **walls** — coverage ≥85% and agreement ≥80% | 7 of 60 | |
 | **openings** — within 0.6x to 1.5x of those drawn | 3 of 60 | |
-| storeys — right number of them | 3 of 60 | |
+| storeys — right number of them | 2 of 60 | |
 | built — a model comes out at all | **0 of 60** | |
 
 Earlier figures on this page — 11 of 60 with the hollow-window checkpoint, and
@@ -689,6 +690,24 @@ Two things this renderer does honestly rather than hides:
   with each other, not a defect -- but it is a real limitation of the
   preset, not just of this one house.
 
+## Three measured changes that carried the headline from 39 to 42 of 60
+
+Searched for deliberately, each shipped only because it gained plans end to
+end on all 60, and each recorded below in its own right:
+
+| | right on every check | what moved |
+| --- | --- | --- |
+| before | 39 of 60 | — |
+| smallest-room filter sized by the drawing | 40 | room failures 8 → 7 |
+| gutters down to 0.4% of sheet width found | 41 | storeys 3 → 2, walls 9 → 8 |
+| walls cut back to a thickness the drawing supports | **42** | walls 8 → 7 |
+
+Measured afterwards on the same 60 plans: scale median error 9.1% (51 within
+a fifth), wall coverage/agreement 97.7% / 94.6%, sheet splitting 58 of 60
+exact at 100% precision and 82% recall, open-to-sky IoU 76.3% over 51 plans,
+windows found 96.0% at 84.2% precision, per-class IoU wall 0.736, door 0.575,
+window 0.679. 970 tests.
+
 ## The smallest-room filter was sized by an estimate, and dropped real rooms
 
 `run` drops regions under `MIN_ROOM_SQFT` (12 sq ft), and converted feet to
@@ -714,6 +733,50 @@ rest of the geometry already follows -- 12 sq ft at a 9-inch wall:
 | room-count failures | 8 | **7** |
 | walls / size / openings / storeys failures | 9 / 9 / 3 / 3 | 9 / 9 / 3 / 3 |
 | open-air IoU | 74.5% over 459 rooms | 74.5% over 469 rooms |
+
+## Sheets rule their gutters thinner than the detector would believe
+
+Three of the 60 held-out sheets separate two plans by 12 to 22 px on pages
+2,700 to 3,700 px across -- under `MIN_GUTTER_FRACTION`, which asked for 0.6%
+of the sheet's width -- so they were read as a single storey. Re-swept against
+the corrected-window checkpoint, 11 of the 60 sheets carrying more than one
+plan:
+
+| minimum gutter | exact floor count | precision | recall | sheets cut wrongly |
+| --- | --- | --- | --- | --- |
+| 0.006 | 57 of 60 | 100% | 73% | none |
+| **0.004** | **58 of 60** | **100%** | **82%** | none |
+
+End to end that is 40 of 60 to 41, with storey failures 3 to 2 and wall
+failures 9 to 8. Loosening the *ink* threshold instead was swept at the same
+time and is not safe: at a ratio of 0.25 it cuts plan 3676 in half, and at
+0.30 four sheets, since a dimension band and a strong internal wall look
+exactly like a gutter. That stays at 0.15.
+
+Two sheets still read as one. 9488 has no findable gutter at all -- the band
+between its two plans carries 0.041 ink against a 0.023 threshold -- and
+4707's gutter is found but its pieces are rejected as not plan-like.
+
+## Walls read thicker than the drawing draws them
+
+`_drop_impossibly_thick` judges each run against the median of the *built*
+walls, so a plan carrying several over-thick runs raises its own ceiling and
+keeps them. Scoring every built wall by the share of its painted pixels that
+land on annotated wall, on the three plans then failing only the wall check:
+
+| plan | gauge | the worst runs | their agreement | share of all painted wall |
+| --- | --- | --- | --- | --- |
+| 6094 | 20 px | 68 px, 54 px | 60% | 43% |
+| 20002 | 24 px | 69 px | 48% | — |
+| 13589 | 20 px | four invented envelope runs | 0% | 7% |
+
+Runs thicker than `gauge x MAX_THICKNESS_RATIO` are now cut back to it rather
+than dropped: the line is usually right and only the thickness is wrong.
+Dropping them was measured too and costs far more than it buys -- plans below
+70% wall coverage go from 2 to 9, mean coverage 94.2% to 90.5%. Clamping, on
+60 plans: median agreement unchanged at 94.6% with the mean 91.2% to 91.8%,
+median coverage 97.8% to 97.7%, end to end 41 of 60 to **42**, wall failures 8
+to 7, and scale median error 9.3% to 9.1%.
 
 ## The invented envelope walls cost agreement, and removing them gains nothing
 

@@ -260,10 +260,10 @@ are read against the targets, not the old numbers:*
 
 | Gate 1 item | Target | Held-out result | Met? |
 | --- | --- | --- | --- |
-| Right on every check | 70% (14 of 20) | 67% (40 of 60) | no |
-| Scale median error | below 10% | 9.3% | yes |
-| Split precision | 100% | 100% (57/60 exact) | yes |
-| Wall coverage | at least 96% | 97.8% median | yes |
+| Right on every check | 70% (14 of 20) | **70% (42 of 60)** | **yes** |
+| Scale median error | below 10% | 9.1% | yes |
+| Split precision | 100% | 100% (58/60 exact) | yes |
+| Wall coverage | at least 96% | 97.7% median | yes |
 
 *The 40 of 60 includes a correction to how wall agreement is scored (wall
 built through a drawn opening now counts as right); under the old rule the

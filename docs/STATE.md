@@ -25,22 +25,23 @@ git-ignored). Rebuild the set with `scripts/rebuild_benchmark.py`.
 
 | | Result | Script |
 | --- | --- | --- |
-| **Correct end to end, every check at once** | **40/60 (67%)** | `output_scorecard.py` |
-| — fails on walls / size / rooms / openings / storeys | 9 / 9 / 7 / 3 / 3 | same |
-| Sheets split into the right number of plans | **57/60**, 100% precision, 73% recall | `split_accuracy.py` |
-| Wall coverage / agreement, median | **97.8% / 94.6%** | `wall_accuracy.py` |
-| Scale within a fifth of true | **51/60**, 9.3% median error | `scale_accuracy.py` |
+| **Correct end to end, every check at once** | **42/60 (70%)** | `output_scorecard.py` |
+| — fails on size / rooms / walls / openings / storeys | 9 / 7 / 7 / 3 / 2 | same |
+| Sheets split into the right number of plans | **58/60**, 100% precision, 82% recall | `split_accuracy.py` |
+| Wall coverage / agreement, median | **97.7% / 94.6%** | `wall_accuracy.py` |
+| Scale within a fifth of true | **51/60**, 9.1% median error | `scale_accuracy.py` |
 | Windows found, as detection | **96.0%** at 84.2% precision | `window_detection_accuracy.py` |
 | Per-class IoU | wall 0.736, door 0.575, window 0.679 | `class_accuracy.py` |
-| Open-to-sky spaces, pixel IoU | **74.5%** over 52 plans | `open_air_accuracy.py` |
-| Tests | **964** | `pytest` |
+| Open-to-sky spaces, pixel IoU | **76.3%** over 51 plans | `open_air_accuracy.py` |
+| Tests | **970** | `pytest` |
 
 Two pipeline changes landed with the checkpoint, and part of the jump is the
 second, which is a scoring correction: walls are now read through doors and
 windows, and wall built through a drawn opening is scored as right. Under the
 old scoring the same model and pipeline read 13/60. `AUDIT.md`, "Walls read
 through their openings". Gate 1 is now 3 of 4: scale is under 10%; plans right
-on every check are 67% against a 70% target.
+on every check are 70%, meeting the target. Gate 1 is met on all four items;
+Gate 2 waits on the house's measured dimensions.
 
 An earlier claim that windows fail because CubiCasa draws them at 0.1% of a
 page, supported by CVC-FP scoring 0.239 against CubiCasa's 0.089, came from
