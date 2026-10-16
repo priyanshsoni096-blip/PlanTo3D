@@ -4,8 +4,8 @@ Usage:
     python scripts/crop_pages.py <pdf_path> <output_dir>
 """
 
+import argparse
 import logging
-import sys
 from pathlib import Path
 
 import cv2
@@ -29,5 +29,15 @@ def main(pdf_path: str, output_dir: str) -> None:
         )
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("pdf", help="the floor plan PDF")
+    parser.add_argument("output_dir", help="where the rasterized pages are written")
+    return parser
+
+
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    arguments = build_parser().parse_args()
+    main(arguments.pdf, arguments.output_dir)

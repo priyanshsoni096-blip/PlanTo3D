@@ -12,11 +12,11 @@ cutting in two along an internal wall, calibrating the halves at 34% under
 true.
 """
 
+import argparse
 import logging
 import os
 import random
 import shutil
-import sys
 import warnings
 from pathlib import Path
 
@@ -30,12 +30,29 @@ from planto3d.segment import load_segmenter
 warnings.filterwarnings("ignore")
 logging.disable(logging.WARNING)
 
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "seed", nargs="?", type=int, default=None,
+        help="repeat an earlier run; omitted, one is drawn and printed",
+    )
+    return parser
+
+
+# Arguments first. The output directory used to be emptied as this module
+# loaded, so a mistyped argument -- or asking for --help -- destroyed the
+# previous run's output before anything could refuse the command.
+arguments = build_parser().parse_args()
+
 ROOT = Path(os.environ.get("PLANTO3D_CUBICASA", "data/cubicasa5k"))
 OUT = Path(os.environ.get("PLANTO3D_OUT", "output_random"))
 shutil.rmtree(OUT, ignore_errors=True)
 OUT.mkdir(parents=True)
 
-seed = int(sys.argv[1]) if len(sys.argv) > 1 else random.randrange(10**6)
+seed = arguments.seed if arguments.seed is not None else random.randrange(10**6)
 random.seed(seed)
 
 plans = sorted(ROOT.glob("*/*/F1_scaled.png"))
