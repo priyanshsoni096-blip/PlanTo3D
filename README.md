@@ -86,11 +86,17 @@ is quoted everywhere because it is the less flattering of the two.
 | Per-class IoU | `class_accuracy.py`, 60 | wall **0.736**, door **0.575**, window **0.679** |
 | Tests | `pytest` | **995** |
 
-Measured on 2026-09-15 with the checkpoint retrained on corrected window masks
+Measured on 2026-10-16 with the checkpoint retrained on corrected window masks
 (`unet_cubicasa_fixedwindows.pt`, installed as `unet_cubicasa.pt`). Much of
 the jump from 11/60 is a correction to how wall agreement is scored, not the
 model: under the old rule the same model and pipeline read 13/60.
-`docs/AUDIT.md`, "Walls read through their openings", has every step.
+`docs/AUDIT.md`, "Walls read through their openings", has every step, and
+"Three measured changes that carried the headline from 39 to 42 of 60" has
+the rest.
+
+`docs/BUGS.md` is the defect report: the pipeline run over every corpus on
+hand and over the awkward files a user will actually upload, with what broke,
+what was fixed, and what was checked and turned out to be fine.
 
 Every row is measured on plans from CubiCasa's held-out test
 split, listed in `data/cubicasa_test60.txt`, against annotations rasterised

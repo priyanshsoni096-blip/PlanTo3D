@@ -143,3 +143,21 @@ Recorded in full in `docs/AUDIT.md`:
 - **Demo plans share numbers with corpus sheets.** `demo_plans/1` and BRIDGE
   `114012.gif` report identical geometry because the demo plans were copied
   from those corpora.
+- **Buildings are not twice as tall as they should be.** The reference house
+  measured 19.0 m and the two-storey demo 11.0 m on what looked like the
+  vertical axis, roughly double a 9-foot storey. glTF is Y-up: those were
+  depths. Read correctly the house is 34 ft over three storeys, matching the
+  34.6 ft to coping recorded earlier, and the demo 20.7 ft over two.
+- **`--landscaping premium` leaving bare ground.** It switches on ground,
+  planting and a boundary, and planting is drawn where the drawing shows
+  planting. `demo_plans/3` is a line drawing with none, so bare ground with
+  a boundary wall is the honest result.
+- **Storeys stack where they should.** On the house PDF the three floors
+  centre within 2 px of each other (1136, 1135, 1137).
+
+## Rough edges, not fixed
+
+- **`--scale-room` runs the pipeline twice** -- once to measure the room
+  being quoted, once to rebuild with the stated scale -- and prints its
+  summary twice. It is the correct answer arrived at wastefully, on a path
+  used once per drawing.
