@@ -116,6 +116,61 @@ the previous run. Both parse arguments properly now, and `random_plan`
 parses before it clears anything. A test runs `--help` against all 23
 scripts.
 
+## The vocabulary, audited as a whole
+
+460 keywords in 15 categories, matched by substring. Every keyword was run
+against the matcher that actually sees it, and every category list was read
+against what that category does to the building.
+
+**Structurally sound:** no duplicate keywords, and no keyword shadowed by a
+shorter one from another category.
+
+**Six keywords fired inside ordinary words**, taking the room with them:
+
+| keyword | caught inside | what the model did |
+| --- | --- | --- |
+| BAL | BALLROOM, BALANCE SPACE | removed the roof |
+| SPA | SPARE ROOM, SPARE BEDROOM, SPACE | tiled it as a wet area |
+| DOME | DOMESTIC HELP, DOMESTIC STORE | built a dome over it |
+| DUCT | PRODUCTION ROOM | cut a hole through the floor |
+| OTB | FOOTBALL COURT | cut a hole through the floor |
+| STEP | STEPNEY STORE | built a staircase in a tyre store |
+
+All six are whole-word marks now, and still read what they are for: `BAL 2`,
+`SPA ROOM`, `DUCT`, `STEPS`. `POOL TABLE ROOM` was built as water and left
+open to the sky; `POOL` has to stay a substring for `SWIMMING POOL` and
+`POOL DECK`, so the games room is named instead.
+
+**Six keywords could never match anything.** Labels are normalised before
+matching -- punctuation becomes a space -- and the keywords were not, so
+`BUTLER'S PANTRY`, `DOUBLE-HEIGHT`, `TRIPLE-HEIGHT`, `OWNER'S SUITE`,
+`CHEF'S KITCHEN` and `BUTLER'S KITCHEN` were dead entries. The keywords are
+normalised as the lookup tables are built.
+
+**Two groups were filed under the wrong meaning.** `GREEN WALL`, `VERTICAL
+GARDEN` and `LIVING WALL` were ground cover, so planting on a wall was laid
+across the floor and the roof removed above it. `LOGGIA`, `ARCADE`,
+`COLONNADE`, `CLOISTER`, `SCREENED PORCH`, `GAZEBO`, `PAVILION` and `CABANA`
+were open to the sky, though each is a roofed structure by definition; they
+are canopies now. `LANAI`, `BREEZEWAY`, `PERGOLA`, `TRELLIS` and `ARBOR`
+stay open, being used for unroofed spaces as often as roofed ones.
+
+**Tried and reverted:** `OPEN TO SKY` reads as a void rather than as open.
+The name argues otherwise, but on Indian drawings OTS marks a light well --
+a shaft through the floors, which is what a void builds. Moved to open it
+would keep every floor and remove the roof, turning the shaft into a terrace
+on each storey.
+
+**Judgement calls left alone:** a verandah, a porch and a sit-out are paved
+and open here, which is a choice rather than an error -- on the reference
+house the rooms opened to the sky are exactly the right ones (parking,
+landscape, both balconies, the planted deck). An indoor jacuzzi or hot tub
+still reads as water.
+
+Spanish `BALCON` used to match through the `BAL` substring, which a test
+already recorded as an accident rather than support. It now reads as
+nothing, like the eight other unsupported Spanish and Portuguese terms.
+
 ## Fixed earlier the same day, from the accuracy work
 
 Recorded in full in `docs/AUDIT.md`:
