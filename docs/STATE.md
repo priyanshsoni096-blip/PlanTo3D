@@ -25,8 +25,8 @@ git-ignored). Rebuild the set with `scripts/rebuild_benchmark.py`.
 
 | | Result | Script |
 | --- | --- | --- |
-| **Correct end to end, every check at once** | **39/60 (65%)** | `output_scorecard.py` |
-| — fails on walls / size / rooms / openings / storeys | 9 / 9 / 8 / 3 / 3 | same |
+| **Correct end to end, every check at once** | **40/60 (67%)** | `output_scorecard.py` |
+| — fails on walls / size / rooms / openings / storeys | 9 / 9 / 7 / 3 / 3 | same |
 | Sheets split into the right number of plans | **57/60**, 100% precision, 73% recall | `split_accuracy.py` |
 | Wall coverage / agreement, median | **97.8% / 94.6%** | `wall_accuracy.py` |
 | Scale within a fifth of true | **51/60**, 9.3% median error | `scale_accuracy.py` |
@@ -40,7 +40,7 @@ second, which is a scoring correction: walls are now read through doors and
 windows, and wall built through a drawn opening is scored as right. Under the
 old scoring the same model and pipeline read 13/60. `AUDIT.md`, "Walls read
 through their openings". Gate 1 is now 3 of 4: scale is under 10%; plans right
-on every check are 65% against a 70% target.
+on every check are 67% against a 70% target.
 
 An earlier claim that windows fail because CubiCasa draws them at 0.1% of a
 page, supported by CVC-FP scoring 0.239 against CubiCasa's 0.089, came from
@@ -51,7 +51,7 @@ about 1.5% of a page. `AUDIT.md`, "Every window in the masks was hollow".
 
 | run | what it was | result on the 60 held-out plans |
 | --- | --- | --- |
-| `fixedwindows` | corrected window masks, stopped at epoch 21 | **installed**: 39/60 |
+| `fixedwindows` | corrected window masks, stopped at epoch 21 | **installed**: 39/60 then, 40/60 after the room-filter fix |
 | `mixed` | the same, finished to epoch 24 -- CVC-FP was missing from Drive | 37/60, rejected |
 | `cvcmix` | CubiCasa + CVC-FP, but it trained on all 122 CVC-FP plans including the 40 held back, so its CVC-FP figures mean nothing | 34/60, rejected |
 

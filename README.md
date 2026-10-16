@@ -76,7 +76,7 @@ is quoted everywhere because it is the less flattering of the two.
 
 | What | Script | Result |
 | --- | --- | --- |
-| Plans right on every check at once | `output_scorecard.py`, 60 | **39/60** (65%) |
+| Plans right on every check at once | `output_scorecard.py`, 60 | **40/60** (67%) |
 | Wall coverage — annotated wall that gets built | `wall_accuracy.py`, 60 | **97.8%** median |
 | Wall agreement — built wall that really is wall, or a drawn opening in it | `wall_accuracy.py`, 60 | **94.6%** median |
 | Sheets split into the right number of plans | `split_accuracy.py`, 60 | **57/60**, 100% precision, 73% recall |
@@ -84,7 +84,7 @@ is quoted everywhere because it is the less flattering of the two.
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 52 | **74.5%** |
 | Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **96.0%** found, 84.2% precision |
 | Per-class IoU | `class_accuracy.py`, 60 | wall **0.736**, door **0.575**, window **0.679** |
-| Tests | `pytest` | **942** |
+| Tests | `pytest` | **967** |
 
 Measured on 2026-09-15 with the checkpoint retrained on corrected window masks
 (`unet_cubicasa_fixedwindows.pt`, installed as `unet_cubicasa.pt`). Much of

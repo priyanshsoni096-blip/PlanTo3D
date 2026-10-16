@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **942 passing** | — |
+| Tests | **967 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -50,7 +50,7 @@ once, scored against the annotations rather than by eye.
 
 Over 60 plans from CubiCasa's held-out **test** split, which the checkpoint
 never saw, scored against correctly rasterised annotations, with the
-checkpoint retrained on corrected window masks: **39 of 60 (65%)**. The list
+checkpoint retrained on corrected window masks: **40 of 60 (67%)**. The list
 is `data/cubicasa_test60.txt`; see "Walls read through their openings", "The
 benchmark was mostly training data" and "Every window in the masks was hollow"
 below.
@@ -59,7 +59,7 @@ below.
 | --- | --- | --- |
 | **walls** — coverage ≥85% and agreement ≥80% | 9 of 60 | |
 | **size** — scale within a fifth of true | 9 of 60 | |
-| **rooms** — count within 25% of annotated | 8 of 60 | |
+| **rooms** — count within 25% of annotated | 7 of 60 | |
 | **openings** — within 0.6x to 1.5x of those drawn | 3 of 60 | |
 | storeys — right number of them | 3 of 60 | |
 | built — a model comes out at all | **0 of 60** | |
@@ -247,7 +247,8 @@ CubiCasa and six CVC-FP plans, then the same command with three epochs, which
 logged "resuming after epoch 2" and ran only epoch 3; the checkpoint records
 `cvc_fp_plans` and `cvc_repeat`.
 
-The spec's target for the headline was 70%; this is 65%. Scale, at 9.3%, is
+The spec's target for the headline was 70%; this was 65% here, and is 67%
+after the smallest-room filter above. Scale, at 9.3%, is
 under its 10% target.
 
 ## Every window in the masks was hollow
@@ -687,6 +688,32 @@ Two things this renderer does honestly rather than hides:
   little colour separation. That is the light and the building agreeing
   with each other, not a defect -- but it is a real limitation of the
   preset, not just of this one house.
+
+## The smallest-room filter was sized by an estimate, and dropped real rooms
+
+`run` drops regions under `MIN_ROOM_SQFT` (12 sq ft), and converted feet to
+pixels through the **inferred** scale. The scale is an estimate that runs up
+to about a quarter out, and the threshold goes as its square, so a plan
+reading 27% high got a filter 60% too aggressive. Over the 60 held-out plans,
+six of the eight room-count failures built too few rooms and the tracer had
+found them:
+
+| plan | traced | kept | drawn | scale |
+| --- | --- | --- | --- | --- |
+| 8304 | 25 | 16 | 23 | 38.2 |
+| 3141 | 18 | 9 | 12 | 32.8 |
+| 11859 | 10 | 5 | 9 | 24.0 |
+| 5985 | 9 | 4 | 7 | 21.2 |
+
+Sized against the drawing's own measured wall gauge instead -- the rule the
+rest of the geometry already follows -- 12 sq ft at a 9-inch wall:
+
+| | before | after |
+| --- | --- | --- |
+| right on every check | 39 of 60 | **40 of 60** |
+| room-count failures | 8 | **7** |
+| walls / size / openings / storeys failures | 9 / 9 / 3 / 3 | 9 / 9 / 3 / 3 |
+| open-air IoU | 74.5% over 459 rooms | 74.5% over 469 rooms |
 
 ## The invented envelope walls cost agreement, and removing them gains nothing
 
