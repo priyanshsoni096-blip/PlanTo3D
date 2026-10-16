@@ -154,6 +154,14 @@ Recorded in full in `docs/AUDIT.md`:
   a boundary wall is the honest result.
 - **Storeys stack where they should.** On the house PDF the three floors
   centre within 2 px of each other (1136, 1135, 1137).
+- **Every feature category builds something.** All 15 were driven through
+  `floors_to_parts` one at a time against an otherwise identical storey:
+  each produces geometry the plain case does not -- dome 640 faces, stairs
+  180, tower 20, tank 24, and so on down to wet and lawn at 12. None of
+  them is a word in the vocabulary with nothing behind it.
+- **A ramp is a slope, not steps.** It books its geometry under the stairs
+  material, which looked wrong; `_ramp` builds a slab falling at 1:12, the
+  usual accessible gradient.
 
 ## Rough edges, not fixed
 
