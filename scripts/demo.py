@@ -23,6 +23,7 @@ from pathlib import Path
 import cv2
 
 from planto3d import blender_render
+from planto3d.design import LANDSCAPING, STYLES, TONES, Design
 from planto3d.pipeline import draw_overlay, run
 from planto3d.preview import render_views as render_fast
 from planto3d.segment import load_segmenter
@@ -59,6 +60,7 @@ def main(
     checkpoint: Path | None,
     lighting: str,
     fast: bool,
+    design: Design | None = None,
 ) -> None:
     # The pipeline logs at INFO, which is most of what there is to watch
     # during the slow stages. Left on deliberately: a demo that prints
@@ -99,7 +101,18 @@ def main(
     if checkpoint is not None and not checkpoint.exists():
         print(f"      no checkpoint at {checkpoint}, using the classical baseline")
         checkpoint = None
-    result = run(plan, output_dir, segmenter=load_segmenter(checkpoint))
+    # What the drawing does not say: what the building is clad in, how dark
+    # that is, and how much of a setting it gets. The pipeline renders a
+    # default scheme without these, which is why the demo used to produce a
+    # grey building on bare ground while the notebook produced a house.
+    design = design or Design()
+    result = run(
+        plan,
+        output_dir,
+        segmenter=load_segmenter(checkpoint),
+        palette=design.palette(),
+        site=design.site(),
+    )
     done(started)
 
     started = stage(2, total, "What it found")
@@ -161,7 +174,7 @@ def main(
         print(f"\n  (Blender render skipped: {reason})")
 
 
-if __name__ == "__main__":
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -185,11 +198,29 @@ if __name__ == "__main__":
         action="store_true",
         help="skip the Blender pass",
     )
-    arguments = parser.parse_args()
+    # What the drawing does not say. Defaults chosen to show the project at
+    # its best rather than at its plainest: a demo that opens on grey walls
+    # on bare ground teaches the wrong thing about what it can do.
+    parser.add_argument("--style", choices=sorted(STYLES), default="luxury")
+    parser.add_argument("--colour", choices=sorted(TONES), default="warm")
+    parser.add_argument(
+        "--landscaping", choices=sorted(LANDSCAPING), default="premium",
+        help="how much of a setting the building gets",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    arguments = build_parser().parse_args()
     main(
         arguments.plan,
         arguments.output,
         arguments.checkpoint,
         arguments.lighting,
         arguments.fast,
+        Design(
+            style=arguments.style,
+            colour=arguments.colour,
+            landscaping=arguments.landscaping,
+        ),
     )

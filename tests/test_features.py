@@ -94,6 +94,31 @@ def test_a_terrace_garden_is_planting_not_an_open_deck():
     assert classify("TERRACE") == "open"
 
 
+def test_a_covered_terrace_keeps_its_roof():
+    # Found by looking at a render: demo_plans/3's "TERRASSE COUVERTE"
+    # matched "TERRASSE", was built open to the sky, and left a hole in the
+    # roof over a terrace the drawing says is covered. The word that decides
+    # it is the one the vocabulary was ignoring.
+    assert classify("TERRASSE COUVERTE") == "canopy"
+    assert classify("COVERED TERRACE") == "canopy"
+    assert classify("COVERED BALCONY") == "canopy"
+    assert classify("KATETTU TERASSI") == "canopy"      # Finnish
+    assert classify("KATETTU PARVEKE") == "canopy"      # Finnish, balcony
+
+
+def test_covering_only_changes_what_was_open_to_the_sky():
+    # A porch or a verandah is paved ground, never a hole in the roof, so
+    # saying it is covered changes nothing and must not invent a canopy.
+    assert classify("PORCH") == classify("COVERED PORCH") == "paving"
+    assert classify("VERANDAH") == classify("COVERED VERANDAH") == "paving"
+    assert classify("KITCHEN") == classify("COVERED KITCHEN")
+
+
+def test_an_uncovered_terrace_is_still_open_to_the_sky():
+    for label in ("TERRACE", "BALCONY", "SUN DECK", "OPEN TERRACE"):
+        assert classify(label) == "open", label
+
+
 def test_matching_ignores_case_and_surrounding_text():
     assert classify("Swimming Pool (proposed)") == "water"
 

@@ -852,6 +852,27 @@ def _normalize(label: str) -> str:
     return " ".join(cleaned.split())
 
 
+# A terrace, a balcony or a deck is open to the sky -- unless the drawing
+# says it is roofed, and then the roof is the whole point of the label.
+# Found by looking at a render: demo_plans/3 says "TERRASSE COUVERTE" and
+# the model left a hole in the roof over it, because the vocabulary matched
+# "TERRASSE" and ignored the word that qualifies it.
+#
+# Matched as whole words, so "DISCOVERED" and the Finnish "KATE" in another
+# compound cannot fire it. A roofed terrace becomes a canopy: open-sided,
+# with a roof over it, which is what the drawing describes.
+COVERED_WORDS = frozenset({
+    "COVERED", "ROOFED", "SHELTERED",          # English
+    "COUVERT", "COUVERTE",                     # French
+    "CUBIERTO", "CUBIERTA", "TECHADO",         # Spanish
+    "KATETTU", "KATOLLINEN",                   # Finnish
+})
+
+
+def _says_covered(normalized: str) -> bool:
+    return bool(COVERED_WORDS & set(normalized.split()))
+
+
 def classify(label: str) -> str | None:
     """The feature category a room label implies, or None for a plain room."""
     if not label:
@@ -864,6 +885,8 @@ def classify(label: str) -> str | None:
         # Checked with and without spaces so "W C" matches "WC" and
         # "SIT OUT" matches "SITOUT", whichever way it was written.
         if keyword in normalized or keyword.replace(" ", "") in squashed:
+            if category == "open" and _says_covered(normalized):
+                return "canopy"
             return category
 
     # Whole-word marks are tested last, so a longer phrase always wins: a
