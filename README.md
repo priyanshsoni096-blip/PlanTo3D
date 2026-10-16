@@ -84,7 +84,7 @@ is quoted everywhere because it is the less flattering of the two.
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 51 | **76.3%** |
 | Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **96.0%** found, 84.2% precision |
 | Per-class IoU | `class_accuracy.py`, 60 | wall **0.736**, door **0.575**, window **0.679** |
-| Tests | `pytest` | **970** |
+| Tests | `pytest` | **995** |
 
 Measured on 2026-09-15 with the checkpoint retrained on corrected window masks
 (`unet_cubicasa_fixedwindows.pt`, installed as `unet_cubicasa.pt`). Much of
@@ -522,7 +522,7 @@ planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
 notebooks/    Colab notebooks for training and the photoreal pass
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        970 tests
+tests/        995 tests
 docs/         design spec and implementation plan
 ```
 

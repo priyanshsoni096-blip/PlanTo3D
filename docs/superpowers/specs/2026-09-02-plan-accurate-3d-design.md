@@ -271,8 +271,11 @@ same model and pipeline read 13 of 60. `docs/AUDIT.md`, "Walls read through
 their openings". It was 39 of 60 until the smallest-room filter stopped
 being sized by the inferred scale.*
 
-*Gate 2 is not yet scored: `scripts/reference_check.py` exists and waits on
-the house's measured dimensions.*
+*Gate 2 is **unscored** -- not passed, not failed. `scripts/reference_check.py`
+is written, tested and smoke-run end to end; it waits on dimensions measured
+off the building with a tape. Scoring it against the dimensions printed on the
+drawing would be circular, since the pipeline reads those to set its scale.
+See `docs/AUDIT.md`, "Gate 2 is not scored, and why".*
 
 **Gate 2 — reality.** The reference house in `data/soni_residence`,
 whose plot and room dimensions can be physically checked, reconstructs

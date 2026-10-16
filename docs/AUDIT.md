@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **967 passing** | — |
+| Tests | **995 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -690,6 +690,23 @@ Two things this renderer does honestly rather than hides:
   with each other, not a defect -- but it is a real limitation of the
   preset, not just of this one house.
 
+## Gate 2 is not scored, and why
+
+The spec's second gate asks the reference house to reconstruct within 5% on
+overall size and 10% per room, against dimensions **measured off the
+building**. Those measurements do not exist, so **the gate is unscored** --
+not passed, not failed. `scripts/reference_check.py` is written, tested, and
+smoke-run end to end on a demo plan with invented numbers: it runs the
+pipeline, measures the model and prints a pass/fail table per item. It needs
+a tape and twenty minutes in the house.
+
+Scoring it against the dimensions **printed on the drawing** was considered
+and is not the same check: the pipeline reads those printed dimensions to set
+its scale, so the building would partly be measured against its own input.
+Every other number in this audit is already against an annotator's drawing;
+the gate exists precisely to escape that, and a circular stand-in would make
+the project look checked where it is not.
+
 ## Three measured changes that carried the headline from 39 to 42 of 60
 
 Searched for deliberately, each shipped only because it gained plans end to
@@ -706,7 +723,7 @@ Measured afterwards on the same 60 plans: scale median error 9.1% (51 within
 a fifth), wall coverage/agreement 97.7% / 94.6%, sheet splitting 58 of 60
 exact at 100% precision and 82% recall, open-to-sky IoU 76.3% over 51 plans,
 windows found 96.0% at 84.2% precision, per-class IoU wall 0.736, door 0.575,
-window 0.679. 970 tests.
+window 0.679. 995 tests.
 
 ## The smallest-room filter was sized by an estimate, and dropped real rooms
 

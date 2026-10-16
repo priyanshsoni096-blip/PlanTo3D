@@ -33,7 +33,7 @@ git-ignored). Rebuild the set with `scripts/rebuild_benchmark.py`.
 | Windows found, as detection | **96.0%** at 84.2% precision | `window_detection_accuracy.py` |
 | Per-class IoU | wall 0.736, door 0.575, window 0.679 | `class_accuracy.py` |
 | Open-to-sky spaces, pixel IoU | **76.3%** over 51 plans | `open_air_accuracy.py` |
-| Tests | **970** | `pytest` |
+| Tests | **995** | `pytest` |
 
 Two pipeline changes landed with the checkpoint, and part of the jump is the
 second, which is a scoring correction: walls are now read through doors and
@@ -69,7 +69,9 @@ on disk (overlay off the edge, plot 1.25x too small).
 
 ### What is worth doing next
 
-1. **Score the reference house against tape measurements** --
+1. **Score the reference house against tape measurements. This is the only
+   open item in the whole project, and the only one nobody can do without the
+   building.** Gate 2 is unscored until it is done --
    `scripts/reference_check.py <plan> <truth file> --checkpoint models/unet_cubicasa.pt`,
    with the sizes in a git-ignored file (`data/soni_residence/truth.txt`). It is
    the spec's second gate, the only ground truth not drawn by an annotator, and
