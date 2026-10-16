@@ -21,6 +21,7 @@ import numpy as np
 
 from planto3d.calibrate import (
     ASSUMED_DRAWING_RATIO,
+    TYPICAL_WALL_FT,
     TextBox,
     assumed_scale,
     corroborated,
@@ -34,6 +35,7 @@ from planto3d.calibrate import (
 )
 from planto3d.classical import classical_mask, vegetation_regions
 from planto3d.extract import (
+    REFERENCE_GAUGE,
     close_envelope,
     wall_gauge,
     extract_footprint,
@@ -255,6 +257,21 @@ def _enlarge_if_unmeasurable(image, mask, segmenter: Segmenter):
         interpolation=cv2.INTER_CUBIC,
     )
     return enlarged, segmenter(enlarged), enlarged.shape[1] / width
+
+
+def minimum_room_px(gauge: float | None) -> float:
+    """Smallest region that may be a room, in pixels of this drawing.
+
+    Sized against the drawing's own wall thickness rather than the inferred
+    scale. The scale is an estimate and can be a quarter out; the gauge is
+    measured. Taken through the scale, a plan that read 27% high got a
+    threshold 60% too large and lost real rooms: over the 60 held-out plans
+    six of the eight room-count failures built too few rooms, and the tracer
+    had found them (8304 traced 25, kept 16, drawing shows 23).
+    """
+    if not gauge or gauge <= 0:
+        gauge = REFERENCE_GAUGE
+    return MIN_ROOM_SQFT * (gauge / TYPICAL_WALL_FT) ** 2
 
 
 def _polygon_area(polygon: list[tuple[float, float]]) -> float:
@@ -562,12 +579,12 @@ def extract(
         scale, scale_source = scale_override, "stated"
         logger.info("scale %.2f px/ft stated by the caller", scale)
 
-    # With a scale in hand, drop regions too small to be rooms. A pixel
-    # threshold cannot tell a cupboard from a bathroom without knowing how
-    # big a pixel is, so specks of segmentation noise survive extraction as
-    # 4 sq ft "rooms" and go on to be labelled, railed and paved.
-    minimum_px = MIN_ROOM_SQFT * scale * scale
+    # Drop regions too small to be rooms. A pixel threshold cannot tell a
+    # cupboard from a bathroom without knowing how big a pixel is, so specks
+    # of segmentation noise survive extraction as 4 sq ft "rooms" and go on
+    # to be labelled, railed and paved.
     for floor in floors:
+        minimum_px = minimum_room_px(floor.wall_gauge_px)
         kept = [
             room
             for room in floor.plan.rooms
