@@ -362,14 +362,19 @@ class TestSpanishAndPortuguese:
             "TERRACO",
             "SOTANO",
             "PORAO",
+            # Matched until 2026-10-16, through the substring "BAL" -- which
+            # also fired inside BALLROOM and BALANCE SPACE and took the roof
+            # off both, so BAL became a whole-word mark. It was never real
+            # support for Spanish: it joins the list above rather than
+            # leaving a trap behind.
+            "BALCON",
         ],
     )
     def test_unsupported_spanish_and_portuguese_terms(self, label):
         assert classify(label) is None
 
-    def test_two_terms_already_match_by_accident_not_design(self):
+    def test_one_term_still_matches_by_accident_not_design(self):
         # Documented so a future reader does not mistake these for real
         # Portuguese/Spanish support and leave them out of Phase 7's work.
-        assert classify("BALCON") == "open"  # via "BAL", not "balcón"
         assert classify("GARAGEM") == "paving"  # via "GARAGE", not design
         assert classify("PATIO") == "paving"  # this one is genuine

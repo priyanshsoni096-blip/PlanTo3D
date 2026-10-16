@@ -162,11 +162,9 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "MEP SHAFT",
             "UTILITY SHAFT",
             "LIFT SHAFT",
-            "OTB",
             "OTS",
             "VOID",
             "SHAFT",
-            "DUCT",
             "ATRIUM",
             "OCULUS",
             "CUT OUT",
@@ -307,7 +305,6 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "SCREENED PORCH",
             "WRAPAROUND PORCH",
             "BALCONY",
-            "BAL",
             "TERRACE",
             "DECK",
             "CABANA",
@@ -430,7 +427,6 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "GLASS DOME",
             "DOMED CEILING",
             "DOMED ROOF",
-            "DOME",
             "CUPOLA",
             "ROTUNDA",
             # South Asian and Middle Eastern terms for the same form. A
@@ -531,7 +527,6 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "MUMTY",
             "STAIR",
             "STEPS",
-            "STEP",
             "LANDING",
         ),
     ),
@@ -575,7 +570,6 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "UTILITY",
             "LAUNDRY",
             "SAUNA",
-            "SPA",
             "WC",
             # Finnish. A kylpyhuone is a bathroom, a pesuhuone a wash room,
             # a kodinhoitohuone a utility room, and all three are tiled.
@@ -596,9 +590,30 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
 # to. Ordering by rule alone is fragile as the vocabulary grows: "TERRACE
 # GARDEN" contains "TERRACE", "POOL DECK" contains "DECK", and a shorter
 # match in an earlier rule would quietly take either.
+def _normalize(label: str) -> str:
+    """Upper-case a label and strip the punctuation drafters sprinkle through it.
+
+    Labels arrive as "W.C.", "DRESS/TOILET", "SIT-OUT" and "CHEF'S KITCHEN".
+    Matching the raw text misses all of those, so separators collapse to
+    single spaces and everything else is dropped.
+
+    Defined here, above the lookup tables, because the keywords themselves
+    are normalised as those tables are built.
+    """
+    cleaned = "".join(
+        character if character.isalnum() else " " for character in label.upper()
+    )
+    return " ".join(cleaned.split())
+
+
+# Keywords are normalised the same way labels are. They were not, and a
+# keyword carrying an apostrophe or a hyphen could therefore never match
+# anything: "BUTLER'S PANTRY", "DOUBLE-HEIGHT" and "TRIPLE-HEIGHT" were all
+# dead entries, since the label they are compared against has had its
+# punctuation turned into spaces by then.
 _FEATURE_LOOKUP: list[tuple[str, str]] = sorted(
     (
-        (keyword, category)
+        (_normalize(keyword), category)
         for category, keywords in FEATURE_KEYWORDS
         for keyword in keywords
     ),
@@ -609,9 +624,23 @@ _FEATURE_LOOKUP: list[tuple[str, str]] = sorted(
 # Short marks that are only meaningful as whole words. "UP" and "DN" are the
 # standard annotations on a flight of stairs and are often all that is
 # printed there, but as substrings they would match GROUP, CUP and DINING.
+# Six of these were substring matches until an audit ran every keyword
+# against the names real drawings carry. Each fired inside an ordinary
+# word and took the room with it:
+#
+#     BAL   in BALLROOM, BALANCE SPACE   -> a ballroom with no roof
+#     SPA   in SPARE ROOM, SPACE         -> a bedroom tiled as a wet area
+#     DOME  in DOMESTIC HELP/STORE       -> a dome over the servant's room
+#     DUCT  in PRODUCTION ROOM           -> a hole through the floor
+#     OTB   in FOOTBALL COURT            -> a hole through the floor
+#     STEP  in STEPNEY STORE             -> a staircase in a tyre store
+#
+# As whole words they still read what they are for: Indian plans abbreviate
+# a balcony to BAL, and a Finnish one marks a shaft DUCT.
 EXACT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
-    ("stairs", ("UP", "DN", "DOWN")),
-    ("void", ("OTS",)),
+    ("stairs", ("UP", "DN", "DOWN", "STEP", "STEPS")),
+    ("void", ("OTS", "OTB", "DUCT", "DUCTS")),
+    ("dome", ("DOME", "DOMES", "DOMED")),
     # Finnish plans label rooms with two and three letter abbreviations and
     # little else -- PARV, KPH, OH, MH, ET. They are the only names on most
     # of the drawings the segmenter was trained on, and as substrings they
@@ -619,9 +648,15 @@ EXACT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     # A bare "K" is left out deliberately: OCR litters a dense drawing
     # with stray single letters, and one of them landing in a room would
     # tile its floor.
-    ("open", ("PARV", "TER")),
-    ("wet", ("KPH", "KHH", "PSH", "PH")),
+    ("open", ("PARV", "TER", "BAL")),
+    ("wet", ("KPH", "KHH", "PSH", "PH", "SPA")),
 ]
+
+# A pool table is not a pool. "POOL" has to stay a substring match, because
+# SWIMMING POOL, POOL DECK and PLUNGE POOL all need it, so the games room
+# is named instead: without this, POOL TABLE ROOM was built as water and
+# left open to the sky.
+GAMES_ROOM = ("POOL TABLE", "BILLIARD", "SNOOKER")
 
 # What an interior room's floor is finished in. Separate from the feature
 # categories above because these change only appearance, never geometry --
@@ -801,7 +836,11 @@ DEFAULT_FINISH = "stone"
 # belongs to. Ordering by rule alone is not enough: "MULTI-PURPOSE HALL"
 # contains "HALL", and a shorter match in an earlier rule would take it.
 _FINISH_KEYWORDS: list[tuple[str, str]] = sorted(
-    ((keyword, finish) for finish, keywords in ROOM_FINISHES for keyword in keywords),
+    (
+        (_normalize(keyword), finish)
+        for finish, keywords in ROOM_FINISHES
+        for keyword in keywords
+    ),
     key=lambda pair: len(pair[0]),
     reverse=True,
 )
@@ -839,19 +878,6 @@ def normalize(label: str) -> str:
     return _normalize(label)
 
 
-def _normalize(label: str) -> str:
-    """Upper-case a label and strip the punctuation drafters sprinkle through it.
-
-    Labels arrive as "W.C.", "DRESS/TOILET", "SIT-OUT" and "CHEF'S KITCHEN".
-    Matching the raw text misses all of those, so separators collapse to
-    single spaces and everything else is dropped.
-    """
-    cleaned = "".join(
-        character if character.isalnum() else " " for character in label.upper()
-    )
-    return " ".join(cleaned.split())
-
-
 # A terrace, a balcony or a deck is open to the sky -- unless the drawing
 # says it is roofed, and then the roof is the whole point of the label.
 # Found by looking at a render: demo_plans/3 says "TERRASSE COUVERTE" and
@@ -880,6 +906,10 @@ def classify(label: str) -> str | None:
 
     normalized = _normalize(label)
     squashed = normalized.replace(" ", "")
+
+    # A games room is a room, whatever it is named after.
+    if any(phrase in normalized for phrase in GAMES_ROOM):
+        return None
 
     for keyword, category in _FEATURE_LOOKUP:
         # Checked with and without spaces so "W C" matches "WC" and
