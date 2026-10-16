@@ -286,6 +286,14 @@ def _polygon_area(polygon: list[tuple[float, float]]) -> float:
 def _extract_floor(index: int, image_path: Path, segmenter: Segmenter) -> FloorResult:
     image = read_image(image_path)
     if image is None:
+        # Two different problems, and the message used to send the reader
+        # looking for a missing file that was sitting right there.
+        if Path(image_path).exists():
+            raise ValueError(
+                f"{Path(image_path).name} is not an image this reader understands. "
+                "Floor plans arrive as PDF, PNG, JPEG or GIF; a file renamed to "
+                "one of those is still whatever it was."
+            )
         raise FileNotFoundError(f"could not read page image: {image_path}")
 
     # The segmenter's own answer, unrefined.
@@ -485,6 +493,19 @@ def extract(
         _extract_floor(index, path, segmenter) for index, path in enumerate(cropped)
     ]
 
+    # Nothing was found. A blank page, a black scan and a one-pixel image
+    # each came back with a model, no walls, no rooms, and an invented
+    # scale -- an empty building reported as a success, which is worse than
+    # a refusal because nothing downstream can tell it apart from a real
+    # one. Rooms alone are enough to go on: a sheet whose partitions are
+    # drawn too faint to segment still has a plan worth building.
+    if not any(floor.plan.walls or floor.plan.rooms for floor in floors):
+        raise ValueError(
+            f"no walls or rooms were found in {Path(source).name}. "
+            "Either it is not a floor plan, or it is drawn too faintly to "
+            "read -- try the original PDF rather than a screenshot."
+        )
+
     # What the drawing measures on its own geometry. Worked out first
     # because it is also what a printed number is checked against, and
     # because it is the fallback when there is no printed number to read.
@@ -512,6 +533,15 @@ def extract(
             typical_thickness_ft=wall_ft,
         )
     )
+
+    # A wall-derived scale is only evidence where a wall was actually read.
+    # `wall_gauge` falls back to the reference 24 px when it cannot measure,
+    # and 24 px over a 9 inch wall is exactly the 32.0 px/ft the assumed
+    # drawing ratio gives -- so a sheet with no walls on it came back
+    # claiming "walls" as its source, which is a claim of evidence that was
+    # never there. Found by handing the pipeline a blank page.
+    if not any(floor.drawn_walls for floor in floors):
+        from_walls = None
 
     reference, reference_source = (
         (from_doors, "doors") if from_doors is not None else (from_walls, "walls")
@@ -601,7 +631,15 @@ def extract(
         floor.plan.rooms = assign_labels(kept, floor.text_boxes)
         # Outdoor areas rarely survive as rooms, but their labels state both
         # the name and the size, so they can be placed from the text alone.
-        floor.plan.labelled_regions = regions_from_labels(floor.text_boxes, scale)
+        #
+        # Bounded by the floor's own page: the size comes from text and the
+        # position from where that text sits, so a misread dimension or a
+        # scale well out draws a region off the edge of the drawing. On
+        # BRIDGE sheet 116794, 498 x 372 px, one came out 336 x 568 and cut
+        # a hole in the roof 276% of the building's own footprint.
+        floor.plan.labelled_regions = regions_from_labels(
+            floor.text_boxes, scale, page_size=_page_size(floor)
+        )
 
     # The cropped sheet is the plot: its frame encloses the whole site, so
     # the drawing's extent gives the boundary rather than a guess. Computed

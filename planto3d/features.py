@@ -933,7 +933,17 @@ def _nearest_dimensions(box, dimension_boxes: list) -> tuple[float, float] | Non
     return best
 
 
-def regions_from_labels(text_boxes: list, scale: float) -> dict[str, list[list[tuple[float, float]]]]:
+# A label-built region larger than this share of the page is not telling us
+# where anything is: either the dimension text was misread or the scale is
+# far out. 116794.gif, 498 x 372 px, produced one 336 x 568 -- taller than
+# the sheet -- which cut a hole in the roof 276% of the building's own
+# footprint. Half a page is already a very large terrace.
+MAX_LABEL_REGION_PAGE_SHARE = 0.5
+
+
+def regions_from_labels(
+    text_boxes: list, scale: float, page_size: tuple[int, int] | None = None
+) -> dict[str, list[list[tuple[float, float]]]]:
     """Build feature regions from dimension labels alone.
 
     Outdoor areas are the ones the segmentation model is least able to help
@@ -975,14 +985,30 @@ def regions_from_labels(text_boxes: list, scale: float) -> dict[str, list[list[t
         half_width = dimensions[0] * scale / 2
         half_height = dimensions[1] * scale / 2
         centre_x, centre_y = box.centre
+        left, right = centre_x - half_width, centre_x + half_width
+        top, bottom = centre_y - half_height, centre_y + half_height
+
+        if page_size is not None:
+            width, height = page_size
+            # Nothing on a drawing extends past the drawing. The size is
+            # read from text and placed by the label's position, and both
+            # can be wrong; a region that does not fit says so.
+            if (right - left) * (bottom - top) > (
+                width * height * MAX_LABEL_REGION_PAGE_SHARE
+            ):
+                logger.info(
+                    "dropping a %s region of %.0f x %.0f px on a %d x %d page: "
+                    "the label or the scale is wrong",
+                    category, right - left, bottom - top, width, height,
+                )
+                continue
+            left, right = max(left, 0.0), min(right, float(width))
+            top, bottom = max(top, 0.0), min(bottom, float(height))
+            if right - left < 1 or bottom - top < 1:
+                continue
 
         regions.setdefault(category, []).append(
-            [
-                (centre_x - half_width, centre_y - half_height),
-                (centre_x + half_width, centre_y - half_height),
-                (centre_x + half_width, centre_y + half_height),
-                (centre_x - half_width, centre_y + half_height),
-            ]
+            [(left, top), (right, top), (right, bottom), (left, bottom)]
         )
 
     if regions:
