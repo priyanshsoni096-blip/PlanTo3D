@@ -83,9 +83,11 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "FLOWER BED",
             "RAISED PLANTER",
             "PLANTER",
-            "GREEN WALL",
-            "VERTICAL GARDEN",
-            "LIVING WALL",
+            # "GREEN WALL", "VERTICAL GARDEN" and "LIVING WALL" were here.
+            # They are planting on a wall, and this category is a ground
+            # cover: each laid a lawn across the floor and took the roof off
+            # the room. They name a wall finish, which this project does not
+            # model, so they name nothing here.
             "HANGING GARDEN",
             "TERRACED GARDEN",
             "GREEN TERRACE",
@@ -142,6 +144,12 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
         (
             "DOUBLE HEIGHT",
             "DOUBLE-HEIGHT",
+            # Kept here deliberately, though the name argues otherwise. On
+            # Indian drawings "OTS -- open to sky" marks a light well: a
+            # shaft cut through the floors, which is what this category
+            # builds. Moved to `open` it would keep every floor and take the
+            # roof off instead, turning the shaft into a terrace on each
+            # storey. The roof over it is the lesser error.
             "OPEN TO SKY",
             "TRIPLE HEIGHT",
             "TRIPLE-HEIGHT",
@@ -296,20 +304,18 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "SKY DECK",
             # Covered outdoor rooms. All of these are open on at least one
             # side, so their edge needs guarding.
-            "LOGGIA",
+            # A loggia, an arcade, a colonnade, a cloister, a screened
+            # porch, a gazebo, a pavilion and a cabana were all here. Every
+            # one of them is a roofed structure -- that is what the words
+            # mean -- so every one of them lost its roof. They are canopies:
+            # roofed, open-sided. "LANAI" and "BREEZEWAY" stay, since both
+            # are used for unroofed spaces as often as roofed ones.
             "LANAI",
             "BREEZEWAY",
-            "COLONNADE",
-            "ARCADE",
-            "CLOISTER",
-            "SCREENED PORCH",
             "WRAPAROUND PORCH",
             "BALCONY",
             "TERRACE",
             "DECK",
-            "CABANA",
-            "PAVILION",
-            "GAZEBO",
             "PERGOLA",
             "TRELLIS",
             "ARBOR",
@@ -397,6 +403,16 @@ FEATURE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
             "SUNSHADE",
             "CHAJJA",
             "CHHAJJA",
+            # Roofed, open-sided structures, moved here from `open` where
+            # each was being built without the roof its name describes.
+            "LOGGIA",
+            "COLONNADE",
+            "ARCADE",
+            "CLOISTER",
+            "SCREENED PORCH",
+            "GAZEBO",
+            "PAVILION",
+            "CABANA",
         ),
     ),
     (
@@ -658,6 +674,12 @@ EXACT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
 # left open to the sky.
 GAMES_ROOM = ("POOL TABLE", "BILLIARD", "SNOOKER")
 
+# Planting on a wall is not ground cover. Named here rather than simply
+# left out of the lawn list, because "VERTICAL GARDEN" still reaches that
+# list through the shorter keyword "GARDEN" -- and a green wall laid on the
+# floor is a lawn in the room with the roof taken off above it.
+WALL_PLANTING = ("GREEN WALL", "VERTICAL GARDEN", "LIVING WALL")
+
 # What an interior room's floor is finished in. Separate from the feature
 # categories above because these change only appearance, never geometry --
 # and because a room can be both, a kitchen being wet-serviced and tiled.
@@ -907,8 +929,9 @@ def classify(label: str) -> str | None:
     normalized = _normalize(label)
     squashed = normalized.replace(" ", "")
 
-    # A games room is a room, whatever it is named after.
-    if any(phrase in normalized for phrase in GAMES_ROOM):
+    # A games room is a room, whatever it is named after, and planting on a
+    # wall is not something this project builds.
+    if any(phrase in normalized for phrase in GAMES_ROOM + WALL_PLANTING):
         return None
 
     for keyword, category in _FEATURE_LOOKUP:
