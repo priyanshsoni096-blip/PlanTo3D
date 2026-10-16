@@ -69,7 +69,30 @@ nothing bounded the result to the drawing. Regions are now clipped to the
 page, and one larger than half the sheet is dropped with a log line: at that
 size it is not telling us where anything is. The same sheet now reports 90%.
 
-### 5. "Not an image" was reported as a missing file
+### 5. A garage had no roof
+
+BRIDGE `116794.gif` and `117564.gif` carry one room each, labelled **3-Car
+Garage**, and came out with **90% of the roof missing**. `GARAGE`
+classifies as paving, every ground cover counted as open to the sky, and a
+garage is certainly paved.
+
+The first attempt was to roof paving that lies inside the building and keep
+paving outside it open. Measured, it changed nothing on these sheets,
+because the hole came from the *room* rather than from a region built from
+a label -- worth recording, since it looked like the obvious fix.
+
+What the drawing actually distinguishes is the word. A garage, a carport, a
+car porch, covered, basement or stilt parking and a covered walkway are
+roofed; a driveway, a courtyard, a patio and open parking are not. Roofed
+names are now excluded from open-to-sky in any of the four languages the
+vocabulary spans. Both sheets now report **0%**, while `11001.gif` keeps
+the 12% of genuinely open area it had. Floor finishes come from a separate
+map and are unchanged -- a garage is still concrete. Over the 60 held-out
+plans, open-to-sky IoU and the scorecard are both unchanged (76.3%, 42 of
+60), which is expected: CubiCasa sheets rarely print a readable garage
+label.
+
+### 6. "Not an image" was reported as a missing file
 
 A text file renamed `plan.png` raised `FileNotFoundError: could not read
 page image`, which sends the reader looking for a file that is sitting right

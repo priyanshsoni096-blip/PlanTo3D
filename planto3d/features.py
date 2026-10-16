@@ -1107,6 +1107,31 @@ def finish_for_room(room) -> str:
 OPEN_TO_SKY = GROUND_COVERS | {"open"}
 
 
+# Paved, and roofed. Every ground cover counted as open to the sky, and a
+# garage is paved: BRIDGE sheet 116794, whose one room is labelled "3-Car
+# Garage", came out with 90% of its roof missing. A driveway or a courtyard
+# is genuinely open; these are not, and the drawing says which by name.
+#
+# Matched as phrases rather than whole words, because "3-Car Garage" and
+# "GARAGE 2" are both garages. Floor finishes come from ROOM_FINISHES, so
+# nothing here changes what any of them is paved with.
+ROOFED_PAVING = (
+    "GARAGE", "CARPORT", "CAR PORT", "CAR PORCH", "ABRI VOITURE",
+    "AUTOTALLI", "GARAJE", "COCHERA",
+    "COVERED PARKING", "BASEMENT PARKING", "STILT PARKING", "PODIUM PARKING",
+    "COVERED WALKWAY",
+)
+
+
+def _is_roofed_paving(label: str) -> bool:
+    normalized = _normalize(label)
+    squashed = normalized.replace(" ", "")
+    return any(
+        phrase in normalized or phrase.replace(" ", "") in squashed
+        for phrase in ROOFED_PAVING
+    )
+
+
 def is_open_to_sky(room) -> bool:
     """Whether a room has sky above it rather than a roof.
 
@@ -1114,4 +1139,6 @@ def is_open_to_sky(room) -> bool:
     type otherwise, so this works on the great majority of plans that name
     nothing at all.
     """
+    if _is_roofed_paving(getattr(room, "label", "")):
+        return False
     return feature_for(room) in OPEN_TO_SKY
