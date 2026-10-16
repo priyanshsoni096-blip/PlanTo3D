@@ -78,6 +78,41 @@ def test_extract_walls_returns_nothing_for_a_mask_with_no_walls():
     assert extract_walls(_blank()) == []
 
 
+def test_a_wall_far_thicker_than_the_drawing_is_cut_back_to_what_it_can_be():
+    # A stair core, a hatched panel or two parallel walls caught as one run
+    # come out several times the drawing's own wall thickness. Painted at
+    # that thickness they swamp a plan: on held-out plan 6094, whose walls
+    # gauge 20 px, two runs 68 and 54 px thick carried 43% of all painted
+    # wall and agreed with the annotation only 60% of the time.
+    from planto3d.extract import MAX_THICKNESS_RATIO
+
+    mask = _blank(400)
+    for y in (40, 150, 260, 370):            # ordinary walls, 8 px thick
+        _horizontal(mask, y=y, x0=20, x1=380, thickness=8)
+    mask[180:260, 200:320] = WALL            # a block 80 px deep
+
+    walls = extract_walls(mask, gauge=8.0)
+
+    assert walls
+    assert max(wall.thickness for wall in walls) <= 8.0 * MAX_THICKNESS_RATIO
+    # The ordinary walls are untouched.
+    assert sum(1 for wall in walls if wall.thickness == pytest.approx(8, abs=1)) >= 3
+
+
+def test_a_thickness_the_drawing_supports_is_left_alone():
+    from planto3d.extract import MAX_THICKNESS_RATIO
+
+    mask = _blank(400)
+    for y in (40, 150, 260, 370):
+        _horizontal(mask, y=y, x0=20, x1=380, thickness=16)
+
+    walls = extract_walls(mask, gauge=16.0)
+
+    assert walls
+    assert all(wall.thickness <= 16.0 * MAX_THICKNESS_RATIO for wall in walls)
+    assert max(wall.thickness for wall in walls) == pytest.approx(16, abs=1)
+
+
 def _walled_room(size=200):
     mask = _blank(size)
     _horizontal(mask, y=20, x0=20, x1=180, thickness=6)
