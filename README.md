@@ -19,6 +19,18 @@ proportions are right and the absolute figure is a judgement.
 *A sheet from CubiCasa5K, the walls and rooms read off it, and the model
 built from them. Nothing in the middle panel is hand-corrected.*
 
+### Try it on your own plan
+
+**[▶ Open the notebook in Colab](https://colab.research.google.com/github/priyanshsoni096-blip/PlanTo3D/blob/main/notebooks/run_on_colab.ipynb)**
+— upload a floor plan, get the model and six rendered views in about five
+minutes. Nothing to install.
+
+**Where it stands.** Over 60 plans the model has never seen: **42 of 60
+(70%) come out correct on every check at once**, scale within **9.1%** at
+the median, and **0 of 60** fail to build. Every figure is produced by a
+script named beside it in [`docs/AUDIT.md`](docs/AUDIT.md); every defect
+found and fixed is in [`docs/BUGS.md`](docs/BUGS.md).
+
 ## What it does
 
 ```
@@ -84,7 +96,7 @@ is quoted everywhere because it is the less flattering of the two.
 | Open-to-sky spaces, pixel IoU | `open_air_accuracy.py`, 51 | **76.3%** |
 | Windows found, as detection | `window_detection_accuracy.py`, 59 plans, 422 windows | **96.0%** found, 84.2% precision |
 | Per-class IoU | `class_accuracy.py`, 60 | wall **0.736**, door **0.575**, window **0.679** |
-| Tests | `pytest` | **995** |
+| Tests | `pytest` | **1,092** |
 
 Measured on 2026-10-16 with the checkpoint retrained on corrected window masks
 (`unet_cubicasa_fixedwindows.pt`, installed as `unet_cubicasa.pt`). Much of
@@ -526,11 +538,19 @@ undo by accident.
 ```
 planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude
 training/     dataset, metrics and training loop for the segmenter
-notebooks/    Colab notebooks for training and the photoreal pass
+notebooks/    run_on_colab.ipynb is the one to open; train and photoreal beside it
 scripts/      command-line entry points; demo.py runs the lot once
-tests/        995 tests
-docs/         design spec and implementation plan
+tests/        1,092 tests
+docs/         the measurements, the defects, the spec, and the handover
 ```
+
+| Document | What it is |
+| --- | --- |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | every measurement, and every experiment that was tried and rejected |
+| [`docs/BUGS.md`](docs/BUGS.md) | every defect found, how it was reproduced, and what it cost |
+| [`docs/STATE.md`](docs/STATE.md) | where the project stands and what is worth doing next |
+| [`docs/superpowers/specs/`](docs/superpowers/specs) | the design spec and its two acceptance gates |
+| [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md), [`docs/mini_set_baseline.md`](docs/mini_set_baseline.md) | earlier snapshots, kept for history and marked superseded |
 
 ## Licence
 

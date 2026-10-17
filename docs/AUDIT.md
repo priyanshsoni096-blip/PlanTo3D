@@ -38,7 +38,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
-| Tests | **995 passing** | — |
+| Tests | **1,092 passing** | — |
 
 ## What the finished model gets right, end to end
 
@@ -723,7 +723,7 @@ Measured afterwards on the same 60 plans: scale median error 9.1% (51 within
 a fifth), wall coverage/agreement 97.7% / 94.6%, sheet splitting 58 of 60
 exact at 100% precision and 82% recall, open-to-sky IoU 76.3% over 51 plans,
 windows found 96.0% at 84.2% precision, per-class IoU wall 0.736, door 0.575,
-window 0.679. 995 tests.
+window 0.679. 1,092 tests.
 
 ## The smallest-room filter was sized by an estimate, and dropped real rooms
 
