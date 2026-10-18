@@ -76,9 +76,11 @@ of walls, openings and room types. Split as the dataset ships it:
 
 The annotation is SVG, not a mask, so it has to be rasterised into one class
 per pixel. That conversion is where the single most expensive defect of the
-project lived for weeks — see §7.1.
+project lived for weeks — see §8.1.
 
 ![Rasterising the annotation](report/01-annotation-fill.png)
+
+*`planto3d/cubicasa.py:181-232`*
 
 **What this code does.** It walks the SVG, groups polygons by what they
 represent, and paints them in a fixed order — rooms first, then walls, then
@@ -121,7 +123,7 @@ quality categories — and committed as `data/cubicasa_test60.txt`.
 This list exists because of a mistake. An earlier benchmark lived only in a
 temp folder and was lost with it; of the 32 sheet IDs still recoverable from
 saved output, **25 were from the training split** — so the model had learned
-from the drawings it was being judged on (§7.2).
+from the drawings it was being judged on (§8.2).
 `scripts/rebuild_benchmark.py` now reconstructs the exact 60 from the
 dataset archive, byte for byte, and `--verify-list` re-runs the seeded draw
 to prove the committed list is what it claims.
@@ -143,6 +145,8 @@ So its labels are reduced to what they can honestly teach before training
 ever sees them:
 
 ![The CVC-FP dataset](report/14-cvc-dataset.png)
+
+*`training/dataset.py:138-205`*
 
 Doors are set to `IGNORE_INDEX` and contribute no gradient at all, because
 teaching the model that a swing arc is a door would corrupt the class
@@ -173,6 +177,24 @@ Eight stages, each a module. The design rule that runs through all of them:
 a fixed number of pixels. The same plan rendered at twice the size must
 reconstruct the same way.
 
+### 4.0 Two segmenters, and why the simple one is still there
+
+`run()` takes the segmenter as an argument, and its *default* is not the
+network: it is `classical_mask`, a thresholding pass with no learning in it
+at all. CAD sheets fill walls and rooms with flat, distinct greys — on the
+reference sheet 55% of pixels are pure white background, 25% are exactly 200
+(room fill), and a 5% spike at 99 is the wall fill — and hatching, text and
+furniture outlines, though also dark, are hairline-thin: 60% of the wall band
+survives a 5×5 erosion against 0% of the thin bands.
+
+It exists for three reasons: it unblocked the rest of the pipeline before any
+model was trained, it gives the trained model something to be measured
+against, and it is a genuine fallback for clean CAD input. It is **not** the
+contribution and is not what any number in this report was measured with —
+on unseen plans it finds no walls at all on 10 of 12. Keeping the segmenter
+swappable is what made the whole model side of the project replaceable
+without touching geometry, calibration or extrusion.
+
 ### 4.1 Ingest — making a page readable
 
 PDFs are rasterised at 400 dpi, chosen by sweeping it: over the reference
@@ -181,9 +203,33 @@ read 8, and 600 dpi dropped back to 7 and lost most of the room names —
 past a point the glyphs break up faster than they gain detail. Reversed prints — blueprints, negative
 scans, dark-mode exports — are detected and turned upright: across 66 sheets
 the lowest ordinary median grey is 195 and the highest reversed one 60, so a
-threshold at 128 sits in a gap nothing occupies. Title blocks are cropped,
-and sheets carrying several plans are split one per storey by finding the
-gutters between them.
+threshold at 128 sits in a gap nothing occupies. Title blocks are cropped, and sheets carrying several plans are
+split one per storey.
+
+**Splitting matters more than it sounds**, which is why it is scored
+separately: a missed split reconstructs two storeys as one flat building,
+confidently and with no sign that anything went wrong. A split is found by
+looking for a gutter — a band of page with almost no ink — that runs the
+full width or height. Both of its thresholds are relative, never absolute: a
+band counts as empty at 15% of the page's own median ink (`GUTTER_INK_RATIO`),
+and must be at least 0.4% of the page long (`MIN_GUTTER_FRACTION`), so the
+same sheet scanned at any resolution splits the same way. Measured: **58 of
+60 exact, 100% precision** — it never invents a split — **at 82% recall**.
+
+**A drawing whose walls are too thin to measure is enlarged before anything
+reads it.** Below `MIN_WORKABLE_GAUGE` (10 px) every gauge-relative threshold
+in the pipeline is working with 2 or 3 pixels of signal, so the page is
+re-read at up to twice the size. The enlargement factor is then carried on the
+result, because for a while it was not: geometry was measured on the enlarged
+page while the overlay and the plot size were taken from the page on disk, and
+on the reference house at 1.25× the overlay ran off the right-hand edge and
+the plot came out 1.25× too small.
+
+**And a sheet it cannot read is refused, not guessed at.** If no floor yields
+a single wall or room the pipeline raises, naming the file, rather than
+writing out an empty building that looks like a result. Over the 60 held-out
+plans this never fires — 0 of 60 fail to build — but a photograph of a
+whiteboard should get an error, not a glTF of nothing.
 
 ### 4.2 The segmenter
 
@@ -194,7 +240,7 @@ gutters between them.
 | | |
 | --- | --- |
 | architecture | U-Net, ResNet34 encoder, ImageNet weights |
-| input | 512 × 512 (768 was tried and rejected — §8.1) |
+| input | 512 × 512 (768 was tried and rejected — §9.1) |
 | batch / optimiser | 8 · AdamW, learning rate 3e-4, cosine annealing |
 | epochs | 24, keeping the best validation Dice |
 | installed checkpoint | epoch 21, **validation Dice 0.8332** |
@@ -204,14 +250,18 @@ gutters between them.
 
 ![The loss](report/12-loss.png)
 
+*`training/train.py:139-200`*
+
 Dice is insensitive to class size, which is why it is there; the weighting
 fixes the cross-entropy term beside it. The `ANY_ROOM` and `IGNORE_INDEX`
 branches exist for training on a second corpus whose labels mean less than
-CubiCasa's — see §8.3.
+CubiCasa's — see §9.3.
 
 **The weights** come from measured frequency, not intuition:
 
 ![Class weights](report/13-class-weights.png)
+
+*`training/train.py:100-138`*
 
 Inverse *square root*, not plain inverse: plain inverse would weight a door
 61 times a background pixel, and the gradient from a handful of thin strips
@@ -249,6 +299,8 @@ that the filled convention becomes the unusual one.
 
 ![Wall gauge](report/02-wall-gauge.png)
 
+*`planto3d/extract.py:178-218`*
+
 The wall thickness is the one length a floor plan always contains, always
 draws to scale, and can be measured before anything else is known. It is
 measured from the distance transform rather than from wall runs: distance to
@@ -260,6 +312,8 @@ length handed one plan a 2,048-pixel "wall".
 **Walls, by orientation rather than by contour.**
 
 ![Extracting walls](report/03-extract-walls.png)
+
+*`planto3d/extract.py:425-492`*
 
 Walls meet at corners, so the wall class forms one connected region per
 enclosure — tracing its contour yields the outline of the whole building,
@@ -275,6 +329,8 @@ windows were then left with no wall near enough to be built into.
 
 ![Clamping thickness](report/04-clamp-thickness.png)
 
+*`planto3d/extract.py:400-424`*
+
 On one held-out plan whose walls gauge 20 px, two runs came out 68 and 54 px
 thick, carried 43% of all painted wall, and agreed with the annotation 60%
 of the time. Dropping such runs was measured and costs far more than it buys
@@ -285,6 +341,8 @@ usually right and only the thickness is wrong.
 
 ![Extracting openings](report/05-extract-openings.png)
 
+*`planto3d/extract.py:506-571`*
+
 An opening is only meaningful relative to its wall. A component further than
 `MAX_OPENING_DISTANCE_RATIO` gauges from any wall is discarded rather than
 attached to a distant one, because a misplaced opening cuts a hole through
@@ -293,6 +351,8 @@ solid geometry.
 **Room types are settled by neighbourhood vote before rooms are traced.**
 
 ![The room vote](report/06-room-vote.png)
+
+*`planto3d/extract.py:909-942`*
 
 On a drawing unlike its training data the model is often unsure what a room
 is for and paints one room in patches of two types. Traced type by type,
@@ -303,6 +363,8 @@ neighbour and keeps its own type.
 **The smallest region allowed to be a room is sized by the drawing.**
 
 ![Minimum room size](report/09-minimum-room.png)
+
+*`planto3d/pipeline.py:262-280`*
 
 This filter exists to drop specks of segmentation noise, which otherwise
 survive as 4 sq ft "rooms" and go on to be labelled, railed and paved. It
@@ -321,6 +383,8 @@ time through the extruder, each produces geometry a plain room does not.
 The subtle part is what a name implies about the **roof**:
 
 ![Roofed paving](report/11-roofed-paving.png)
+
+*`planto3d/features.py:1160-1200`*
 
 A garage is paved, and every ground cover counted as open to the sky — so a
 sheet whose only room was labelled "3-Car Garage" came out with 90% of its
@@ -341,6 +405,8 @@ and the pipeline takes the first that produces a number:
 
 ![Scale from doors](report/07-scale-from-doors.png)
 
+*`planto3d/calibrate.py:634-690`*
+
 The median across many doors resists a wide main door or a misdetected
 opening. Re-measured for this report with the installed checkpoint, the door
 route carries **59 of the 60 held-out plans at 8.9% median error** (bias
@@ -355,6 +421,8 @@ ungated printed number resizes the entire building on one bad read. So it is
 checked against the geometry before it is believed:
 
 ![Corroboration](report/08-corroborated.png)
+
+*`planto3d/calibrate.py:352-392`*
 
 The gate is deliberately wide — a printed number is thrown out only if it
 disagrees with the measured geometry by more than **40%**, because the
@@ -383,6 +451,8 @@ built over them:
 
 ![Open to sky](report/10-open-to-sky.png)
 
+*`planto3d/extrude.py:419-445`*
+
 Three sources, because no single one is reliable: the segmenter's `outdoor`
 class finds terraces on plans that draw them as rooms, a printed label finds
 them on plans that name them, and colour finds the planted ones. On the
@@ -398,6 +468,40 @@ style, colour tone, time of day, landscaping and (for the diffusion pass
 only) creativity. Floor finishes are implied per room by its name or
 predicted type. Six views are path-traced in Blender Cycles, with a fast
 rasterizer as the fallback.
+
+### 4.8 Correcting it without an interface
+
+No UI was a constraint of the project, but a reader will still ask what
+happens when the model calls a terrace a bedroom. The answer is a design
+decision rather than a feature: **a correction is just a label.**
+
+`features.feature_for()` and `site.classify_cover()` already prefer a room's
+*printed* label over its predicted category, because a printed label is what
+the architect actually wrote. A user typing "this is a balcony" is the same
+kind of evidence arriving by a different route, so a correction sets
+`Room.label` and nothing downstream needed a single new branch. The CLI
+prints numbered rooms, takes `FLOOR:ROOM=CATEGORY`, and can save the
+corrections to a file to be replayed on a later run. The same mechanism takes
+a measured room size (`--scale-room 1:4=12x10`), which is why `scale_source`
+has a `stated` value ranked above anything OCR reads: a human with a tape
+measure is better evidence than a printed number, and the pipeline says so.
+
+### 4.9 What it costs to run
+
+Measured for this report on the laptop this was developed on, CPU only, one
+single-storey CubiCasa plan:
+
+| | |
+| --- | --- |
+| drawing → measured `.glb` (segment, extract, calibrate, extrude) | **14.1 s** |
+| six views through the fallback rasterizer | **41.5 s** |
+| six views path-traced in Blender Cycles | minutes, and the reason Colab's GPU is the recommended route |
+
+Nothing in the pipeline is tuned for speed, and nothing needed to be: a
+segmentation pass over a 512 px page is cheap, and the geometry stages are
+all linear in the number of walls. At 14 s a plan, a 60-plan
+benchmark run is about a quarter of an hour — which is what made measuring
+every change affordable enough to be habitual rather than an event.
 
 ---
 
@@ -478,7 +582,19 @@ model has never seen, which is the thing the whole reconstruction rests on.
 not failed. `scripts/reference_check.py` is written, tested and smoke-run
 end to end; it compares the built model against real measurements and prints
 a pass/fail table per item against the spec's 5% overall and 10% per room.
-It waits on the measurements.
+
+It waits on one thing: a tape. What it needs is the plot's outside width and
+depth and four to six room sizes, in feet, written in the same syntax the
+correction flags already use —
+
+```
+overall=40x60        # the ground-floor building outline
+1:5=12.5x14          # floor 1, room 5, numbered as --list prints them
+2:0=10x10
+```
+
+— kept in a git-ignored file, since the only building available to measure is
+someone's home.
 
 Scoring it against the dimensions *printed on the drawing* was considered
 and rejected: the pipeline reads those printed dimensions to set its scale,
@@ -486,11 +602,49 @@ so the building would partly be measured against its own input.
 
 ---
 
-## 7. What went wrong, and how it was found
+## 7. How the work was done
+
+The method is part of the result, because it is what the numbers in this
+report rest on.
+
+**A change is not finished until it is measured.** Every change went: a
+branch, a failing test that captures the defect on a real file, the fix, then
+the 60-plan benchmark re-run before merging. Several changes that passed
+their test were thrown away at that last step because the benchmark did not
+move — §9.4 lists three of them.
+
+**No number enters a document without a script run behind it.** Every figure
+in this report, in `AUDIT.md` and in the README names the script that
+produced it, and `AUDIT.md` records the rejected experiments beside the
+accepted ones so a reader can tell the difference between a decision and a
+habit.
+
+**1,092 tests**, and the ones that matter most are not unit tests of pure
+functions: they drive whole sheets through the pipeline and assert on what
+comes out, which is how the hollow-window bug was eventually cornered.
+
+**Dead ends are written down where the next person will trip over them.**
+Every tuned constant carries its sweep in the comment above it — the minimum
+door count records that 3, 2 and 1 were measured at 12.9%, 13.5% and 13.1%,
+and that lowering it routes more plans onto doors whose own route then
+worsens from 8.7% to 12.0%. Three things are marked **do not retry**:
+widening the door-width band, lowering that count, and fitting the
+wall-thickness constant to one corpus. Each was measured, each made things
+worse, and each is exactly what someone would try again.
+
+**Measuring the instrument, not just the result.** When open-air accuracy
+read 74.5%, the harness itself was checked: it was scoring what the feature
+vocabulary accepts rather than what the extruder actually merges, and the
+honest number was 48.2%. The fix raised it afterwards, but the point is that
+a suspiciously good score was treated as a possible bug in the ruler.
+
+---
+
+## 8. What went wrong, and how it was found
 
 The full defect report is [`BUGS.md`](BUGS.md); the three that mattered most:
 
-### 7.1 Every window in the training masks was hollow
+### 8.1 Every window in the training masks was hollow
 
 `cv2.fillPoly` given a list of polygons treats them as contours of one
 shape, so where two coincide they cancel. CubiCasa repeats outlines — each
@@ -503,7 +657,7 @@ The model had been trained to believe window glass is wall. Fixing the
 converter and retraining took window IoU from 0.223 to **0.679** and window
 pixel recall from 27.3% to **88.2%**.
 
-### 7.2 The benchmark was mostly training data
+### 8.2 The benchmark was mostly training data
 
 The original 60-sheet sample lived in a session temp folder which was
 cleared, and nothing recorded which sheets it had held. Of the 32 IDs
@@ -522,7 +676,7 @@ Replaced with the committed, reproducible 60-plan held-out list (§3.3), and
 with `rebuild_benchmark.py --verify-list` to prove the committed list is the
 seeded draw it claims to be.
 
-### 7.3 Six keywords that fired inside other words
+### 8.3 Six keywords that fired inside other words
 
 The vocabulary matches by substring, so three-letter keywords matched inside
 ordinary names: `BAL` inside **BALLROOM** (roof removed), `SPA` inside
@@ -535,11 +689,11 @@ normalised before matching and keywords were not.
 
 ---
 
-## 8. Experiments that did not pay
+## 9. Experiments that did not pay
 
 Recorded because a project that only reports its successes is not reporting.
 
-### 8.1 Training at 768 px
+### 9.1 Training at 768 px
 The prediction, written down beforehand: a window arrives at the network 1.5
 pixels wide at 512 and 2.2 at 768, so the thin classes should improve
 substantially. Five hours on a T4. Thin classes did improve (door +0.052),
@@ -547,14 +701,14 @@ large room classes got worse (bath −0.063), and the two cancelled.
 Downstream it found **fewer** openings and calibrated fewer plans correctly.
 **512 kept.**
 
-### 8.2 A door-weighted retrain
+### 9.2 A door-weighted retrain
 Doors decide scale, so doubling their loss weight should help. Measured on
 the held-out plans: scale error rose from 12.9% to 13.7% and door IoU fell
 0.557 → 0.521. **Rejected.**
 
-### 8.3 Training on CVC-FP alongside CubiCasa
+### 9.3 Training on CVC-FP alongside CubiCasa
 Two attempts, both measured against the then-installed checkpoint's 39 of 60
-(the bug fixes in §7 took that baseline to 42 afterwards).
+(the bug fixes in §8 took that baseline to 42 afterwards).
 
 The first trained on CubiCasa alone, because the archive was missing from
 Drive and the notebook only printed a note; it therefore measured what three
@@ -571,7 +725,7 @@ on, it scored **34 against 39**.
 40 held-back names are found, rather than training on the wrong data in
 silence.
 
-### 8.4 Three more, measured and not shipped
+### 9.4 Three more, measured and not shipped
 - **Removing the invented envelope walls**: gains 5.5 points of wall
   agreement, but trades one failing plan for another — 39 of 60 either way.
 - **Giving those walls the drawing's own thickness**: 39 of 60. No change.
@@ -581,7 +735,7 @@ silence.
 
 ---
 
-## 9. Limitations, stated plainly
+## 10. Limitations, stated plainly
 
 - **Scale is the largest remaining failure** — 9 of 60 plans. Where a sheet
   prints no room sizes, the building is measured from door widths; a drawing
@@ -601,7 +755,12 @@ silence.
 
 ---
 
-## 10. How to run it
+## 11. How to run it
+
+Four notebooks: `run_on_colab.ipynb` builds from a plan and is the one to
+open, `train_on_colab.ipynb` retrains the segmenter (and refuses to start if
+the held-back plans are missing — §9.3), `photoreal_on_colab.ipynb` runs the
+diffusion pass, and `design_on_colab.ipynb` explores the palette choices.
 
 **In the browser, nothing to install:**
 [open `run_on_colab.ipynb` in Colab](https://colab.research.google.com/github/priyanshsoni096-blip/PlanTo3D/blob/main/notebooks/run_on_colab.ipynb),
@@ -632,7 +791,7 @@ python scripts/scale_accuracy.py  data/cubicasa5k --checkpoint models/unet_cubic
 
 ---
 
-## 11. The repository
+## 12. The repository
 
 ```
 planto3d/     the pipeline: ingest, segment, extract, calibrate, extrude, render
