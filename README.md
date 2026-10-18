@@ -31,6 +31,13 @@ the median, and **0 of 60** fail to build. Every figure is produced by a
 script named beside it in [`docs/AUDIT.md`](docs/AUDIT.md); every defect
 found and fixed is in [`docs/BUGS.md`](docs/BUGS.md).
 
+**Read the whole thing in one place.**
+[`docs/REPORT.md`](docs/REPORT.md) is the technical report: the datasets and
+how their annotations were prepared, a diagram of the architecture, every
+pipeline stage explained beside a figure of the code it turns on, the
+training setup, how each number is measured, the defects that mattered, the
+experiments that were rejected, and the limitations.
+
 ## What it does
 
 ```

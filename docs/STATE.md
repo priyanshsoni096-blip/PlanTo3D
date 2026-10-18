@@ -4,6 +4,10 @@ A handoff note, so work can resume from a fresh session without the
 conversation that produced it. Read alongside the [README](../README.md),
 which covers what the project does and how to run it.
 
+**[`docs/REPORT.md`](REPORT.md) is the written-up version of the whole
+project** — architecture, datasets, code, measurements and limitations in one
+document, with figures. It is the thing to hand someone who asks what this is.
+
 **[`docs/AUDIT.md`](AUDIT.md) is the authority on every measurement.** This
 file's "Start here" section is current as of 2026-10-13; everything below the
 rule further down is history. `docs/PROJECT_GUIDE.md` is a verified snapshot
