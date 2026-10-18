@@ -34,7 +34,7 @@ python scripts/batch_evaluate.py <corpus> --checkpoint models/unet_cubicasa.pt -
 | Storey placement | Complete | Every feature builds on the storey it was drawn on |
 | Open-to-sky handling | Complete | Balconies, terraces, pools, courtyards — one rule |
 | Roof forms | Complete | Dome, pitched, glazed, tank, chimney, tower, canopy, ramp |
-| Feature vocabulary | Complete | 460 keywords, 15 categories, no duplicates |
+| Feature vocabulary | Complete | 467 keywords, 15 categories, no duplicates |
 | Materials and design choices | Complete | 5 user choices, 12 style×tone combinations |
 | Renderer | Complete | Tonal spread 76, saturation 35 — see the daylight section |
 | Notebooks | Complete | `train_on_colab`, `run_on_colab` |
@@ -2385,7 +2385,7 @@ anything. The code and its five tests were reverted. **Do not retry this.**
 ship.** OCR mangles labels, so matching them by edit distance instead of
 by substring looks obvious. Measured over 67 plans (the 60 in
 `data/bridge` plus the 7 demo sheets), 647 text boxes, scoring each box's
-normalised text against all 460 keywords with
+normalised text against all 467 keywords with
 `difflib.SequenceMatcher.ratio()` and counting only hits the current
 substring rule does not already make:
 
